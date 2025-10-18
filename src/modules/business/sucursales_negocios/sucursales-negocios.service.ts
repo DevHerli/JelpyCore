@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindConditions } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import { SucursalNegocio } from './entities/sucursal-negocio.entity';
 import { CreateSucursalNegocioDto } from './dto/create-sucursal-negocio.dto';
 import { UpdateSucursalNegocioDto } from './dto/update-sucursal-negocio.dto';
@@ -27,7 +27,7 @@ export class SucursalesNegociosService {
     ciudadId?: number;
     estadoId?: number;
   }): Promise<SucursalNegocio[]> {
-    const where: FindConditions<SucursalNegocio> = { eliminado: false } as any;
+    const where: FindOptionsWhere<SucursalNegocio> = { eliminado: false } as any;
 
     if (params?.negocioId) (where as any).negocio = { id: params.negocioId } as any;
     if (params?.ciudadId) (where as any).ciudad = { id: params.ciudadId } as any;
