@@ -10,10 +10,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
-  app.enableCors({
-    origin: true,
-    credentials: true,
-  });
+app.enableCors({
+  origin: '*', // o URL del frontend
+});
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -34,10 +33,12 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('/docs', app, document);
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port, '0.0.0.0'); 
+  await app.listen(process.env.PORT ?? 3000);
 
-  Logger.log(`🚀 Server running on http://0.0.0.0:${port}`, 'Bootstrap');
+  // const port = process.env.PORT || 3000;
+  // await app.listen(port, '0.0.0.0'); 
+
+  // Logger.log(`🚀 Server running on http://0.0.0.0:${port}`, 'Bootstrap');
 }
 
 bootstrap();
