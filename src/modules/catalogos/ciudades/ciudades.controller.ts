@@ -1,12 +1,27 @@
-import { Body, Controller, Get, Param, Post, Put, Delete, ParseIntPipe } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Delete,
+  ParseIntPipe,
+  Query,
+} from '@nestjs/common';
 import { CiudadesService } from './ciudades.service';
+import { CreateCiudadDto } from './dtos/create-ciudad.dto';
+import { UpdateCiudadDto } from './dtos/update-ciudad.dto';
 
 @Controller('ciudades')
 export class CiudadesController {
   constructor(private readonly ciudadesService: CiudadesService) {}
 
   @Get()
-  listar() {
+  listar(@Query('nombre') nombre?: string) {
+    if (nombre) {
+      return this.ciudadesService.buscarPorNombre(nombre);
+    }
     return this.ciudadesService.listar();
   }
 
@@ -16,12 +31,15 @@ export class CiudadesController {
   }
 
   @Post()
-  crear(@Body() body: any) {
+  crear(@Body() body: CreateCiudadDto) {
     return this.ciudadesService.crear(body);
   }
 
   @Put(':id')
-  actualizar(@Param('id', ParseIntPipe) id: number, @Body() body: any) {
+  actualizar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateCiudadDto,
+  ) {
     return this.ciudadesService.actualizar(id, body);
   }
 
