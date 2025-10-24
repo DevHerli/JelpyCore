@@ -1,32 +1,36 @@
-import { Body, Controller, Get, Param, Post, Put, Delete, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe } from '@nestjs/common';
 import { CategoriasService } from './categorias.service';
+import { CreateCategoriaDto } from './dtos/create-categoria.dto';
+import { UpdateCategoriaDto } from './dtos/update-categoria.dto';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Categoria } from './entities/categorias.entity';
 
+@ApiTags('Categorias')
 @Controller('categorias')
 export class CategoriasController {
   constructor(private readonly categoriasService: CategoriasService) {}
 
-  @Get()
-  listar() {
-    return this.categoriasService.listar();
-  }
-
-  @Get(':id')
-  obtener(@Param('id', ParseIntPipe) id: number) {
-    return this.categoriasService.obtenerPorId(id);
-  }
-
   @Post()
-  crear(@Body() body: any) {
-    return this.categoriasService.crear(body);
+  @ApiOperation({ summary: 'Crear una nueva categoría' })
+  @ApiResponse({ status: 201, description: 'Creada', type: Categoria })
+  create(@Body() dto: CreateCategoriaDto) {
+    return this.categoriasService.create(dto);
   }
 
-  @Put(':id')
-  actualizar(@Param('id', ParseIntPipe) id: number, @Body() body: any) {
-    return this.categoriasService.actualizar(id, body);
+  @Get()
+  @ApiOperation({ summary: 'Listar categorías' })
+  @ApiResponse({ status: 200, description: 'OK', type: [Categoria] })
+  findAll() {
+    return this.categoriasService.findAll();
   }
 
-  @Delete(':id')
-  eliminar(@Param('id', ParseIntPipe) id: number) {
-    return this.categoriasService.eliminar(id);
+  @Patch(':id')
+  @ApiOperation({ summary: 'Actualizar parcialmente una categoría' })
+  @ApiResponse({ status: 200, description: 'Actualizada', type: Categoria })
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCategoriaDto,
+  ) {
+    return this.categoriasService.update(id, dto);
   }
 }
