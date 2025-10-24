@@ -26,6 +26,10 @@ export class Ciudad {
   @CreateDateColumn({ name: 'fecha_creacion', type: 'datetime' })
   fechaCreacion: Date;
 
-  @UpdateDateColumn({ name: 'fecha_actualizacion', type: 'datetime', nullable: true })
+  @UpdateDateColumn({
+    name: 'fecha_actualizacion',
+    type: 'datetime',
+    nullable: true,
+  })
   fechaActualizacion?: Date;
 }

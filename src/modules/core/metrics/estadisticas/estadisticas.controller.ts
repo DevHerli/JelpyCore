@@ -5,7 +5,7 @@ import { EstadisticasService } from './estadisticas.service';
 export class EstadisticasController {
   constructor(private readonly estadisticasService: EstadisticasService) {}
 
-  // 🔹 Registrar evento (vista, clic, búsqueda)
+  // Registrar evento (vista, clic, búsqueda)
   @Post(':entidad/:id/:tipo')
   registrarEvento(
     @Param('entidad') entidad: 'negocio' | 'sucursal',
@@ -15,13 +15,13 @@ export class EstadisticasController {
     return this.estadisticasService.registrarEvento(tipo, entidad, id);
   }
 
-  // 🔹 Resumen de negocios
+  // Resumen de negocios
   @Get('negocios')
   resumenNegocios() {
     return this.estadisticasService.resumenNegocios();
   }
 
-  // 🔹 Resumen de sucursales
+  // Resumen de sucursales
   @Get('sucursales')
   resumenSucursales() {
     return this.estadisticasService.resumenSucursales();
