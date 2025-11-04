@@ -12,13 +12,16 @@ export class CategoriasService {
     private readonly categoriasRepo: Repository<Categoria>,
   ) {}
 
-  create(dto: CreateCategoriaDto) {
+  async create(dto: CreateCategoriaDto) {
     const entity = this.categoriasRepo.create(dto);
     return this.categoriasRepo.save(entity);
   }
 
-  findAll() {
-    return this.categoriasRepo.find({ relations: ['subcategorias'] });
+  async findAll() {
+    return this.categoriasRepo.find({
+      where: { activo: true },
+      relations: ['subcategorias'],
+    });
   }
 
   async update(id: number, dto: UpdateCategoriaDto) {
@@ -26,6 +29,14 @@ export class CategoriasService {
     if (!categoria) throw new NotFoundException('Categoría no encontrada');
 
     Object.assign(categoria, dto);
+    return this.categoriasRepo.save(categoria);
+  }
+
+  async softDelete(id: number) {
+    const categoria = await this.categoriasRepo.findOne({ where: { id } });
+    if (!categoria) throw new NotFoundException('Categoría no encontrada');
+
+    categoria.activo = false;
     return this.categoriasRepo.save(categoria);
   }
 }

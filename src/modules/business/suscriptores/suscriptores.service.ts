@@ -37,11 +37,30 @@ async crear(dto: CreateSuscriptorDto): Promise<Suscriptor> {
   return this.suscriptorRepo.save(nuevo);
 }
 
-  async actualizar(id: number, dto: UpdateSuscriptorDto): Promise<Suscriptor> {
-    const suscriptor = await this.obtenerPorId(id);
-    Object.assign(suscriptor, dto);
-    return this.suscriptorRepo.save(suscriptor);
+async actualizar(id: number, dto: UpdateSuscriptorDto): Promise<Suscriptor> {
+  const suscriptor = await this.obtenerPorId(id);
+
+  // Campos simples
+  suscriptor.nombre = dto.nombre;
+  suscriptor.apellidoPaterno = dto.apellidoPaterno;
+  suscriptor.apellidoMaterno = dto.apellidoMaterno;
+  suscriptor.sexo = dto.sexo;
+  suscriptor.fechaNacimiento = new Date(dto.fechaNacimiento); // ✅ conversión aquí
+  suscriptor.telefonoCelular = dto.telefonoCelular;
+  suscriptor.correoElectronico = dto.correoElectronico;
+
+  // Relaciones
+  if (dto.ciudadId) {
+    suscriptor.ciudad = { id: dto.ciudadId } as any;
   }
+
+  if (dto.estadoId) {
+    suscriptor.estado = { id: dto.estadoId } as any;
+  }
+
+  return this.suscriptorRepo.save(suscriptor);
+}
+
 
   async eliminar(id: number): Promise<void> {
     const suscriptor = await this.obtenerPorId(id);

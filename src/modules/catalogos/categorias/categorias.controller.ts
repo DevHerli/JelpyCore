@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  ParseIntPipe,
+} from '@nestjs/common';
 import { CategoriasService } from './categorias.service';
 import { CreateCategoriaDto } from './dtos/create-categoria.dto';
 import { UpdateCategoriaDto } from './dtos/update-categoria.dto';
@@ -11,26 +19,30 @@ export class CategoriasController {
   constructor(private readonly categoriasService: CategoriasService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Crear una nueva categoría' })
-  @ApiResponse({ status: 201, description: 'Creada', type: Categoria })
+  @ApiOperation({ summary: 'Crear nueva categoría' })
+  @ApiResponse({ status: 201, type: Categoria })
   create(@Body() dto: CreateCategoriaDto) {
     return this.categoriasService.create(dto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar categorías' })
-  @ApiResponse({ status: 200, description: 'OK', type: [Categoria] })
+  @ApiOperation({ summary: 'Obtener todas las categorías activas' })
+  @ApiResponse({ status: 200, type: [Categoria] })
   findAll() {
     return this.categoriasService.findAll();
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar parcialmente una categoría' })
-  @ApiResponse({ status: 200, description: 'Actualizada', type: Categoria })
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateCategoriaDto,
-  ) {
+  @ApiOperation({ summary: 'Actualizar una categoría por ID' })
+  @ApiResponse({ status: 200, type: Categoria })
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCategoriaDto) {
     return this.categoriasService.update(id, dto);
+  }
+
+  @Patch(':id/desactivar')
+  @ApiOperation({ summary: 'Desactivar (borrado lógico) una categoría' })
+  @ApiResponse({ status: 200, description: 'Categoría desactivada correctamente' })
+  softDelete(@Param('id', ParseIntPipe) id: number) {
+    return this.categoriasService.softDelete(id);
   }
 }
