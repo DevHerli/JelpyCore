@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsInt, Min, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsNotEmpty, IsOptional, IsString, IsNumber, IsInt, Min, MaxLength, IsBoolean } from 'class-validator';
 
 export class CreateMembresiaDto {
   @IsNotEmpty()
@@ -21,4 +22,10 @@ export class CreateMembresiaDto {
   @IsOptional()
   @IsString()
   beneficios?: string;
+
+  @IsOptional()
+@IsBoolean()
+@Type(() => Boolean)
+activo?: boolean;
+
 }

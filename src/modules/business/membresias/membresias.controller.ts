@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, ParseIntPipe, Put } from '@nestjs/common';
 import { MembresiasService } from './membresias.service';
 import { CreateMembresiaDto } from './dto/create-membresia.dto';
 import { UpdateMembresiaDto } from './dto/update-membresia.dto';
@@ -22,10 +22,19 @@ export class MembresiasController {
     return this.membresiasService.crear(dto);
   }
 
-  @Patch(':id')
-  actualizar(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateMembresiaDto) {
-    return this.membresiasService.actualizar(id, dto);
-  }
+  // @Patch(':id')
+  // actualizar(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateMembresiaDto) {
+  //   return this.membresiasService.actualizar(id, dto);
+  // }
+
+  @Put(':id')
+actualizar(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() dto: UpdateMembresiaDto
+) {
+  return this.membresiasService.actualizar(id, dto);
+}
+
 
   @Delete(':id')
   eliminar(@Param('id', ParseIntPipe) id: number) {

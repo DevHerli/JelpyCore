@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, IsBoolean } from 'class-validator';
 
 export class CreateEstadoDto {
   @IsNotEmpty()
@@ -12,6 +12,10 @@ export class CreateEstadoDto {
   descripcion?: string;
 
   @IsOptional()
-  @IsEnum(['general', 'suscriptor', 'negocio', 'promocion', 'membresia'])
+  @IsEnum(['general', 'suscriptor', 'negocio', 'promocion', 'membresia', 'tickets', 'soporte'])
   tipo?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  activo?: boolean; 
 }

@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not } from 'typeorm';
 import { Suscriptor } from './entities/suscriptores.entity';
 import { CreateSuscriptorDto } from './dto/create-suscriptor.dto';
 import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
@@ -27,40 +27,58 @@ export class SuscriptoresService {
     return suscriptor;
   }
 
-async crear(dto: CreateSuscriptorDto): Promise<Suscriptor> {
-  const nuevo = this.suscriptorRepo.create({
-    ...dto,
-    ciudad: { id: dto.ciudadId } as any, // relación con ciudades
-    estado: dto.estadoId ? ({ id: dto.estadoId } as any) : null, // relación con estados
-  });
+  async crear(dto: CreateSuscriptorDto): Promise<Suscriptor> {
+    // Validar duplicados
+    const existeCorreo = await this.suscriptorRepo.findOne({
+      where: { correoElectronico: dto.correoElectronico },
+    });
+    if (existeCorreo) {
+      throw new BadRequestException('El correo ya está registrado');
+    }
 
-  return this.suscriptorRepo.save(nuevo);
-}
+    const existeTelefono = await this.suscriptorRepo.findOne({
+      where: { telefonoCelular: dto.telefonoCelular },
+    });
+    if (existeTelefono) {
+      throw new BadRequestException('El teléfono ya está registrado');
+    }
 
-async actualizar(id: number, dto: UpdateSuscriptorDto): Promise<Suscriptor> {
-  const suscriptor = await this.obtenerPorId(id);
+    const nuevo = this.suscriptorRepo.create({
+      ...dto,
+      ciudad: { id: dto.ciudadId } as any,
+      estado: dto.estadoId ? ({ id: dto.estadoId } as any) : null,
+    });
 
-  // Campos simples
-  suscriptor.nombre = dto.nombre;
-  suscriptor.apellidoPaterno = dto.apellidoPaterno;
-  suscriptor.apellidoMaterno = dto.apellidoMaterno;
-  suscriptor.sexo = dto.sexo;
-  suscriptor.fechaNacimiento = new Date(dto.fechaNacimiento); // ✅ conversión aquí
-  suscriptor.telefonoCelular = dto.telefonoCelular;
-  suscriptor.correoElectronico = dto.correoElectronico;
-
-  // Relaciones
-  if (dto.ciudadId) {
-    suscriptor.ciudad = { id: dto.ciudadId } as any;
+    return this.suscriptorRepo.save(nuevo);
   }
 
-  if (dto.estadoId) {
-    suscriptor.estado = { id: dto.estadoId } as any;
+  async actualizar(id: number, dto: UpdateSuscriptorDto): Promise<Suscriptor> {
+    const suscriptor = await this.obtenerPorId(id);
+
+    // Validar correo duplicado (ignorando el actual)
+    if (dto.correoElectronico && dto.correoElectronico !== suscriptor.correoElectronico) {
+      const existente = await this.suscriptorRepo.findOne({
+        where: { correoElectronico: dto.correoElectronico, id: Not(id) },
+      });
+      if (existente) {
+        throw new BadRequestException('El correo ya está registrado por otro suscriptor');
+      }
+    }
+
+    // Validar teléfono duplicado (ignorando el actual)
+    if (dto.telefonoCelular && dto.telefonoCelular !== suscriptor.telefonoCelular) {
+      const existente = await this.suscriptorRepo.findOne({
+        where: { telefonoCelular: dto.telefonoCelular, id: Not(id) },
+      });
+      if (existente) {
+        throw new BadRequestException('El teléfono ya está registrado por otro suscriptor');
+      }
+    }
+
+    Object.assign(suscriptor, dto);
+
+    return this.suscriptorRepo.save(suscriptor);
   }
-
-  return this.suscriptorRepo.save(suscriptor);
-}
-
 
   async eliminar(id: number): Promise<void> {
     const suscriptor = await this.obtenerPorId(id);
