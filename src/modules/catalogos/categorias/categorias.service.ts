@@ -13,30 +13,40 @@ export class CategoriasService {
   ) {}
 
   async create(dto: CreateCategoriaDto) {
-    const entity = this.categoriasRepo.create(dto);
-    return this.categoriasRepo.save(entity);
+    const nuevaCategoria = this.categoriasRepo.create({
+      ...dto,
+      activo: dto.activo ?? true,
+    });
+    return this.categoriasRepo.save(nuevaCategoria);
   }
 
   async findAll() {
     return this.categoriasRepo.find({
       where: { activo: true },
       relations: ['subcategorias'],
+      order: { id: 'ASC' },
     });
   }
 
-  async update(id: number, dto: UpdateCategoriaDto) {
-    const categoria = await this.categoriasRepo.findOne({ where: { id } });
+  async findById(id: number) {
+    const categoria = await this.categoriasRepo.findOne({
+      where: { id },
+      relations: ['subcategorias'],
+    });
     if (!categoria) throw new NotFoundException('Categoría no encontrada');
+    return categoria;
+  }
 
+  async update(id: number, dto: UpdateCategoriaDto) {
+    const categoria = await this.findById(id);
     Object.assign(categoria, dto);
     return this.categoriasRepo.save(categoria);
   }
 
-  async softDelete(id: number) {
-    const categoria = await this.categoriasRepo.findOne({ where: { id } });
-    if (!categoria) throw new NotFoundException('Categoría no encontrada');
-
+  async softDelete(id: number, eliminadoPor?: number) {
+    const categoria = await this.findById(id);
     categoria.activo = false;
+    categoria.eliminadoPor = eliminadoPor ?? null;
     return this.categoriasRepo.save(categoria);
   }
 }

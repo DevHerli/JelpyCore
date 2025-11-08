@@ -36,10 +36,7 @@ export class SubcategoriasService {
       relations: ['categoria', 'especialidades'],
     });
 
-    if (!subcategoria) {
-      throw new NotFoundException('Subcategoría no encontrada');
-    }
-
+    if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada');
     return subcategoria;
   }
 
@@ -58,11 +55,7 @@ export class SubcategoriasService {
       where: { id, activo: true },
       relations: ['especialidades'],
     });
-
-    if (!subcategoria) {
-      throw new NotFoundException('Subcategoría no encontrada');
-    }
-
+    if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada');
     return subcategoria.especialidades;
   }
 
@@ -71,15 +64,13 @@ export class SubcategoriasService {
     const categoria = await this.categoriaRepo.findOne({
       where: { id: dto.categoria_id, activo: true },
     });
-
-    if (!categoria) {
-      throw new NotFoundException('Categoría no encontrada o inactiva');
-    }
+    if (!categoria) throw new NotFoundException('Categoría no encontrada o inactiva');
 
     const nueva = this.subcategoriaRepo.create({
       nombre: dto.nombre,
       descripcion: dto.descripcion,
       activo: dto.activo ?? true,
+      creadoPor: dto.creadoPor ?? null,
       categoria,
     });
 
@@ -92,37 +83,29 @@ export class SubcategoriasService {
       where: { id },
       relations: ['categoria'],
     });
-
-    if (!subcategoria) {
-      throw new NotFoundException('Subcategoría no encontrada');
-    }
+    if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada');
 
     if (dto.categoria_id) {
-      const categoria = await this.categoriaRepo.findOne({
-        where: { id: dto.categoria_id },
-      });
-      if (!categoria) {
-        throw new NotFoundException('Categoría no encontrada');
-      }
+      const categoria = await this.categoriaRepo.findOne({ where: { id: dto.categoria_id } });
+      if (!categoria) throw new NotFoundException('Categoría no encontrada');
       subcategoria.categoria = categoria;
     }
 
     subcategoria.nombre = dto.nombre ?? subcategoria.nombre;
     subcategoria.descripcion = dto.descripcion ?? subcategoria.descripcion;
     subcategoria.activo = dto.activo ?? subcategoria.activo;
+    subcategoria.actualizadoPor = dto.actualizadoPor ?? subcategoria.actualizadoPor;
 
     return await this.subcategoriaRepo.save(subcategoria);
   }
 
   // 🔹 Borrado lógico
-  async eliminar(id: number): Promise<{ message: string }> {
+  async eliminar(id: number, eliminadoPor?: number): Promise<{ message: string }> {
     const subcategoria = await this.subcategoriaRepo.findOne({ where: { id } });
-
-    if (!subcategoria) {
-      throw new NotFoundException('Subcategoría no encontrada');
-    }
+    if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada');
 
     subcategoria.activo = false;
+    subcategoria.eliminadoPor = eliminadoPor ?? null;
     await this.subcategoriaRepo.save(subcategoria);
 
     return { message: `Subcategoría con ID ${id} desactivada correctamente` };

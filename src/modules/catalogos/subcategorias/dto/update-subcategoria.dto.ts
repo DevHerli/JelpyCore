@@ -1,21 +1,11 @@
-import { IsNumber, IsOptional, IsString, MaxLength, IsBoolean } from 'class-validator';
+import { PartialType } from '@nestjs/swagger';
+import { CreateSubcategoriaDto } from './create-subcategoria.dto';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsNumber } from 'class-validator';
 
-export class UpdateSubcategoriaDto {
+export class UpdateSubcategoriaDto extends PartialType(CreateSubcategoriaDto) {
+  @ApiPropertyOptional({ example: 2, description: 'ID del usuario que actualiza la subcategoría' })
+  @IsOptional()
   @IsNumber()
-  @IsOptional()
-  categoria_id?: number;
-
-  @IsString()
-  @IsOptional()
-  @MaxLength(100)
-  nombre?: string;
-
-  @IsString()
-  @IsOptional()
-  @MaxLength(255)
-  descripcion?: string;
-
-  @IsBoolean()
-  @IsOptional()
-  activo?: boolean;
+  actualizadoPor?: number;
 }

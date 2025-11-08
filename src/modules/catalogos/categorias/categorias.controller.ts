@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   ParseIntPipe,
+  Query,
 } from '@nestjs/common';
 import { CategoriasService } from './categorias.service';
 import { CreateCategoriaDto } from './dtos/create-categoria.dto';
@@ -32,6 +33,13 @@ export class CategoriasController {
     return this.categoriasService.findAll();
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Obtener una categoría por ID' })
+  @ApiResponse({ status: 200, type: Categoria })
+  findById(@Param('id', ParseIntPipe) id: number) {
+    return this.categoriasService.findById(id);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Actualizar una categoría por ID' })
   @ApiResponse({ status: 200, type: Categoria })
@@ -42,7 +50,10 @@ export class CategoriasController {
   @Patch(':id/desactivar')
   @ApiOperation({ summary: 'Desactivar (borrado lógico) una categoría' })
   @ApiResponse({ status: 200, description: 'Categoría desactivada correctamente' })
-  softDelete(@Param('id', ParseIntPipe) id: number) {
-    return this.categoriasService.softDelete(id);
+  softDelete(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('eliminadoPor') eliminadoPor?: number,
+  ) {
+    return this.categoriasService.softDelete(id, eliminadoPor);
   }
 }

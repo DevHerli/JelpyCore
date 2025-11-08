@@ -16,7 +16,7 @@ export class EspecialidadesService {
     private readonly subcategoriaRepo: Repository<Subcategoria>,
   ) {}
 
-  // ✅ Listar todas las especialidades activas
+  // 🔹 Listar todas las especialidades activas
   async listar(): Promise<Especialidad[]> {
     return this.especialidadRepo.find({
       where: { activo: true },
@@ -25,79 +25,74 @@ export class EspecialidadesService {
     });
   }
 
-  // ✅ Obtener una especialidad por ID
+  // 🔹 Obtener una especialidad específica
   async obtenerPorId(id: number): Promise<Especialidad> {
     const especialidad = await this.especialidadRepo.findOne({
       where: { id, activo: true },
       relations: ['subcategoria'],
     });
 
-    if (!especialidad) {
-      throw new NotFoundException('Especialidad no encontrada');
-    }
-
+    if (!especialidad) throw new NotFoundException('Especialidad no encontrada');
     return especialidad;
   }
 
-  // ✅ Crear una nueva especialidad
+  // 🔹 Listar especialidades por subcategoría
+  async listarPorSubcategoria(subcategoriaId: number): Promise<Especialidad[]> {
+    return this.especialidadRepo.find({
+      where: { subcategoria: { id: subcategoriaId }, activo: true },
+      relations: ['subcategoria'],
+      order: { nombre: 'ASC' },
+    });
+  }
+
+  // 🔹 Crear nueva especialidad
   async crear(dto: CreateEspecialidadDto): Promise<Especialidad> {
     const subcategoria = await this.subcategoriaRepo.findOne({
       where: { id: dto.subcategoria_id, activo: true },
     });
 
-    if (!subcategoria) {
-      throw new NotFoundException('Subcategoría no encontrada o inactiva');
-    }
+    if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada o inactiva');
 
     const nueva = this.especialidadRepo.create({
       nombre: dto.nombre,
       descripcion: dto.descripcion,
       activo: dto.activo ?? true,
+      creadoPor: dto.creadoPor ?? null,
       subcategoria,
     });
 
     return await this.especialidadRepo.save(nueva);
   }
 
-  // ✅ Actualizar una especialidad existente
+  // 🔹 Actualizar especialidad existente
   async actualizar(id: number, dto: UpdateEspecialidadDto): Promise<Especialidad> {
-    const especialidad = await this.especialidadRepo.findOne({
-      where: { id },
-      relations: ['subcategoria'],
-    });
+    const especialidad = await this.especialidadRepo.findOne({ where: { id }, relations: ['subcategoria'] });
 
-    if (!especialidad) {
-      throw new NotFoundException('Especialidad no encontrada');
-    }
+    if (!especialidad) throw new NotFoundException('Especialidad no encontrada');
 
     if (dto.subcategoria_id) {
-      const subcategoria = await this.subcategoriaRepo.findOne({
-        where: { id: dto.subcategoria_id },
-      });
-      if (!subcategoria) {
-        throw new NotFoundException('Subcategoría no encontrada');
-      }
+      const subcategoria = await this.subcategoriaRepo.findOne({ where: { id: dto.subcategoria_id } });
+      if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada');
       especialidad.subcategoria = subcategoria;
     }
 
     especialidad.nombre = dto.nombre ?? especialidad.nombre;
     especialidad.descripcion = dto.descripcion ?? especialidad.descripcion;
     especialidad.activo = dto.activo ?? especialidad.activo;
+    especialidad.actualizadoPor = dto.actualizadoPor ?? especialidad.actualizadoPor;
 
     return await this.especialidadRepo.save(especialidad);
   }
 
-  // ✅ Eliminado lógico
-  async eliminar(id: number): Promise<{ message: string }> {
+  // 🔹 Borrado lógico
+  async eliminar(id: number, eliminadoPor?: number): Promise<{ message: string }> {
     const especialidad = await this.especialidadRepo.findOne({ where: { id } });
-
-    if (!especialidad) {
-      throw new NotFoundException('Especialidad no encontrada');
-    }
+    if (!especialidad) throw new NotFoundException('Especialidad no encontrada');
 
     especialidad.activo = false;
-    await this.especialidadRepo.save(especialidad);
+    especialidad.eliminadoPor = eliminadoPor ?? null;
 
+    await this.especialidadRepo.save(especialidad);
     return { message: `Especialidad con ID ${id} desactivada correctamente` };
   }
 }
