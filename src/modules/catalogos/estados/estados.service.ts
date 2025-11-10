@@ -9,36 +9,38 @@ import { UpdateEstadoDto } from './dto/update-estado.dto';
 export class EstadosService {
   constructor(
     @InjectRepository(Estado)
-    private readonly estadoRepo: Repository<Estado>,
+    private readonly estadosRepo: Repository<Estado>,
   ) {}
 
-  async listar(): Promise<Estado[]> {
-    return this.estadoRepo.find({
-      where: { activo: true },
-      order: { nombre: 'ASC' },
-    });
+  async create(dto: CreateEstadoDto): Promise<Estado> {
+    const estado = this.estadosRepo.create(dto);
+    return await this.estadosRepo.save(estado);
   }
 
-  async obtenerPorId(id: number): Promise<Estado> {
-    const estado = await this.estadoRepo.findOne({ where: { id } });
+  async findAll(): Promise<Estado[]> {
+    return await this.estadosRepo.find({ where: { activo: true } });
+  }
+
+  async findOne(id: number): Promise<Estado> {
+    const estado = await this.estadosRepo.findOne({ where: { id } });
     if (!estado) throw new NotFoundException('Estado no encontrado');
     return estado;
   }
 
-  async crear(dto: CreateEstadoDto): Promise<Estado> {
-    const nuevo = this.estadoRepo.create(dto);
-    return this.estadoRepo.save(nuevo);
-  }
+  async update(id: number, dto: UpdateEstadoDto): Promise<Estado> {
+    const estado = await this.estadosRepo.findOne({ where: { id } });
+    if (!estado) throw new NotFoundException('Estado no encontrado');
 
-  async actualizar(id: number, dto: UpdateEstadoDto): Promise<Estado> {
-    const estado = await this.obtenerPorId(id);
     Object.assign(estado, dto);
-    return this.estadoRepo.save(estado);
+    return await this.estadosRepo.save(estado);
   }
 
-  async eliminar(id: number): Promise<void> {
-    const estado = await this.obtenerPorId(id);
+  async softDelete(id: number, eliminadoPor?: number) {
+    const estado = await this.estadosRepo.findOne({ where: { id } });
+    if (!estado) throw new NotFoundException('Estado no encontrado');
+
     estado.activo = false;
-    await this.estadoRepo.save(estado);
+    estado.eliminadoPor = eliminadoPor ?? null;
+    return await this.estadosRepo.save(estado);
   }
 }

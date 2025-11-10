@@ -8,7 +8,7 @@ import { VistaNegociosCompleta } from '../vista-completa/entities/vista-negocios
 import { normalizeBasic } from '../../../common/utils/text.util';
 import { containsProfanity } from '../../../common/utils/profanity.util';
 
-type MatchHint = { tipo: 'categoria'|'subcategoria'|'especialidad', referencia_id: string, relevancia: number };
+type MatchHint = { tipo: 'categoria'|'subcategoria'|'especialidad', referencia_id: number, relevancia: number };
 
 @Injectable()
 export class SearchService {
@@ -55,7 +55,7 @@ export class SearchService {
 
     // Elegimos el mejor hint (si existe)
     const best: MatchHint | undefined = hints.length
-      ? { tipo: hints[0].tipo, referencia_id: hints[0].referencia_id, relevancia: hints[0].relevancia }
+      ? { tipo: hints[0].tipo, referencia_id: hints[0].referenciaId, relevancia: hints[0].relevancia }
       : undefined;
 
     // 2) Armamos query a la vista

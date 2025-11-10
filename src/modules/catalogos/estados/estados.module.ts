@@ -8,6 +8,6 @@ import { EstadosController } from './estados.controller';
   imports: [TypeOrmModule.forFeature([Estado])],
   controllers: [EstadosController],
   providers: [EstadosService],
-  exports: [EstadosService],
+  exports: [EstadosService, TypeOrmModule],
 })
 export class EstadosModule {}

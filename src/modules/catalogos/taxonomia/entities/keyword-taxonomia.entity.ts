@@ -1,28 +1,35 @@
-import { Column, Entity, PrimaryGeneratedColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  Index,
+} from 'typeorm';
 
-@Entity({ name: 'keywords_taxonomia' })
+@Entity('keywords_taxonomia')
 export class KeywordTaxonomia {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
-  id: string;
+  id: number;
 
-  @Column({ type: 'enum', enum: ['categoria','subcategoria','especialidad'] })
+  @Column({
+    type: 'enum',
+    enum: ['categoria', 'subcategoria', 'especialidad'],
+  })
   tipo: 'categoria' | 'subcategoria' | 'especialidad';
 
-  @Column({ type: 'bigint', unsigned: true })
-  @Index()
-  referencia_id: string;
+  @Column({ name: 'referencia_id', type: 'bigint', unsigned: true })
+  referenciaId: number;
 
-  @Column({ type: 'varchar', length: 100 })
-  @Index()
+  @Index('idx_keyword')
+  @Column({ length: 100 })
   keyword: string;
 
   @Column({ type: 'tinyint', unsigned: true, default: 1 })
   relevancia: number;
 
-  @Column({ type: 'varchar', length: 10, default: 'es' })
-  @Index()
+  @Column({ length: 10, default: 'es' })
   idioma: string;
 
-  @Column({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
-  fecha_registro: Date;
+  @CreateDateColumn({ name: 'fecha_registro', type: 'datetime' })
+  fechaRegistro: Date;
 }

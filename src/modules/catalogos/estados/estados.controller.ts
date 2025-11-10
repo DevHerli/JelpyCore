@@ -1,34 +1,58 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  ParseIntPipe,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { EstadosService } from './estados.service';
 import { CreateEstadoDto } from './dto/create-estado.dto';
 import { UpdateEstadoDto } from './dto/update-estado.dto';
+import { Estado } from './entities/estado.entity';
 
+@ApiTags('Estados')
 @Controller('estados')
 export class EstadosController {
   constructor(private readonly estadosService: EstadosService) {}
 
+  @Post()
+  @ApiOperation({ summary: 'Crear nuevo estado' })
+  @ApiResponse({ status: 201, type: Estado })
+  create(@Body() dto: CreateEstadoDto) {
+    return this.estadosService.create(dto);
+  }
+
   @Get()
-  listar() {
-    return this.estadosService.listar();
+  @ApiOperation({ summary: 'Listar todos los estados activos' })
+  @ApiResponse({ status: 200, type: [Estado] })
+  findAll() {
+    return this.estadosService.findAll();
   }
 
   @Get(':id')
-  obtener(@Param('id', ParseIntPipe) id: number) {
-    return this.estadosService.obtenerPorId(id);
+  @ApiOperation({ summary: 'Obtener un estado por ID' })
+  @ApiResponse({ status: 200, type: Estado })
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.estadosService.findOne(id);
   }
 
-  @Post()
-  crear(@Body() dto: CreateEstadoDto) {
-    return this.estadosService.crear(dto);
+  @Patch(':id')
+  @ApiOperation({ summary: 'Actualizar un estado por ID' })
+  @ApiResponse({ status: 200, type: Estado })
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEstadoDto) {
+    return this.estadosService.update(id, dto);
   }
 
-  @Put(':id')
-  actualizar(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEstadoDto) {
-    return this.estadosService.actualizar(id, dto);
-  }
-
-  @Delete(':id')
-  eliminar(@Param('id', ParseIntPipe) id: number) {
-    return this.estadosService.eliminar(id);
+  @Patch(':id/desactivar')
+  @ApiOperation({ summary: 'Desactivar (borrado lógico) un estado' })
+  @ApiResponse({
+    status: 200,
+    description: 'Estado desactivado correctamente',
+  })
+  softDelete(@Param('id', ParseIntPipe) id: number, @Body() body: any) {
+    return this.estadosService.softDelete(id, body.eliminadoPor);
   }
 }
