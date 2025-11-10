@@ -40,6 +40,9 @@ export class Suscriptor {
   @JoinColumn({ name: 'estado_id' })
   estado?: Estado;
 
+  @Column({ name: 'acepto_terminos', type: 'tinyint', width: 1, default: 0 })
+  aceptoTerminos: boolean;
+
   @Column({ name: 'ultimo_login', type: 'datetime', nullable: true })
   ultimoLogin?: Date;
 
