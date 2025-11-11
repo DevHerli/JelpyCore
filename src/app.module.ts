@@ -31,6 +31,9 @@ import { VentasMembresiasModule } from './modules/sales/ventas_membresias/ventas
 import { FiltrosBusquedaModule } from './modules/core/filtros_busqueda/filtros_busqueda.module';
 import { JelpyAssistantModule } from './modules/core/ai/jelpy-assistant/jelpy-assistant.module';
 import { AiModule } from './modules/core/ai/ai.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { Suscriptor } from './modules/business/suscriptores/entities/suscriptores.entity';
+import { CodigoOtp } from './modules/auth/entities/codigo-otp.entity';
 
 @Module({
   imports: [
@@ -55,9 +58,11 @@ import { AiModule } from './modules/core/ai/ai.module';
     FiltrosBusquedaModule,
     JelpyAssistantModule,
     AiModule,
+    AuthModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),
+    TypeOrmModule.forFeature([Suscriptor, CodigoOtp]),
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60, limit: 120 }]),
 

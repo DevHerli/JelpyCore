@@ -10,8 +10,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
+// app.enableCors({
+//   origin: '*', 
+// });
 app.enableCors({
-  origin: '*', // o URL del frontend
+  origin: '*', // o el dominio de tu app Ionic
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
 });
 
   app.useGlobalPipes(

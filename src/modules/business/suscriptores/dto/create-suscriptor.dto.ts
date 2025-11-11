@@ -7,6 +7,7 @@ import {
   MinLength,
   Length,
   IsNumber,
+  IsBoolean,
 } from 'class-validator';
 
 export class CreateSuscriptorDto {
@@ -22,29 +23,36 @@ export class CreateSuscriptorDto {
   @IsString()
   apellidoMaterno?: string;
 
-  @IsEnum(['M', 'F', 'Otro'])
-  sexo: string;
+  @IsEnum(['M', 'F', 'Otro', 'No especifica'])
+  @IsOptional()
+  sexo?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  fechaNacimiento: string;
+  fechaNacimiento?: string;
 
   @IsNumber()
   @IsNotEmpty()
-  ciudadId?: number;
+  ciudadId: number;
 
   @IsString()
   @Length(10, 20)
   telefonoCelular: string;
 
+  @IsOptional()
   @IsEmail()
-  correoElectronico: string;
+  correoElectronico?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(6)
-  contrasena: string;
+  contrasena?: string;
 
   @IsNumber()
   @IsOptional()
   estadoId?: number;
+
+  @IsBoolean()
+  @IsNotEmpty()
+  aceptoTerminos: boolean;
 }
