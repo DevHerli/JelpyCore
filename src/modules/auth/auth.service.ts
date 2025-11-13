@@ -277,14 +277,16 @@ async sendOtp(dto: SendOtpDto) {
     }
 
     // --- Crear payload JWT ---
-    const payload = {
-      sub: suscriptor.id,
-      phone: suscriptor.telefonoCelular,
-      name: suscriptor.nombre,
-      lastname: suscriptor.apellidoPaterno,
-      isCompleted: suscriptor.registroCompleto,
-      hasBusiness: suscriptor.tieneNegocios,
-    };
+// --- Crear payload JWT ---
+const payload = {
+  sub: suscriptor.id,
+  phone: suscriptor.telefonoCelular,
+  nombre: suscriptor.nombre,
+  apellidoPaterno: suscriptor.apellidoPaterno,
+  isCompleted: suscriptor.registroCompleto,
+  hasBusiness: suscriptor.tieneNegocios,
+};
+
 
     // Access Token (válido 15 min)
     const accessToken = this.jwtService.sign(payload, {
@@ -331,10 +333,12 @@ async sendOtp(dto: SendOtpDto) {
           const payload = {
             sub: suscriptor.id,
             phone: suscriptor.telefonoCelular,
-            name: suscriptor.nombre,
+            nombre: suscriptor.nombre,
+            apellidoPaterno: suscriptor.apellidoPaterno,
             isCompleted: suscriptor.registroCompleto,
             hasBusiness: suscriptor.tieneNegocios,
           };
+          
     
           const newAccessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
     
