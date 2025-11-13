@@ -3,37 +3,63 @@ import { AppModule } from './app.module';
 import helmet from 'helmet';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import * as express from 'express';
+import { join } from 'path';
+import * as fs from 'fs';
+import * as dotenv from 'dotenv';
 
+
+// 🔹 Cargar variables de entorno (.env) antes de todo
+dotenv.config();
+
+
+// Marca cuándo se inició el servidor
 export const serverStartedAt = new Date();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Seguridad HTTP
   app.use(helmet());
-// app.enableCors({
-//   origin: '*', 
-// });
-app.enableCors({
-  origin: '*', // o el dominio de tu app Ionic
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-});
 
+  // CORS (puedes restringirlo más adelante)
+  app.enableCors({
+    origin: '*',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  });
+
+  // Validaciones globales
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
       whitelist: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 
-  // Configuración de Swagger (sin auth)
+  // ✅ Verificar existencia de carpetas locales (solo útil si usas almacenamiento local)
+  const uploadPath = join(__dirname, '..', 'uploads', 'negocios', 'logos');
+  if (!fs.existsSync(uploadPath)) {
+    fs.mkdirSync(uploadPath, { recursive: true });
+    Logger.log(`📂 Carpeta creada automáticamente: ${uploadPath}`, 'Bootstrap');
+  }
+
+  // Servir archivos estáticos (si usas almacenamiento local)
+  app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
+
+  // ✅ Verificación de variables Cloudinary
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    Logger.warn('⚠️ Cloudinary no está configurado correctamente. Revisa tus variables .env', 'Bootstrap');
+  } else {
+    Logger.log(`☁️ Cloudinary conectado como ${process.env.CLOUDINARY_CLOUD_NAME}`, 'Bootstrap');
+  }
+
+  // Swagger sin Auth (temporal)
   const config = new DocumentBuilder()
     .setTitle('Jelpy Core API')
     .setDescription('Corazón de Jelpy: búsqueda semántica + datos')
     .setVersion('0.1.0')
-    // .addBearerAuth()  <-- Desactivado temporalmente para pruebas
+    // .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
@@ -41,13 +67,12 @@ app.enableCors({
     swaggerOptions: { persistAuthorization: true },
   });
 
+  // 🚀 Levantar servidor
+  const port = process.env.PORT || 3000;
+  await app.listen(port, '0.0.0.0');
 
-  await app.listen(process.env.PORT ?? 3000);
-
-  // const port = process.env.PORT || 3000;
-  // await app.listen(port, '0.0.0.0'); 
-
-  // Logger.log(`🚀 Server running on http://0.0.0.0:${port}`, 'Bootstrap');
+  Logger.log(`🚀 Servidor corriendo en http://localhost:${port}`, 'Bootstrap');
+  Logger.log(`📘 Documentación Swagger: http://localhost:${port}/docs`, 'Swagger');
 }
 
 bootstrap();

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateNegocioDto {
   @IsNotEmpty()
@@ -15,11 +15,11 @@ export class CreateNegocioDto {
 
   @IsOptional()
   @IsString()
-  logoUrl?: string;
+  logoUrl?: string; // ✅ importante para cuando venga por URL
 
   @IsNotEmpty()
   @IsNumber()
-  ciudadId?: number;
+  ciudadId: number;
 
   @IsNotEmpty()
   @IsNumber()
@@ -33,12 +33,11 @@ export class CreateNegocioDto {
   @IsNumber()
   especialidadId?: number;
 
+  @IsNotEmpty()
+  @IsNumber()
+  membresiaId: number;
+
   @IsOptional()
   @IsNumber()
-  membresiaId?: number;
-
-@IsOptional()
-@IsNumber()
-estadoId?: number;
-
+  estadoId?: number;
 }

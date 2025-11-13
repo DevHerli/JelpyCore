@@ -271,7 +271,7 @@ async sendOtp(dto: SendOtpDto) {
         registroCompleto: false,
         tieneNegocios: false,
         eliminado: false,
-        ciudad: { id: 1 } as any, // 👈 puedes ajustar ciudad por defecto
+        ciudad: { id: 1 } as any, // puedes ajustar ciudad por defecto
       });
       suscriptor = await this.suscriptorRepo.save(suscriptor);
     }
@@ -281,6 +281,7 @@ async sendOtp(dto: SendOtpDto) {
       sub: suscriptor.id,
       phone: suscriptor.telefonoCelular,
       name: suscriptor.nombre,
+      lastname: suscriptor.apellidoPaterno,
       isCompleted: suscriptor.registroCompleto,
       hasBusiness: suscriptor.tieneNegocios,
     };
