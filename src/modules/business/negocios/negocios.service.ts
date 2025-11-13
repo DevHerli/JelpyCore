@@ -12,12 +12,16 @@ import {
   ESTADOS_NEGOCIO,
   LIMITE_NEGOCIOS_POR_MEMBRESIA,
 } from '../../../common/constants/negocios.constants';
+import { Suscriptor } from '../suscriptores/entities/suscriptores.entity'; 
 
 @Injectable()
 export class NegociosService {
   constructor(
     @InjectRepository(Negocio)
     private readonly negocioRepo: Repository<Negocio>,
+
+    @InjectRepository(Suscriptor) //
+    private readonly suscriptorRepo: Repository<Suscriptor>,
   ) {}
 
   // Listar todos los negocios (no eliminados)
@@ -131,6 +135,9 @@ export class NegociosService {
 
     const guardado = await this.negocioRepo.save(nuevo);
 
+    // Actualizar campo "tieneNegocios" del suscriptor
+    await this.suscriptorRepo.update(dto.suscriptorId, { tieneNegocios: true });
+
     // Recargar el negocio con todas sus relaciones completas
     const negocioCompleto = await this.negocioRepo.findOne({
       where: { id: guardado.id },
@@ -149,7 +156,6 @@ export class NegociosService {
     return negocioCompleto;
   }
 
-  // Simular proceso de pago (puedes luego reemplazar con Stripe o similar)
   private async simularPago(
     membresiaId: number,
     suscriptorId: number,
@@ -160,7 +166,6 @@ export class NegociosService {
     return Math.random() > 0.2; // 80% éxito
   }
 
-  // Obtener nombre de membresía (consulta rápida)
   private async obtenerNombreMembresia(membresiaId: number): Promise<string> {
     const result = await this.negocioRepo.query(
       `SELECT nombre FROM membresias WHERE id = ? LIMIT 1`,
@@ -169,21 +174,18 @@ export class NegociosService {
     return result?.[0]?.nombre || 'free';
   }
 
-  // Actualizar un negocio
   async actualizar(id: number, dto: UpdateNegocioDto): Promise<Negocio> {
     const negocio = await this.obtenerPorId(id);
     Object.assign(negocio, dto);
     return this.negocioRepo.save(negocio);
   }
 
-  // Eliminar (marcar como eliminado)
   async eliminar(id: number): Promise<void> {
     const negocio = await this.obtenerPorId(id);
     negocio.eliminado = true;
     await this.negocioRepo.save(negocio);
   }
 
-  // Obtener detalle completo (para dashboard o vista ampliada)
   async obtenerDetalle(id: number) {
     const negocio = await this.negocioRepo.findOne({
       where: { id, eliminado: false },
