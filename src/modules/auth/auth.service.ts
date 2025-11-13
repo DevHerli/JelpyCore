@@ -276,15 +276,14 @@ async sendOtp(dto: SendOtpDto) {
       suscriptor = await this.suscriptorRepo.save(suscriptor);
     }
 
-    // --- Crear payload JWT ---
 // --- Crear payload JWT ---
 const payload = {
   sub: suscriptor.id,
-  phone: suscriptor.telefonoCelular,
+  telefono: suscriptor.telefonoCelular,
   nombre: suscriptor.nombre,
   apellidoPaterno: suscriptor.apellidoPaterno,
-  isCompleted: suscriptor.registroCompleto,
-  hasBusiness: suscriptor.tieneNegocios,
+  registroCompleto: suscriptor.registroCompleto,
+  tieneNegocios: suscriptor.tieneNegocios,
 };
 
 
@@ -332,15 +331,16 @@ const payload = {
     
           const payload = {
             sub: suscriptor.id,
-            phone: suscriptor.telefonoCelular,
+            telefono: suscriptor.telefonoCelular,
             nombre: suscriptor.nombre,
             apellidoPaterno: suscriptor.apellidoPaterno,
-            isCompleted: suscriptor.registroCompleto,
-            hasBusiness: suscriptor.tieneNegocios,
+            registroCompleto: suscriptor.registroCompleto,
+            tieneNegocios: suscriptor.tieneNegocios,
           };
           
+          
     
-          const newAccessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
+          const newAccessToken = this.jwtService.sign(payload, { expiresIn: '7d' });
     
           return {
             success: true,
