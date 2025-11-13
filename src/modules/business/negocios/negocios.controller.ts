@@ -12,11 +12,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { v2 as cloudinary } from 'cloudinary';
+import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 import * as dotenv from 'dotenv';
 import { NegociosService } from './negocios.service';
 import { CreateNegocioDto } from './dto/create-negocio.dto';
 import { UpdateNegocioDto } from './dto/update-negocio.dto';
+import { Express } from 'express'; 
 
 // Cargar variables de entorno
 dotenv.config();
@@ -63,7 +64,7 @@ export class NegociosController {
   @Post()
   @UseInterceptors(FileInterceptor('logo'))
   async crear(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File, // ✅ Express tip importado
     @Body() dto: CreateNegocioDto,
   ) {
     let logoUrl: string | null = null;
@@ -72,18 +73,19 @@ export class NegociosController {
       console.log('Archivo recibido:', file.originalname);
 
       // Subir a Cloudinary usando buffer (sin guardar en disco)
-      const upload = await new Promise((resolve, reject) => {
+      const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           { folder: 'jelpy/negocios/logos' },
           (error, result) => {
             if (error) reject(error);
-            else resolve(result);
+            else resolve(result as UploadApiResponse);
           },
         );
         stream.end(file.buffer);
       });
+      
 
-      logoUrl = (upload as any).secure_url;
+      logoUrl = upload.secure_url;
       console.log('Imagen subida a Cloudinary:', logoUrl);
     } else {
       console.log('No se envió ningún archivo de logo.');
@@ -114,23 +116,23 @@ export class NegociosController {
 
     console.log('📸 Archivo recibido para actualizar:', file.originalname);
 
-    // Obtener el negocio actual
     const negocio = await this.negociosService.obtenerPorId(id);
     const logoActual = negocio.logoUrl;
 
     // Subir nuevo logo a Cloudinary
-    const upload = await new Promise((resolve, reject) => {
+    const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         { folder: 'jelpy/negocios/logos' },
         (error, result) => {
           if (error) reject(error);
-          else resolve(result);
+          else resolve(result as UploadApiResponse);
         },
       );
       stream.end(file.buffer);
     });
+    
 
-    const nuevoLogoUrl = (upload as any).secure_url;
+    const nuevoLogoUrl = upload.secure_url;
     console.log('Nuevo logo subido:', nuevoLogoUrl);
 
     // Eliminar logo anterior si existía
@@ -143,12 +145,11 @@ export class NegociosController {
           await cloudinary.uploader.destroy(publicId);
           console.log(`Logo anterior eliminado: ${publicId}`);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn('No se pudo eliminar el logo anterior:', err.message);
       }
     }
 
-    // Actualizar en base de datos
     negocio.logoUrl = nuevoLogoUrl;
     await this.negociosService.actualizar(id, negocio);
 
@@ -174,12 +175,11 @@ export class NegociosController {
           await cloudinary.uploader.destroy(publicId);
           console.log(`Logo eliminado de Cloudinary: ${publicId}`);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn('No se pudo eliminar el logo del negocio:', err.message);
       }
     }
 
-    // Eliminado lógico en DB
     await this.negociosService.eliminar(id);
 
     return {
