@@ -12,15 +12,31 @@ export class CategoriasService {
     private readonly categoriasRepo: Repository<Categoria>,
   ) {}
 
+  /**
+   * Crear una nueva categoría
+   */
   async create(dto: CreateCategoriaDto) {
     const nuevaCategoria = this.categoriasRepo.create({
       ...dto,
-      activo: dto.activo ?? true,
+      activo: dto.activo ?? true, // por defecto activa
     });
     return this.categoriasRepo.save(nuevaCategoria);
   }
 
+  /**
+   * Obtener todas las categorías (activas e inactivas)
+   */
   async findAll() {
+    return this.categoriasRepo.find({
+      relations: ['subcategorias'],
+      order: { id: 'ASC' },
+    });
+  }
+
+  /**
+   * Obtener solo las categorías activas
+   */
+  async findActivas() {
     return this.categoriasRepo.find({
       where: { activo: true },
       relations: ['subcategorias'],
@@ -28,6 +44,9 @@ export class CategoriasService {
     });
   }
 
+  /**
+   * Buscar una categoría por ID
+   */
   async findById(id: number) {
     const categoria = await this.categoriasRepo.findOne({
       where: { id },
@@ -37,12 +56,18 @@ export class CategoriasService {
     return categoria;
   }
 
+  /**
+   * Actualizar una categoría
+   */
   async update(id: number, dto: UpdateCategoriaDto) {
     const categoria = await this.findById(id);
     Object.assign(categoria, dto);
     return this.categoriasRepo.save(categoria);
   }
 
+  /**
+   * Eliminado lógico (soft delete)
+   */
   async softDelete(id: number, eliminadoPor?: number) {
     const categoria = await this.findById(id);
     categoria.activo = false;

@@ -19,7 +19,7 @@ export class Categoria {
   @Column({ type: 'varchar', length: 255, nullable: true })
   descripcion?: string;
 
-  @Column({ type: 'tinyint', default: 1 })
+  @Column({ type: 'boolean', default: true })
   activo: boolean;
 
   @CreateDateColumn({ name: 'fecha_creacion', type: 'datetime' })
