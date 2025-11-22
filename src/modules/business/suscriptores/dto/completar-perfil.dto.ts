@@ -11,11 +11,11 @@ import {
 export class CompletarPerfilDto {
   @IsEnum(['M', 'F', 'Otro', 'No especifica'])
   @IsOptional()
-  sexo?: string;
+  sexo: string;
 
   @IsDateString()
   @IsOptional()
-  fechaNacimiento?: string;
+  fechaNacimiento: string;
 
   //Ahora obligatorio en completar perfil
   @IsString()
