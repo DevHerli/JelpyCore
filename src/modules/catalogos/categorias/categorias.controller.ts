@@ -7,6 +7,7 @@ import {
   Param,
   ParseIntPipe,
   Query,
+  BadRequestException,
 } from '@nestjs/common';
 import { CategoriasService } from './categorias.service';
 import { CreateCategoriaDto } from './dtos/create-categoria.dto';
@@ -50,17 +51,40 @@ export class CategoriasController {
   @Patch(':id')
   @ApiOperation({ summary: 'Actualizar una categoría por ID' })
   @ApiResponse({ status: 200, type: Categoria })
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCategoriaDto) {
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCategoriaDto,
+  ) {
     return this.categoriasService.update(id, dto);
   }
 
   @Patch(':id/desactivar')
   @ApiOperation({ summary: 'Desactivar (borrado lógico) una categoría' })
-  @ApiResponse({ status: 200, description: 'Categoría desactivada correctamente' })
+  @ApiResponse({
+    status: 200,
+    description: 'Categoría desactivada correctamente',
+  })
   softDelete(
     @Param('id', ParseIntPipe) id: number,
-    @Query('eliminadoPor') eliminadoPor?: number,
+    @Query('eliminadoPor') eliminadoPorRaw: string,
   ) {
+    // Validar que venga
+    if (!eliminadoPorRaw) {
+      throw new BadRequestException(
+        'El parámetro eliminadoPor es obligatorio.',
+      );
+    }
+
+    // Convertir a número
+    const eliminadoPor = Number(eliminadoPorRaw);
+
+    // Validar NaN
+    if (isNaN(eliminadoPor) || eliminadoPor <= 0) {
+      throw new BadRequestException(
+        'El parámetro eliminadoPor debe ser un número válido mayor a 0.',
+      );
+    }
+
     return this.categoriasService.softDelete(id, eliminadoPor);
   }
 }
