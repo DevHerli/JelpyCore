@@ -13,6 +13,7 @@ import { CompletarPerfilDto } from './dto/completar-perfil.dto';
 
 import * as bcrypt from 'bcryptjs';
 import { Membresia } from '../membresias/entities/membresia.entity';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class SuscriptoresService {
@@ -23,6 +24,9 @@ export class SuscriptoresService {
     // Necesario para obtener datos de la membresía
     @InjectRepository(Membresia)
     private readonly membresiaRepo: Repository<Membresia>,
+
+    private readonly jwtService: JwtService
+
   ) {}
 
   async listar(): Promise<Suscriptor[]> {
@@ -151,58 +155,68 @@ export class SuscriptoresService {
 
   async completarPerfil(id: number, dto: CompletarPerfilDto): Promise<any> {
     const suscriptor = await this.obtenerPorId(id);
-
+  
+    // Teléfono (máx 2 cuentas)
     if (dto.telefonoCelular) {
       const count = await this.suscriptorRepo.count({
-        where: {
-          telefonoCelular: dto.telefonoCelular,
-          id: Not(id),
-        },
+        where: { telefonoCelular: dto.telefonoCelular, id: Not(id) },
       });
-
       if (count >= 2) {
         throw new BadRequestException(
           'Este número de teléfono ya está asociado al máximo permitido de 2 cuentas.',
         );
       }
-
       suscriptor.telefonoCelular = dto.telefonoCelular;
     }
-
+  
+    // Validar membresía
     if (!dto.membresiaId) {
       throw new BadRequestException('Debe seleccionar una membresía.');
     }
-
+  
+    // Asignar membresía
     suscriptor.membresia = { id: dto.membresiaId } as any;
-
+  
     suscriptor.sexo = dto.sexo;
     suscriptor.fechaNacimiento = new Date(dto.fechaNacimiento);
-
+  
     suscriptor.estado = { id: 1 } as any;
-
+  
     const membresia = await this.membresiaRepo.findOne({
       where: { id: dto.membresiaId },
     });
-
+  
     if (!membresia) {
       throw new BadRequestException('La membresía seleccionada no existe.');
     }
-
+  
     const precio = Number(membresia.precio);
-
+  
     suscriptor.tieneNegocios = precio === 0;
-
     suscriptor.registroCompleto = true;
-
+  
     const actualizado = await this.suscriptorRepo.save(suscriptor);
-
-    //SE AGREGA EL RETURN CORRECTO AQUÍ
+  
+    // 🔥 TOKEN NUEVO
+    const payload = {
+      sub: suscriptor.id,
+      nombre: suscriptor.nombre,
+      apellidoPaterno: suscriptor.apellidoPaterno,
+      correoElectronico: suscriptor.correoElectronico,
+      registroCompleto: suscriptor.registroCompleto,
+      tieneNegocios: suscriptor.tieneNegocios,
+    };
+  
+    const newToken = this.jwtService.sign(payload, { expiresIn: '15m' });
+  
     return {
       success: true,
       message: 'Perfil completado correctamente.',
+      access_token: newToken,
       data: await this.obtenerPorId(actualizado.id),
     };
   }
+  
 
   async eliminar(id: number): Promise<void> {
     const suscriptor = await this.obtenerPorId(id);
