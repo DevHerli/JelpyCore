@@ -33,7 +33,6 @@ export class CategoriasController {
     return this.categoriasService.findAll();
   }
 
-  // ✅ NUEVO ENDPOINT agregado (no se modificó nada anterior)
   @Get('activas')
   @ApiOperation({ summary: 'Obtener solo las categorías activas' })
   @ApiResponse({ status: 200, type: [Categoria] })

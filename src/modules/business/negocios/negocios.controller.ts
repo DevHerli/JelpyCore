@@ -64,7 +64,7 @@ export class NegociosController {
   @Post()
   @UseInterceptors(FileInterceptor('logo'))
   async crear(
-    @UploadedFile() file: Express.Multer.File, // ✅ Express tip importado
+    @UploadedFile() file: Express.Multer.File, //Express tip importado
     @Body() dto: CreateNegocioDto,
   ) {
     let logoUrl: string | null = null;

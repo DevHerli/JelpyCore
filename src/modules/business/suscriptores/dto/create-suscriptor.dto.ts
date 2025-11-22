@@ -35,21 +35,25 @@ export class CreateSuscriptorDto {
   @IsNotEmpty()
   ciudadId: number;
 
+  //Ahora es opcional (registro ya NO es por teléfono)
+  @IsOptional()
   @IsString()
   @Length(10, 20)
-  telefonoCelular: string;
+  telefonoCelular?: string;
 
-  @IsOptional()
+  //Registro ahora es OBLIGATORIAMENTE por correo
   @IsEmail()
-  correoElectronico?: string;
+  @IsNotEmpty()
+  correoElectronico: string;
 
-  @IsOptional()
+  //Contraseña requerida para crear la cuenta
   @IsString()
   @MinLength(6)
-  contrasena?: string;
+  @IsNotEmpty()
+  contrasena: string;
 
-  @IsNumber()
   @IsOptional()
+  @IsNumber()
   estadoId?: number;
 
   @IsBoolean()

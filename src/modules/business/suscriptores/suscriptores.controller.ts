@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { SuscriptoresService } from './suscriptores.service';
 import { CreateSuscriptorDto } from './dto/create-suscriptor.dto';
@@ -17,21 +18,34 @@ import { CompletarPerfilDto } from './dto/completar-perfil.dto';
 export class SuscriptoresController {
   constructor(private readonly suscriptoresService: SuscriptoresService) {}
 
+  /** ===============================
+   *   LISTAR
+   *  =============================== */
   @Get()
   listar() {
     return this.suscriptoresService.listar();
   }
 
+  /** ===============================
+   *   OBTENER POR ID
+   *  =============================== */
   @Get(':id')
   obtener(@Param('id', ParseIntPipe) id: number) {
     return this.suscriptoresService.obtenerPorId(id);
   }
 
+  /** ====================================================
+   *   CREAR SUSCRIPTOR (primer paso — registro inicial)
+   *   Ahora solo correo + nombre + ciudad
+   *  ==================================================== */
   @Post()
   crear(@Body() dto: CreateSuscriptorDto) {
     return this.suscriptoresService.crear(dto);
   }
 
+  /** ===============================
+   *   ACTUALIZAR DESDE EL PANEL
+   *  =============================== */
   @Put(':id')
   actualizar(
     @Param('id', ParseIntPipe) id: number,
@@ -40,11 +54,22 @@ export class SuscriptoresController {
     return this.suscriptoresService.actualizar(id, dto);
   }
 
+  /** =================================================
+   *   MARCAR REGISTRO COMPLETO (ADMIN)
+   *   No se usa en la app, pero lo dejamos
+   *  ================================================= */
   @Put(':id/completar')
   completar(@Param('id', ParseIntPipe) id: number) {
     return this.suscriptoresService.completarRegistro(id);
   }
 
+  /** =========================================================
+   *   COMPLETAR PERFIL (APP MÓVIL)
+   *   Ahora incluye:
+   *   - teléfono (máximo 2 cuentas)
+   *   - membresía obligatoria
+   *   - sexo, fechaNacimiento, contraseña
+   *  ========================================================= */
   @Put(':id/completar-perfil')
   completarPerfil(
     @Param('id', ParseIntPipe) id: number,
@@ -53,6 +78,9 @@ export class SuscriptoresController {
     return this.suscriptoresService.completarPerfil(id, dto);
   }
 
+  /** ===============================
+   *   ELIMINAR SUSCRIPTOR
+   *  =============================== */
   @Delete(':id')
   eliminar(@Param('id', ParseIntPipe) id: number) {
     return this.suscriptoresService.eliminar(id);

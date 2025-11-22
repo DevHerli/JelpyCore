@@ -1,6 +1,7 @@
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Membresia } from '../../membresias/entities/membresia.entity';
 
 @Entity('suscriptores')
 export class Suscriptor {
@@ -17,7 +18,11 @@ export class Suscriptor {
   @Column({ name: 'apellido_materno', length: 100, nullable: true })
   apellidoMaterno?: string;
 
-  @Column({ type: 'enum', enum: ['M', 'F', 'Otro', 'No especifica'], nullable: true })
+  @Column({
+    type: 'enum',
+    enum: ['M', 'F', 'Otro', 'No especifica'],
+    nullable: true,
+  })
   sexo?: string;
 
   @Column({ name: 'fecha_nacimiento', type: 'date', nullable: true })
@@ -32,6 +37,10 @@ export class Suscriptor {
   @JoinColumn({ name: 'estado_id' })
   estado?: Estado;
 
+  @ManyToOne(() => Membresia, { eager: true, nullable: true })
+  @JoinColumn({ name: 'membresia_id' })
+  membresia?: Membresia;
+
   // --- Contacto ---
   @Column({ name: 'telefono_celular', length: 20, unique: true })
   telefonoCelular: string;
@@ -41,21 +50,20 @@ export class Suscriptor {
     length: 150,
     unique: true,
     nullable: true,
-    comment: 'Opcional pero recomendado para control y comunicación de la cuenta',
+    comment: 'Opcional pero recomendado para comunicación con el usuario',
   })
   correoElectronico?: string;
 
-  // --- Autenticación (opcional) ---
+  // --- Autenticación ---
   @Column({
     length: 255,
     nullable: true,
-    comment: 'Opcional. Se recomienda definirla si el usuario quiere acceso web o recuperación de cuenta',
+    comment: 'Contraseña opcional, útil para acceso web o recuperación de cuenta',
   })
   contrasena?: string;
 
   @Column({ name: 'refresh_token', type: 'varchar', length: 500, nullable: true })
   refreshToken?: string;
-
 
   // --- Banderas y control ---
   @Column({ name: 'acepto_terminos', type: 'tinyint', width: 1, default: 0 })
