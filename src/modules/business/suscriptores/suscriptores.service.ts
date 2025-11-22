@@ -20,7 +20,7 @@ export class SuscriptoresService {
     @InjectRepository(Suscriptor)
     private readonly suscriptorRepo: Repository<Suscriptor>,
 
-    //Necesario para obtener datos de la membresía
+    // Necesario para obtener datos de la membresía
     @InjectRepository(Membresia)
     private readonly membresiaRepo: Repository<Membresia>,
   ) {}
@@ -32,10 +32,10 @@ export class SuscriptoresService {
     });
   }
 
-
   async obtenerPorId(id: number): Promise<Suscriptor> {
     const suscriptor = await this.suscriptorRepo.findOne({
       where: { id, eliminado: false },
+      relations: ['membresia', 'ciudad', 'estado'],
     });
 
     if (!suscriptor) {
@@ -45,9 +45,7 @@ export class SuscriptoresService {
     return suscriptor;
   }
 
-
   async crear(dto: CreateSuscriptorDto): Promise<Suscriptor> {
-    // Validar duplicado de correo
     if (dto.correoElectronico) {
       const existeCorreo = await this.suscriptorRepo.findOne({
         where: { correoElectronico: dto.correoElectronico },
@@ -60,7 +58,6 @@ export class SuscriptoresService {
       }
     }
 
-    // Crear entidad base
     const nuevo = this.suscriptorRepo.create({
       nombre: dto.nombre,
       apellidoPaterno: dto.apellidoPaterno,
@@ -77,7 +74,6 @@ export class SuscriptoresService {
       estado: dto.estadoId ? ({ id: dto.estadoId } as any) : null,
     });
 
-    // Encriptar contraseña si viene
     if (dto.contrasena) {
       nuevo.contrasena = await bcrypt.hash(dto.contrasena, 10);
     }
@@ -86,11 +82,9 @@ export class SuscriptoresService {
     return this.obtenerPorId(guardado.id);
   }
 
-
   async actualizar(id: number, dto: UpdateSuscriptorDto): Promise<Suscriptor> {
     const suscriptor = await this.obtenerPorId(id);
 
-    /** Validar teléfono duplicado */
     if (dto.telefonoCelular && dto.telefonoCelular !== suscriptor.telefonoCelular) {
       const count = await this.suscriptorRepo.count({
         where: { telefonoCelular: dto.telefonoCelular, id: Not(id) },
@@ -103,7 +97,6 @@ export class SuscriptoresService {
       }
     }
 
-    /** Validar correo duplicado */
     if (
       dto.correoElectronico &&
       dto.correoElectronico !== suscriptor.correoElectronico
@@ -119,7 +112,6 @@ export class SuscriptoresService {
       }
     }
 
-    /** Asignar valores base */
     Object.assign(suscriptor, {
       ...dto,
       ciudad: dto.ciudadId
@@ -128,7 +120,6 @@ export class SuscriptoresService {
       estado: dto.estadoId ? ({ id: dto.estadoId } as any) : suscriptor.estado,
     });
 
-    /** Encriptar contraseña si la cambia */
     if (dto.contrasena) {
       suscriptor.contrasena = await bcrypt.hash(dto.contrasena, 10);
     }
@@ -158,10 +149,8 @@ export class SuscriptoresService {
     };
   }
 
-
-  async completarPerfil(id: number, dto: CompletarPerfilDto): Promise<Suscriptor> {
+  async completarPerfil(id: number, dto: CompletarPerfilDto): Promise<any> {
     const suscriptor = await this.obtenerPorId(id);
-
 
     if (dto.telefonoCelular) {
       const count = await this.suscriptorRepo.count({
@@ -180,21 +169,16 @@ export class SuscriptoresService {
       suscriptor.telefonoCelular = dto.telefonoCelular;
     }
 
- 
     if (!dto.membresiaId) {
       throw new BadRequestException('Debe seleccionar una membresía.');
     }
 
-    // Asignar relación ManyToOne
     suscriptor.membresia = { id: dto.membresiaId } as any;
-
 
     suscriptor.sexo = dto.sexo;
     suscriptor.fechaNacimiento = new Date(dto.fechaNacimiento);
 
-
     suscriptor.estado = { id: 1 } as any;
-
 
     const membresia = await this.membresiaRepo.findOne({
       where: { id: dto.membresiaId },
@@ -204,22 +188,21 @@ export class SuscriptoresService {
       throw new BadRequestException('La membresía seleccionada no existe.');
     }
 
-    const nombre = membresia.nombre.toLowerCase();
+    const precio = Number(membresia.precio);
 
-    if (nombre === 'free' || nombre === 'gratis' || membresia.precio === 0) {
-      suscriptor.tieneNegocios = true; 
-    } else {
-      suscriptor.tieneNegocios = false; 
-    }
-
+    suscriptor.tieneNegocios = precio === 0;
 
     suscriptor.registroCompleto = true;
 
-    /** Guardar */
     const actualizado = await this.suscriptorRepo.save(suscriptor);
-    return this.obtenerPorId(actualizado.id);
-  }
 
+    //SE AGREGA EL RETURN CORRECTO AQUÍ
+    return {
+      success: true,
+      message: 'Perfil completado correctamente.',
+      data: await this.obtenerPorId(actualizado.id),
+    };
+  }
 
   async eliminar(id: number): Promise<void> {
     const suscriptor = await this.obtenerPorId(id);
