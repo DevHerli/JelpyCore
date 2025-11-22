@@ -10,10 +10,6 @@ import { JwtModule } from '@nestjs/jwt';
 @Module({
   imports: [TypeOrmModule.forFeature([Suscriptor,Membresia]),
   MembresiasModule,
-  JwtModule.register({
-    secret: process.env.JWT_SECRET || 'SECRET_DEFAULT',
-    signOptions: { expiresIn: '15m' },
-  }),
 ],
   controllers: [SuscriptoresController],
   providers: [SuscriptoresService],
