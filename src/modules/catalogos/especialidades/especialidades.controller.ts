@@ -7,6 +7,7 @@ import {
   Param,
   ParseIntPipe,
   Query,
+  Delete,
 } from '@nestjs/common';
 import { EspecialidadesService } from './especialidades.service';
 import { CreateEspecialidadDto } from './dto/create-especialidad.dto';
@@ -54,10 +55,31 @@ export class EspecialidadesController {
     return this.especialidadesService.actualizar(id, dto);
   }
 
+  // BORRADO LÓGICO
   @Patch(':id/desactivar')
   @ApiOperation({ summary: 'Desactivar (borrado lógico) una especialidad' })
-  @ApiResponse({ status: 200, description: 'Especialidad desactivada correctamente' })
-  eliminar(@Param('id', ParseIntPipe) id: number, @Query('eliminadoPor') eliminadoPor?: number) {
+  @ApiResponse({
+    status: 200,
+    description: 'Especialidad desactivada correctamente',
+  })
+  eliminar(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('eliminadoPor') eliminadoPor?: number,
+  ) {
     return this.especialidadesService.eliminar(id, eliminadoPor);
+  }
+
+  // BORRADO FÍSICO
+  @Delete(':id')
+  @ApiOperation({
+    summary:
+      'Eliminar una especialidad permanentemente (solo si ya está desactivada)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Especialidad eliminada definitivamente',
+  })
+  borrarFisico(@Param('id', ParseIntPipe) id: number) {
+    return this.especialidadesService.borrarFisico(id);
   }
 }

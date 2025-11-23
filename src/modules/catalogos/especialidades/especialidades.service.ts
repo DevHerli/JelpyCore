@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Especialidad } from './entities/especialidades.entity';
@@ -16,7 +20,9 @@ export class EspecialidadesService {
     private readonly subcategoriaRepo: Repository<Subcategoria>,
   ) {}
 
-  // 🔹 Listar todas las especialidades activas
+  /**
+   * 🔹 Listar todas las especialidades activas
+   */
   async listar(): Promise<Especialidad[]> {
     return this.especialidadRepo.find({
       where: { activo: true },
@@ -25,7 +31,9 @@ export class EspecialidadesService {
     });
   }
 
-  // 🔹 Obtener una especialidad específica
+  /**
+   * 🔹 Obtener una especialidad específica
+   */
   async obtenerPorId(id: number): Promise<Especialidad> {
     const especialidad = await this.especialidadRepo.findOne({
       where: { id, activo: true },
@@ -36,7 +44,9 @@ export class EspecialidadesService {
     return especialidad;
   }
 
-  // 🔹 Listar especialidades por subcategoría
+  /**
+   * 🔹 Listar especialidades por subcategoría
+   */
   async listarPorSubcategoria(subcategoriaId: number): Promise<Especialidad[]> {
     return this.especialidadRepo.find({
       where: { subcategoria: { id: subcategoriaId }, activo: true },
@@ -45,13 +55,16 @@ export class EspecialidadesService {
     });
   }
 
-  // 🔹 Crear nueva especialidad
+  /**
+   * 🔹 Crear nueva especialidad
+   */
   async crear(dto: CreateEspecialidadDto): Promise<Especialidad> {
     const subcategoria = await this.subcategoriaRepo.findOne({
       where: { id: dto.subcategoria_id, activo: true },
     });
 
-    if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada o inactiva');
+    if (!subcategoria)
+      throw new NotFoundException('Subcategoría no encontrada o inactiva');
 
     const nueva = this.especialidadRepo.create({
       nombre: dto.nombre,
@@ -64,35 +77,67 @@ export class EspecialidadesService {
     return await this.especialidadRepo.save(nueva);
   }
 
-  // 🔹 Actualizar especialidad existente
-  async actualizar(id: number, dto: UpdateEspecialidadDto): Promise<Especialidad> {
-    const especialidad = await this.especialidadRepo.findOne({ where: { id }, relations: ['subcategoria'] });
+  /**
+   * 🔹 Actualizar especialidad existente
+   */
+  async actualizar(
+    id: number,
+    dto: UpdateEspecialidadDto,
+  ): Promise<Especialidad> {
+    const especialidad = await this.especialidadRepo.findOne({
+      where: { id },
+      relations: ['subcategoria'],
+    });
 
     if (!especialidad) throw new NotFoundException('Especialidad no encontrada');
 
     if (dto.subcategoria_id) {
-      const subcategoria = await this.subcategoriaRepo.findOne({ where: { id: dto.subcategoria_id } });
-      if (!subcategoria) throw new NotFoundException('Subcategoría no encontrada');
+      const subcategoria = await this.subcategoriaRepo.findOne({
+        where: { id: dto.subcategoria_id },
+      });
+      if (!subcategoria)
+        throw new NotFoundException('Subcategoría no encontrada');
       especialidad.subcategoria = subcategoria;
     }
 
     especialidad.nombre = dto.nombre ?? especialidad.nombre;
     especialidad.descripcion = dto.descripcion ?? especialidad.descripcion;
     especialidad.activo = dto.activo ?? especialidad.activo;
-    especialidad.actualizadoPor = dto.actualizadoPor ?? especialidad.actualizadoPor;
+    especialidad.actualizadoPor =
+      dto.actualizadoPor ?? especialidad.actualizadoPor;
+    especialidad.fechaActualizacion = new Date();
 
     return await this.especialidadRepo.save(especialidad);
   }
 
-  // 🔹 Borrado lógico
+  /**
+   * Borrado lógico — desactiva la especialidad (activo = 0)
+   */
   async eliminar(id: number, eliminadoPor?: number): Promise<{ message: string }> {
     const especialidad = await this.especialidadRepo.findOne({ where: { id } });
     if (!especialidad) throw new NotFoundException('Especialidad no encontrada');
 
     especialidad.activo = false;
     especialidad.eliminadoPor = eliminadoPor ?? null;
+    especialidad.fechaActualizacion = new Date();
 
     await this.especialidadRepo.save(especialidad);
     return { message: `Especialidad con ID ${id} desactivada correctamente` };
+  }
+
+  /**
+   * Borrado físico — elimina definitivamente si ya está inactiva
+   */
+  async borrarFisico(id: number): Promise<{ message: string }> {
+    const especialidad = await this.especialidadRepo.findOne({ where: { id } });
+    if (!especialidad) throw new NotFoundException('Especialidad no encontrada');
+
+    if (especialidad.activo)
+      throw new BadRequestException(
+        'No se puede eliminar físicamente una especialidad activa',
+      );
+
+    await this.especialidadRepo.remove(especialidad);
+    return { message: `Especialidad con ID ${id} eliminada definitivamente` };
   }
 }

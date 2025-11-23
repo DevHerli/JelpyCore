@@ -7,6 +7,7 @@ import {
   Patch,
   ParseIntPipe,
   Query,
+  Delete,
 } from '@nestjs/common';
 import { SubcategoriasService } from './subcategorias.service';
 import { CreateSubcategoriaDto } from './dto/create-subcategoria.dto';
@@ -62,10 +63,19 @@ export class SubcategoriasController {
     return this.subcategoriasService.actualizar(id, dto);
   }
 
+  // BORRADO LÓGICO
   @Patch(':id/desactivar')
   @ApiOperation({ summary: 'Desactivar (borrado lógico) una subcategoría' })
   @ApiResponse({ status: 200, description: 'Subcategoría desactivada correctamente' })
-  eliminar(@Param('id', ParseIntPipe) id: number, @Query('eliminadoPor') eliminadoPor?: number) {
-    return this.subcategoriasService.eliminar(id, eliminadoPor);
+  eliminar(@Param('id', ParseIntPipe) id: number) {
+    return this.subcategoriasService.eliminar(id);
+  }
+
+  // BORRADO FÍSICO
+  @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar una subcategoría permanentemente (solo si ya está desactivada)' })
+  @ApiResponse({ status: 200, description: 'Subcategoría eliminada definitivamente' })
+  borrarFisico(@Param('id', ParseIntPipe) id: number) {
+    return this.subcategoriasService.borrarFisico(id);
   }
 }
