@@ -34,9 +34,6 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  /** ============================================
-   *  🔐 LOGIN POR CORREO (nuevo método principal)
-   * ============================================ */
   async loginEmail(dto: LoginEmailDto) {
     const { correoElectronico, contrasena } = dto;
 
@@ -101,9 +98,7 @@ export class AuthService {
     };
   }
 
-  // =============================================================
-  // LO DEMÁS SIGUE IGUAL (OTP REGISTRO, OTP ACCESO, REFRESH, LOGOUT)
-  // =============================================================
+
 
   async sendOtpRegister(dto: SendOtpRegisterDto) {
     const existente = await this.suscriptorRepo.findOne({
@@ -256,41 +251,51 @@ export class AuthService {
     if (!refreshToken) {
       throw new UnauthorizedException('Falta refresh token');
     }
-
+  
     try {
       const decoded = this.jwtService.verify(refreshToken);
-
+  
       const suscriptor = await this.suscriptorRepo.findOne({
         where: { id: decoded.sub },
       });
-
+  
       if (!suscriptor || !suscriptor.refreshToken) {
         throw new UnauthorizedException('Refresh token inválido');
       }
-
+  
       const isValid = await bcrypt.compare(
         refreshToken,
         suscriptor.refreshToken,
       );
-
+  
       if (!isValid) {
         throw new UnauthorizedException('Refresh token no válido');
       }
-
-      const newAccess = this.jwtService.sign(
-        {
-          sub: suscriptor.id,
-          correo: suscriptor.correoElectronico,
-          nombre: suscriptor.nombre,
-        },
-        { expiresIn: '15m' }
-      );
-
-      return { success: true, access_token: newAccess };
+  
+      //TOKEN COMPLETO (IMPORTANTE)
+      const payload = {
+        sub: suscriptor.id,
+        correo: suscriptor.correoElectronico,
+        nombre: suscriptor.nombre,
+        apellidoPaterno: suscriptor.apellidoPaterno,
+        registroCompleto: suscriptor.registroCompleto,
+        tieneNegocios: suscriptor.tieneNegocios,
+      };
+  
+      const newAccess = this.jwtService.sign(payload, {
+        expiresIn: '10m',
+      });
+  
+      return {
+        success: true,
+        access_token: newAccess,
+        refresh_token: refreshToken, // opcional mantener el mismo
+      };
     } catch {
       throw new UnauthorizedException('Refresh token expirado o inválido');
     }
   }
+  
 
   async logout(id: number) {
     await this.suscriptorRepo.update(id, { refreshToken: null });
