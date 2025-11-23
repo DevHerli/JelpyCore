@@ -33,10 +33,6 @@ export class CreateNegocioDto {
   @IsNumber()
   especialidadId?: number;
 
-  @IsNotEmpty()
-  @IsNumber()
-  membresiaId: number;
-
   @IsOptional()
   @IsNumber()
   estadoId?: number;

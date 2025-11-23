@@ -10,7 +10,6 @@ import {
   JoinColumn,
   OneToMany,
 } from 'typeorm';
-import { Membresia } from '../../membresias/entities/membresia.entity';
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
 import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { SucursalNegocio } from '../../sucursales_negocios/entities/sucursal-negocio.entity';
@@ -49,23 +48,18 @@ export class Negocio {
   @JoinColumn({ name: 'especialidad_id' })
   especialidad?: Especialidad;
 
- @ManyToOne(() => Membresia, { eager: true })
-@JoinColumn({ name: 'membresia_id' })
-membresia: Membresia;
+  @ManyToOne(() => Estado, { eager: true })
+  @JoinColumn({ name: 'estado_id' })
+  estado: Estado;
 
-@ManyToOne(() => Estado, { eager: true })
-@JoinColumn({ name: 'estado_id' })
-estado: Estado;
-
-
-@Column({
+  @Column({
     name: 'fecha_registro',
     type: 'datetime',
     default: () => 'CURRENT_TIMESTAMP',
   })
   fechaRegistro: Date;
 
-@Column({
+  @Column({
     name: 'fecha_actualizacion',
     type: 'datetime',
     nullable: true,
@@ -73,9 +67,9 @@ estado: Estado;
   })
   fechaActualizacion?: Date;
 
-@Column({ type: 'tinyint', width: 1, default: 0 })
-eliminado: boolean;
+  @Column({ type: 'tinyint', width: 1, default: 0 })
+  eliminado: boolean;
 
-@OneToMany(() => SucursalNegocio, (sucursal) => sucursal.negocio, { eager: true })
-sucursales: SucursalNegocio[];
+  @OneToMany(() => SucursalNegocio, (sucursal) => sucursal.negocio, { eager: true })
+  sucursales: SucursalNegocio[];
 }

@@ -8,11 +8,11 @@ import { Repository } from 'typeorm';
 import { Negocio } from './entities/negocio.entity';
 import { CreateNegocioDto } from './dto/create-negocio.dto';
 import { UpdateNegocioDto } from './dto/update-negocio.dto';
+import { Suscriptor } from '../suscriptores/entities/suscriptores.entity';
 import {
   ESTADOS_NEGOCIO,
   LIMITE_NEGOCIOS_POR_MEMBRESIA,
 } from '../../../common/constants/negocios.constants';
-import { Suscriptor } from '../suscriptores/entities/suscriptores.entity'; 
 
 @Injectable()
 export class NegociosService {
@@ -20,11 +20,10 @@ export class NegociosService {
     @InjectRepository(Negocio)
     private readonly negocioRepo: Repository<Negocio>,
 
-    @InjectRepository(Suscriptor) //
+    @InjectRepository(Suscriptor)
     private readonly suscriptorRepo: Repository<Suscriptor>,
   ) {}
 
-  // Listar todos los negocios (no eliminados)
   async listar(): Promise<Negocio[]> {
     return this.negocioRepo.find({
       where: { eliminado: false },
@@ -33,7 +32,6 @@ export class NegociosService {
         'categoria',
         'subcategoria',
         'especialidad',
-        'membresia',
         'estado',
         'ciudad',
         'sucursales',
@@ -42,7 +40,6 @@ export class NegociosService {
     });
   }
 
-  // Obtener un negocio por ID
   async obtenerPorId(id: number): Promise<Negocio> {
     const negocio = await this.negocioRepo.findOne({
       where: { id, eliminado: false },
@@ -51,17 +48,19 @@ export class NegociosService {
         'categoria',
         'subcategoria',
         'especialidad',
-        'membresia',
         'estado',
         'ciudad',
         'sucursales',
       ],
     });
-    if (!negocio) throw new NotFoundException('Negocio no encontrado');
+
+    if (!negocio) {
+      throw new NotFoundException('Negocio no encontrado');
+    }
+
     return negocio;
   }
 
-  // Listar negocios por suscriptor
   async listarPorSuscriptor(suscriptorId: number): Promise<Negocio[]> {
     return this.negocioRepo.find({
       where: { suscriptor: { id: suscriptorId }, eliminado: false },
@@ -69,7 +68,6 @@ export class NegociosService {
         'categoria',
         'subcategoria',
         'especialidad',
-        'membresia',
         'estado',
         'ciudad',
         'sucursales',
@@ -78,100 +76,69 @@ export class NegociosService {
     });
   }
 
-  // Crear negocio con control de membresía, pago y estado
   async crear(dto: CreateNegocioDto): Promise<Negocio> {
-    // Verificar cuántos negocios tiene el suscriptor
-    const negociosActuales = await this.negocioRepo.count({
-      where: { suscriptor: { id: dto.suscriptorId }, eliminado: false },
+    // 1. Obtener suscriptor real (aquí sí viene membresía)
+    const suscriptor = await this.suscriptorRepo.findOne({
+      where: { id: dto.suscriptorId },
+      relations: ['membresia'],
     });
 
-    // Obtener la membresía y su límite
-    const membresiaNombre = await this.obtenerNombreMembresia(dto.membresiaId);
-    const limite =
-      LIMITE_NEGOCIOS_POR_MEMBRESIA[membresiaNombre?.toLowerCase()] ?? 1;
+    if (!suscriptor) {
+      throw new NotFoundException('Suscriptor no encontrado');
+    }
 
-    if (negociosActuales >= limite) {
+    // 2. Contar cuántos negocios tiene
+    const totalNegocios = await this.negocioRepo.count({
+      where: { suscriptor: { id: suscriptor.id }, eliminado: false },
+    });
+
+    // 3. Obtener límite permitido según membresía
+    const membresiaNombre = suscriptor.membresia?.nombre?.toLowerCase() || 'gratuita';
+    const limite = LIMITE_NEGOCIOS_POR_MEMBRESIA[membresiaNombre] ?? 1;
+
+    if (totalNegocios >= limite) {
       throw new BadRequestException(
-        `Tu membresía (${membresiaNombre}) permite registrar hasta ${limite} negocio(s).`,
+        `Tu membresía (${suscriptor.membresia.nombre}) permite registrar hasta ${limite} negocio(s).`,
       );
     }
 
-    // Determinar estado inicial
-    let estadoInicial = ESTADOS_NEGOCIO.PENDIENTE_PAGO;
+    // 4. Estado inicial
+    const estadoInicial = ESTADOS_NEGOCIO.ACTIVA;
 
-    if (membresiaNombre.toLowerCase() === 'free') {
-      estadoInicial = ESTADOS_NEGOCIO.ACTIVA;
-    } else if (membresiaNombre.toLowerCase() === 'cortesia') {
-      estadoInicial = ESTADOS_NEGOCIO.CORTESIA;
-    } else {
-      // Simulamos el pago
-      const pagoExitoso = await this.simularPago(
-        dto.membresiaId,
-        dto.suscriptorId,
-      );
-      estadoInicial = pagoExitoso
-        ? ESTADOS_NEGOCIO.ACTIVA
-        : ESTADOS_NEGOCIO.PENDIENTE_PAGO;
-    }
-
-    // Crear el negocio
+    // 5. Crear negocio con relaciones
     const nuevo = this.negocioRepo.create({
       ...dto,
-      suscriptor: { id: dto.suscriptorId } as any,
-      categoria: dto.categoriaId ? ({ id: dto.categoriaId } as any) : undefined,
+      suscriptor: { id: suscriptor.id } as any,
+      categoria: { id: dto.categoriaId } as any,
       subcategoria: dto.subcategoriaId
         ? ({ id: dto.subcategoriaId } as any)
         : undefined,
       especialidad: dto.especialidadId
         ? ({ id: dto.especialidadId } as any)
         : undefined,
-      membresia: dto.membresiaId
-        ? ({ id: dto.membresiaId } as any)
-        : undefined,
-      ciudad: dto.ciudadId ? ({ id: dto.ciudadId } as any) : undefined,
+      ciudad: { id: dto.ciudadId } as any,
       estado: { id: estadoInicial } as any,
       logoUrl: dto.logoUrl || null,
     });
 
     const guardado = await this.negocioRepo.save(nuevo);
 
-    // Actualizar campo "tieneNegocios" del suscriptor
-    await this.suscriptorRepo.update(dto.suscriptorId, { tieneNegocios: true });
+    // 6. Actualizar tieneNegocios
+    await this.suscriptorRepo.update(suscriptor.id, { tieneNegocios: true });
 
-    // Recargar el negocio con todas sus relaciones completas
-    const negocioCompleto = await this.negocioRepo.findOne({
+    // 7. Devolver negocio completo
+    return this.negocioRepo.findOne({
       where: { id: guardado.id },
       relations: [
         'suscriptor',
         'categoria',
         'subcategoria',
         'especialidad',
-        'membresia',
         'estado',
         'ciudad',
         'sucursales',
       ],
     });
-
-    return negocioCompleto;
-  }
-
-  private async simularPago(
-    membresiaId: number,
-    suscriptorId: number,
-  ): Promise<boolean> {
-    console.log(
-      `Simulando cobro de membresía ${membresiaId} para suscriptor ${suscriptorId}`,
-    );
-    return Math.random() > 0.2; // 80% éxito
-  }
-
-  private async obtenerNombreMembresia(membresiaId: number): Promise<string> {
-    const result = await this.negocioRepo.query(
-      `SELECT nombre FROM membresias WHERE id = ? LIMIT 1`,
-      [membresiaId],
-    );
-    return result?.[0]?.nombre || 'free';
   }
 
   async actualizar(id: number, dto: UpdateNegocioDto): Promise<Negocio> {
@@ -185,7 +152,7 @@ export class NegociosService {
     negocio.eliminado = true;
     await this.negocioRepo.save(negocio);
   }
-
+  
   async obtenerDetalle(id: number) {
     const negocio = await this.negocioRepo.findOne({
       where: { id, eliminado: false },
@@ -194,7 +161,6 @@ export class NegociosService {
         'categoria',
         'subcategoria',
         'especialidad',
-        'membresia',
         'estado',
         'ciudad',
         'sucursales',
@@ -209,7 +175,6 @@ export class NegociosService {
 
     const resumen = {
       totalSucursales: negocio.sucursales?.length || 0,
-      tipoMembresia: negocio.membresia?.nombre || 'Sin membresía',
       estado: negocio.estado?.nombre || 'Desconocido',
       fechaRegistro: negocio.fechaRegistro,
       ultimaActualizacion: negocio.fechaActualizacion,
