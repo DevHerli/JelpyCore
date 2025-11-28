@@ -21,7 +21,7 @@ export class JelpyAssistantController {
   ) {}
 
   /**
-   * 🔹 Endpoint principal: interpreta el mensaje del usuario.
+   * Endpoint principal: interpreta el mensaje del usuario.
    * Acepta también latitud y longitud para búsquedas "cerca de mí"
    */
   @Post('interpretar')

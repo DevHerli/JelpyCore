@@ -9,5 +9,6 @@ import { VistaNegociosCompleta } from '../vista-completa/entities/vista-negocios
   imports: [TypeOrmModule.forFeature([KeywordTaxonomia, VistaNegociosCompleta])],
   controllers: [SearchController],
   providers: [SearchService],
+  exports: [SearchService],
 })
 export class SearchModule {}

@@ -2,32 +2,90 @@ import { ViewEntity, ViewColumn } from 'typeorm';
 
 @ViewEntity({ name: 'vista_negocios_completa' })
 export class VistaNegociosCompleta {
-  @ViewColumn() negocio_id: string;
-  @ViewColumn() nombre_negocio: string;
-  @ViewColumn() descripcion_negocio: string | null;
-  @ViewColumn() membresia: string;
-  @ViewColumn() estado_negocio: string;
-  @ViewColumn() categoria: string | null;
-  @ViewColumn() subcategoria: string | null;
-  @ViewColumn() especialidad: string | null;
+  @ViewColumn()
+  negocio_id: number;
 
-  @ViewColumn() sucursal_id: string | null;
-  @ViewColumn() nombre_sucursal: string | null;
-  @ViewColumn() direccion: string | null;
-  @ViewColumn() ciudad: string | null;
-  @ViewColumn() latitud: number | null;
-  @ViewColumn() longitud: number | null;
-  @ViewColumn() telefono: string | null;
-  @ViewColumn() email: string | null;
+  @ViewColumn()
+  nombre_negocio: string;
 
-  @ViewColumn() dia_semana: string | null;      // 'lunes'..'domingo'
-  @ViewColumn() hora_apertura: string | null;   // TIME
-  @ViewColumn() hora_cierre: string | null;     // TIME
+  @ViewColumn()
+  descripcion_negocio: string | null;
 
-  @ViewColumn() promo_titulo: string | null;
-  @ViewColumn() promo_descripcion: string | null;
-  @ViewColumn() promo_tipo: string | null;
-  @ViewColumn() promo_fecha_inicio: string | null;
-  @ViewColumn() promo_fecha_fin: string | null;
-  @ViewColumn() promo_dias_validos: string | null;
+  @ViewColumn()
+  ciudad: string | null;
+
+  @ViewColumn()
+  categoria: string | null;
+
+  @ViewColumn()
+  categoria_id: number | null;
+
+  @ViewColumn()
+  subcategoria: string | null;
+
+  @ViewColumn()
+  subcategoria_id: number | null;
+
+  @ViewColumn()
+  especialidad: string | null;
+
+  @ViewColumn()
+  especialidad_id: number | null;
+
+  @ViewColumn()
+  sucursal_id: number | null;
+
+  @ViewColumn()
+  nombre_sucursal: string | null;
+
+  @ViewColumn()
+  latitud: number | null;
+
+  @ViewColumn()
+  longitud: number | null;
+
+  @ViewColumn()
+  dia_semana: string | null;
+
+  @ViewColumn()
+  hora_apertura: string | null;
+
+  @ViewColumn()
+  hora_cierre: string | null;
+
+  @ViewColumn()
+  cerrado: number | null;
+
+  @ViewColumn()
+  promo_titulo: string | null;
+
+  @ViewColumn()
+  promo_descripcion: string | null;
+
+  @ViewColumn()
+  tipo_promocion: string | null;
+
+  @ViewColumn()
+  valor_descuento: number | null;
+
+  @ViewColumn()
+  promo_fecha_inicio: string | null;
+
+  @ViewColumn()
+  promo_fecha_fin: string | null;
+
+  @ViewColumn()
+  promo_hora_inicio: string | null;
+
+  @ViewColumn()
+  promo_hora_fin: string | null;
+
+  @ViewColumn()
+  promo_dias_vigencia: string | null;
+
+  @ViewColumn()
+  promo_activa: number | null;
+
+  @ViewColumn()
+  promo_imagen_url: string | null;
 }

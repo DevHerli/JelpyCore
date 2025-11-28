@@ -20,25 +20,28 @@ export class EstadisticasCronService {
 
     try {
       const query = `
-        INSERT INTO estadisticas_historico (fecha, negocio_id, ciudad_id, membresia_id, vistas, clics, busquedas)
-        SELECT 
-          DATE('${fechaStr}') AS fecha,
-          n.id AS negocio_id,
-          n.ciudad_id,
-          n.membresia_id,
-          COALESCE(SUM(en.vistas), 0) AS vistas,
-          COALESCE(SUM(en.clics), 0) AS clics,
-          COALESCE(SUM(en.busquedas), 0) AS busquedas
-        FROM negocios n
-        LEFT JOIN estadisticas_negocios en ON en.negocio_id = n.id
-        WHERE n.eliminado = 0
-        GROUP BY n.id, n.ciudad_id, n.membresia_id
-        ON DUPLICATE KEY UPDATE
-          vistas = VALUES(vistas),
-          clics = VALUES(clics),
-          busquedas = VALUES(busquedas),
-          fecha_registro = CURRENT_TIMESTAMP;
-      `;
+      INSERT INTO estadisticas_historico (fecha, negocio_id, ciudad_id, membresia_id, vistas, clics, busquedas)
+      SELECT 
+        DATE('${fechaStr}') AS fecha,
+        n.id AS negocio_id,
+        n.ciudad_id,
+        mn.membresia_id AS membresia_id,
+        COALESCE(SUM(en.vistas), 0) AS vistas,
+        COALESCE(SUM(en.clics), 0) AS clics,
+        COALESCE(SUM(en.busquedas), 0) AS busquedas
+      FROM negocios n
+      LEFT JOIN membresias_negocios mn 
+             ON mn.negocio_id = n.id AND mn.activa = 1
+      LEFT JOIN estadisticas_negocios en 
+             ON en.negocio_id = n.id
+      WHERE n.eliminado = 0
+      GROUP BY n.id, n.ciudad_id, mn.membresia_id
+      ON DUPLICATE KEY UPDATE
+        vistas = VALUES(vistas),
+        clics = VALUES(clics),
+        busquedas = VALUES(busquedas),
+        fecha_registro = CURRENT_TIMESTAMP;
+    `;    
 
       await this.connection.query(query);
       this.logger.log(`✅ Estadísticas del día ${fechaStr} actualizadas correctamente.`);

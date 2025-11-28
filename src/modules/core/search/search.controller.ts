@@ -15,11 +15,20 @@ export class SearchController {
     const resp = await this.svc.search({
       q: dto.q,
       ciudad: dto.ciudad,
+
+      // Igual que tenías
       abiertoAhora: dto.abiertoAhora === 'true',
       lat: dto.lat ? Number(dto.lat) : undefined,
       lng: dto.lng ? Number(dto.lng) : undefined,
       radioKm: dto.radioKm ? Number(dto.radioKm) : undefined,
+
+      // Nuevos campos del DTO (solo agregados, no se cambió nada)
+      categoriaId: dto.categoriaId ? Number(dto.categoriaId) : undefined,
+      subcategoriaId: dto.subcategoriaId ? Number(dto.subcategoriaId) : undefined,
+      especialidadId: dto.especialidadId ? Number(dto.especialidadId) : undefined,
+      promos: dto.promos === 'true',
     });
+
     return resp;
   }
 }
