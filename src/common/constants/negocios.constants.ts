@@ -14,6 +14,7 @@ export const ESTADOS_NEGOCIO = {
   
   export const LIMITE_NEGOCIOS_POR_MEMBRESIA: Record<string, number> = {
     free: 1,
+    cortesia: 1000000,
     deluxe: 2,
     premium: 3,
     empresarial: 4,

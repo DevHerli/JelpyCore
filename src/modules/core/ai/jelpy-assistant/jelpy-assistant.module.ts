@@ -12,6 +12,7 @@ import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { Categoria } from '../../../catalogos/categorias/entities/categorias.entity';
 import { Subcategoria } from '../../../catalogos/subcategorias/entities/subcategorias.entity';
 import { Especialidad } from '../../../catalogos/especialidades/entities/especialidades.entity';
+import { KeywordTaxonomia } from '../../taxonomia/entities/keyword-taxonomia.entity';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { Especialidad } from '../../../catalogos/especialidades/entities/especia
       Categoria,
       Subcategoria,
       Especialidad,
+      KeywordTaxonomia,
     ]),
 
     forwardRef(() => SearchModule),       

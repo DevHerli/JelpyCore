@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
 import { Negocio } from './entities/negocio.entity';
 import { CreateNegocioDto } from './dto/create-negocio.dto';
 import { UpdateNegocioDto } from './dto/update-negocio.dto';
+
 import { Suscriptor } from '../suscriptores/entities/suscriptores.entity';
+import { KeywordTaxonomia } from '../../core/taxonomia/entities/keyword-taxonomia.entity';
+
 import {
   ESTADOS_NEGOCIO,
   LIMITE_NEGOCIOS_POR_MEMBRESIA,
@@ -22,8 +26,25 @@ export class NegociosService {
 
     @InjectRepository(Suscriptor)
     private readonly suscriptorRepo: Repository<Suscriptor>,
+
+    @InjectRepository(KeywordTaxonomia)
+    private readonly keywordRepo: Repository<KeywordTaxonomia>,
   ) {}
 
+  // ============================================================
+  // NORMALIZADOR
+  // ============================================================
+  normalize(text: string) {
+    return text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  // ============================================================
+  // LISTAR
+  // ============================================================
   async listar(): Promise<Negocio[]> {
     return this.negocioRepo.find({
       where: { eliminado: false },
@@ -40,6 +61,9 @@ export class NegociosService {
     });
   }
 
+  // ============================================================
+  // OBTENER POR ID
+  // ============================================================
   async obtenerPorId(id: number): Promise<Negocio> {
     const negocio = await this.negocioRepo.findOne({
       where: { id, eliminado: false },
@@ -61,6 +85,9 @@ export class NegociosService {
     return negocio;
   }
 
+  // ============================================================
+  // LISTAR POR SUSCRIPTOR
+  // ============================================================
   async listarPorSuscriptor(suscriptorId: number): Promise<Negocio[]> {
     return this.negocioRepo.find({
       where: { suscriptor: { id: suscriptorId }, eliminado: false },
@@ -76,8 +103,11 @@ export class NegociosService {
     });
   }
 
+  // ============================================================
+  // CREAR NEGOCIO
+  // ============================================================
   async crear(dto: CreateNegocioDto): Promise<Negocio> {
-    // 1. Obtener suscriptor real (aquí sí viene membresía)
+    // Obtener suscriptor
     const suscriptor = await this.suscriptorRepo.findOne({
       where: { id: dto.suscriptorId },
       relations: ['membresia'],
@@ -87,12 +117,12 @@ export class NegociosService {
       throw new NotFoundException('Suscriptor no encontrado');
     }
 
-    // 2. Contar cuántos negocios tiene
+    // Contar negocios previos
     const totalNegocios = await this.negocioRepo.count({
       where: { suscriptor: { id: suscriptor.id }, eliminado: false },
     });
 
-    // 3. Obtener límite permitido según membresía
+    // Límite por membresía
     const membresiaNombre = suscriptor.membresia?.nombre?.toLowerCase() || 'gratuita';
     const limite = LIMITE_NEGOCIOS_POR_MEMBRESIA[membresiaNombre] ?? 1;
 
@@ -102,20 +132,15 @@ export class NegociosService {
       );
     }
 
-    // 4. Estado inicial
     const estadoInicial = ESTADOS_NEGOCIO.ACTIVA;
 
-    // 5. Crear negocio con relaciones
+    // Crear negocio
     const nuevo = this.negocioRepo.create({
       ...dto,
       suscriptor: { id: suscriptor.id } as any,
       categoria: { id: dto.categoriaId } as any,
-      subcategoria: dto.subcategoriaId
-        ? ({ id: dto.subcategoriaId } as any)
-        : undefined,
-      especialidad: dto.especialidadId
-        ? ({ id: dto.especialidadId } as any)
-        : undefined,
+      subcategoria: dto.subcategoriaId ? ({ id: dto.subcategoriaId } as any) : undefined,
+      especialidad: dto.especialidadId ? ({ id: dto.especialidadId } as any) : undefined,
       ciudad: { id: dto.ciudadId } as any,
       estado: { id: estadoInicial } as any,
       logoUrl: dto.logoUrl || null,
@@ -123,11 +148,9 @@ export class NegociosService {
 
     const guardado = await this.negocioRepo.save(nuevo);
 
-    // 6. Actualizar tieneNegocios
     await this.suscriptorRepo.update(suscriptor.id, { tieneNegocios: true });
 
-    // 7. Devolver negocio completo
-    return this.negocioRepo.findOne({
+    const completo = await this.negocioRepo.findOne({
       where: { id: guardado.id },
       relations: [
         'suscriptor',
@@ -139,33 +162,179 @@ export class NegociosService {
         'sucursales',
       ],
     });
+
+    // AUTOAPRENDIZAJE
+    await this.autoGenerateKeywords(completo);
+
+    return completo;
   }
 
+  // ============================================================
+  // GUARDAR / REFORZAR KEYWORD
+  // ============================================================
+  async saveKeyword(
+    tipo: 'categoria' | 'subcategoria' | 'especialidad',
+    referenciaId: number,
+    palabra: string,
+    relevancia = 5,
+  ) {
+    const keywordNorm = this.normalize(palabra);
+
+    let existente = await this.keywordRepo.findOne({
+      where: { tipo, referenciaId, keyword: keywordNorm },
+    });
+
+    if (existente) {
+      existente.relevancia = Math.min(15, existente.relevancia + 1);
+      return this.keywordRepo.save(existente);
+    }
+
+    return this.keywordRepo.save({
+      tipo,
+      referenciaId,
+      keyword: keywordNorm,
+      relevancia,
+      idioma: 'es',
+    });
+  }
+
+  // ============================================================
+  // VARIANTES ORTOGRÁFICAS
+  // ============================================================
+  generateMisspellings(word: string): string[] {
+    if (!word || word.length < 4) return [];
+    const variantes = new Set<string>();
+
+    const comunes = {
+      s: ['z'],
+      z: ['s'],
+      c: ['s'],
+      k: ['c'],
+      b: ['v'],
+      v: ['b'],
+    };
+
+    for (let i = 0; i < word.length; i++) {
+      const char = word[i];
+      if (comunes[char]) {
+        comunes[char].forEach(rep => {
+          variantes.add(word.substring(0, i) + rep + word.substring(i + 1));
+        });
+      }
+    }
+
+    variantes.add(word.slice(1));
+    variantes.add(word.slice(0, -1));
+    variantes.add(word + word[word.length - 1]);
+
+    return [...variantes];
+  }
+
+  // ============================================================
+  // AUTO-GENERADOR DE KEYWORDS
+  // ============================================================
+  async autoGenerateKeywords(negocio: Negocio) {
+    const keywords: Array<{
+      tipo: 'categoria' | 'subcategoria' | 'especialidad';
+      id: number;
+      palabra: string;
+    }> = [];
+
+    const nombreNorm = this.normalize(negocio.nombreNegocio || '');
+    const partes = nombreNorm.split(' ');
+
+    // 1. Palabras del nombre → subcategoría
+    partes.forEach(p => {
+      if (p.length > 2 && negocio.subcategoria?.id) {
+        keywords.push({
+          tipo: 'subcategoria',
+          id: negocio.subcategoria.id,
+          palabra: p,
+        });
+      }
+    });
+
+    // 2. Categoría
+    if (negocio.categoria) {
+      keywords.push({
+        tipo: 'categoria',
+        id: negocio.categoria.id,
+        palabra: negocio.categoria.nombre,
+      });
+    }
+
+    // 3. Subcategoría
+    if (negocio.subcategoria) {
+      keywords.push({
+        tipo: 'subcategoria',
+        id: negocio.subcategoria.id,
+        palabra: negocio.subcategoria.nombre,
+      });
+    }
+
+    // 4. Especialidad + variantes
+    if (negocio.especialidad) {
+      const espNorm = this.normalize(negocio.especialidad.nombre);
+
+      keywords.push({
+        tipo: 'especialidad',
+        id: negocio.especialidad.id,
+        palabra: espNorm,
+      });
+
+      const variantes = this.generateMisspellings(espNorm);
+      variantes.forEach(v =>
+        keywords.push({
+          tipo: 'especialidad',
+          id: negocio.especialidad.id,
+          palabra: v,
+        }),
+      );
+    }
+
+    // 5. Guardar en DB
+    for (const kw of keywords) {
+      if (!kw.id) continue;
+      await this.saveKeyword(kw.tipo, kw.id, kw.palabra);
+    }
+
+    console.log(`🧠 Autoaprendizaje completado para negocio: ${negocio.nombreNegocio}`);
+  }
+
+  // ============================================================
+  // ACTUALIZAR NEGOCIO
+  // ============================================================
   async actualizar(id: number, dto: UpdateNegocioDto): Promise<Negocio> {
     const negocio = await this.obtenerPorId(id);
     Object.assign(negocio, dto);
     return this.negocioRepo.save(negocio);
   }
 
+  // ============================================================
+  // ELIMINAR (SOFT DELETE)
+  // ============================================================
   async eliminar(id: number): Promise<void> {
     const negocio = await this.obtenerPorId(id);
     negocio.eliminado = true;
     await this.negocioRepo.save(negocio);
   }
-  
+
+  // ============================================================
+  // DETALLE
+  // ============================================================
   async obtenerDetalle(id: number) {
     const negocio = await this.negocioRepo.findOne({
       where: { id, eliminado: false },
       relations: [
-        'suscriptor',
-        'categoria',
-        'subcategoria',
-        'especialidad',
-        'estado',
-        'ciudad',
-        'sucursales',
-        'sucursales.ciudad',
-        'sucursales.estado',
+        "suscriptor",
+        "categoria",
+        "subcategoria",
+        "especialidad",
+        "estado",
+        "ciudad",
+        "sucursales",
+        "sucursales.ciudad",
+        "sucursales.estado",
       ],
     });
 
@@ -175,7 +344,7 @@ export class NegociosService {
 
     const resumen = {
       totalSucursales: negocio.sucursales?.length || 0,
-      estado: negocio.estado?.nombre || 'Desconocido',
+      estado: negocio.estado?.nombre || "Desconocido",
       fechaRegistro: negocio.fechaRegistro,
       ultimaActualizacion: negocio.fechaActualizacion,
     };

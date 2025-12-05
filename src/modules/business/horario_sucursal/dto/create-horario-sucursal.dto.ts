@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, IsBoolean, IsIn } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, IsBoolean, IsIn, ValidateIf } from 'class-validator';
 
 export class CreateHorarioSucursalDto {
   @IsNotEmpty()
@@ -7,9 +7,11 @@ export class CreateHorarioSucursalDto {
   @IsIn(['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'])
   diaSemana: string;
 
+  @ValidateIf(o => !o.cerrado)
   @IsNotEmpty()
   horaApertura: string;
 
+  @ValidateIf(o => !o.cerrado)
   @IsNotEmpty()
   horaCierre: string;
 

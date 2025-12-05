@@ -12,10 +12,16 @@ import {
 import { SucursalesNegociosService } from './sucursales-negocios.service';
 import { CreateSucursalNegocioDto } from './dto/create-sucursal-negocio.dto';
 import { UpdateSucursalNegocioDto } from './dto/update-sucursal-negocio.dto';
+import { AssignCaracteristicaDto } from '../caracteristicas_sucursales/dtos/assign-caracteristica.dto';
+import { SucursalesCaracteristicasService } from '../caracteristicas_sucursales/sucursales-caracteristicas.service';
+
 
 @Controller('sucursales')
 export class SucursalesNegociosController {
-  constructor(private readonly service: SucursalesNegociosService) {}
+  constructor(
+    private readonly service: SucursalesNegociosService,
+    private readonly sucCarService: SucursalesCaracteristicasService,
+  ) {}
 
   @Post()
   crear(@Body() dto: CreateSucursalNegocioDto) {
@@ -58,4 +64,19 @@ export class SucursalesNegociosController {
   listarPorNegocio(@Param('negocioId', ParseIntPipe) negocioId: number) {
     return this.service.listarPorNegocio(negocioId);
   }
+
+  //GET: obtener características asignadas a una sucursal
+@Get(':id/caracteristicas')
+obtenerCaracteristicas(@Param('id', ParseIntPipe) id: number) {
+  return this.sucCarService.getBySucursal(id);
+}
+
+//POST: asignar o editar una característica de sucursal
+@Post(':id/caracteristicas')
+asignarCaracteristica(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() dto: AssignCaracteristicaDto,
+) {
+  return this.sucCarService.assignCaracteristica(id, dto);
+}
 }

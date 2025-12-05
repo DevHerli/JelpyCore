@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 /**
- * 🧼 Use Case: Limpieza básica de texto.
+ * Use Case: Limpieza básica de texto.
  */
 @Injectable()
 export class SanitizerUseCase {

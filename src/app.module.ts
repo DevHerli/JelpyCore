@@ -6,7 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 
-import { TaxonomiaModule } from './modules/catalogos/taxonomia/taxonomia.module';
+import { TaxonomiaModule } from './modules/core/taxonomia/taxonomia.module';
 import { VistaCompletaModule } from './modules/core/vista-completa/vista.module';
 import { SearchModule } from './modules/core/search/search.module';
 import { HealthModule } from './modules/core/health/health.module';
@@ -34,6 +34,7 @@ import { AiModule } from './modules/core/ai/ai.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { Suscriptor } from './modules/business/suscriptores/entities/suscriptores.entity';
 import { CodigoOtp } from './modules/auth/entities/codigo-otp.entity';
+import { CaracteristicasSucursalModule } from './modules/business/caracteristicas_sucursales/caracteristicas-sucursal.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { CodigoOtp } from './modules/auth/entities/codigo-otp.entity';
     JelpyAssistantModule,
     AiModule,
     AuthModule,
+    CaracteristicasSucursalModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),

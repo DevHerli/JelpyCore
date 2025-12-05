@@ -39,30 +39,51 @@ export class JelpyAssistantController {
       };
     }
 
-    // 1️⃣ Corrección ortográfica
+    // Corrección ortográfica
     const textoCorregido = await this.orthoUseCase.execute(mensaje);
 
-    // 2️⃣ Revisión de lenguaje inapropiado
-    const moderacion = await this.profanityUseCase.execute(mensaje, textoCorregido, {
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-      usuarioId: suscriptorId,
-    });
+    // Revisión de lenguaje inapropiado
+    const moderacion = await this.profanityUseCase.execute(
+      mensaje,
+      textoCorregido,
+      {
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        usuarioId: suscriptorId,
+      },
+    );
 
     if (!moderacion.permitido) {
       return {
         status: 'rechazado',
-        mensaje: 'Tu mensaje contiene lenguaje inapropiado. Por favor modula tu lenguaje 💬🙂',
+        mensaje:
+          'Tu mensaje contiene lenguaje inapropiado. Por favor modula tu lenguaje 💬🙂',
         motivo: moderacion.motivo,
       };
     }
 
     // 3️⃣ Interpretar intención (detecta ciudad, categoría, "cerca de mí", etc.)
-    const resultado = await this.jelpyService.interpretar(textoCorregido, latitud, longitud);
+    const resultado = await this.jelpyService.interpretar(
+      textoCorregido,
+      latitud,
+      longitud,
+    );
 
-    // 4️⃣ Registrar métrica de búsqueda
+    // ======================================================
+    // 4️⃣ Registrar métrica de búsqueda (CORREGIDO)
+    // Tomamos la primera sucursal real encontrada
+    // ======================================================
     try {
-      await this.metricsUseCase.execute('busqueda', 'sucursal', suscriptorId);
+      const sucursalIdReal =
+        resultado?.resultados?.items?.[0]?.sucursal_id ?? null;
+
+      if (sucursalIdReal) {
+        await this.metricsUseCase.execute(
+          'busqueda',
+          'sucursal',
+          Number(sucursalIdReal),
+        );
+      }
     } catch (error) {
       console.warn('⚠️ No se pudo registrar la métrica:', error.message);
     }

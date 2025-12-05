@@ -5,17 +5,8 @@ import { SanitizerUseCase } from './use-cases/sanitizer.usecase';
 import { TrackMetricsUseCase } from './use-cases/track-metrics.usecase';
 import { HistoryManagerUseCase } from './use-cases/history-manager.usecase';
 import { JelpyAssistantService } from './jelpy-assistant/jelpy-assistant.service';
+import { AIResponseBuilder } from './utils/ai-response-builder';
 
-/**
- * 🤖 Servicio central de IA
- * Ejecuta el pipeline completo de procesamiento:
- * 1️⃣ Sanitiza texto
- * 2️⃣ Corrige ortografía
- * 3️⃣ Detecta groserías
- * 4️⃣ Guarda historial
- * 5️⃣ Envía a JelpyAssistant para interpretar
- * 6️⃣ Registra métricas
- */
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -32,26 +23,40 @@ export class AiService {
   ) {}
 
   /**
-   * 🧠 Procesa un mensaje completo del usuario.
+   * NO SE CAMBIA la firma, así sigue recibiendo 3 parámetros.
+   * latitud y longitud VIAJAN dentro del objeto "contexto".
    */
-  async processUserMessage(input: string, usuarioId?: number, contexto?: { ip?: string; userAgent?: string }) {
-    this.logger.debug(`🧩 Procesando mensaje del usuario: "${input}"`);
+  async processUserMessage(
+    input: string,
+    usuarioId?: number,
+    contexto?: { 
+      ip?: string; 
+      userAgent?: string; 
+      latitud?: number; 
+      longitud?: number; 
+    },
+  ) {
+    this.logger.debug(`Procesando mensaje: "${input}"`);
 
-    // 1️⃣ Sanitizar texto (limpia caracteres, espacios, HTML, etc.)
+    const latitud = contexto?.latitud ?? null;
+    const longitud = contexto?.longitud ?? null;
+
     const textoLimpio = this.sanitizerUseCase.execute(input);
-
-    // 2️⃣ Corrección ortográfica
     const textoCorregido = await this.orthographyUseCase.execute(textoLimpio);
 
-    // 3️⃣ Revisión de lenguaje inapropiado
-    const moderacion = await this.profanityUseCase.execute(textoLimpio, textoCorregido, {
-      ip: contexto?.ip,
-      userAgent: contexto?.userAgent,
-      usuarioId,
-    });
+    // 🔍 Moderación
+    const moderacion = await this.profanityUseCase.execute(
+      textoLimpio,
+      textoCorregido,
+      {
+        ip: contexto?.ip ?? null,
+        userAgent: contexto?.userAgent ?? null,
+        usuarioId: usuarioId ?? null,
+      },
+    );
 
     if (!moderacion.permitido) {
-      this.logger.warn(`🚫 Mensaje bloqueado por lenguaje inapropiado: "${input}"`);
+      this.logger.warn(`🚫 Mensaje bloqueado: "${input}"`);
       return {
         status: 'rechazado',
         motivo: moderacion.motivo,
@@ -59,27 +64,66 @@ export class AiService {
       };
     }
 
-    // 4️⃣ Guardar historial de consulta
+    // 📝 Historial
     await this.historyUseCase.saveQuery(usuarioId ?? 0, textoCorregido);
 
-    // 5️⃣ Enviar al motor Jelpy para interpretar intención
-    const respuesta = await this.jelpyAssistant.interpretar(textoCorregido);
+    // 🤖 Interpretación con GPS SI LO ENVIARON
+    const interpretacion = await this.jelpyAssistant.interpretar(
+      textoCorregido,
+      latitud ?? undefined,
+      longitud ?? undefined,
+    );
 
-    // 6️⃣ Registrar métrica de búsqueda
-    await this.trackMetricsUseCase.execute('busqueda', 'sucursal', usuarioId ?? 0);
+    // ===============================================
+    // NORMALIZACIÓN DE RESULTADOS
+    // ===============================================
+    const items = Array.isArray(interpretacion.resultados)
+      ? interpretacion.resultados
+      : interpretacion.resultados.items ?? [];
 
-    // ✅ Respuesta final estructurada
+    // ===============================================
+    // 📊 REGISTRAR MÉTRICAS SOLO SI HAY SUCURSAL
+    // ===============================================
+    try {
+      for (const item of items) {
+        const sucursalId =
+          item.sucursal_id ||
+          item.sucursalId ||
+          item.id_sucursal ||
+          item.sucursal?.id ||
+          null;
+
+        if (sucursalId) {
+          await this.trackMetricsUseCase.execute(
+            'busqueda',
+            'sucursal',
+            Number(sucursalId),
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.error('❌ Error registrando métricas', err);
+    }
+
+    // 💬 Respuesta amigable
+    const friendly = AIResponseBuilder.buildFriendlyResponse(
+      interpretacion.filtros_detectados,
+      items
+    );
+    
+
     return {
       status: 'aceptado',
       mensajeOriginal: input,
       mensajeCorregido: textoCorregido,
-      respuesta,
+      respuesta: friendly,
+      debug: {
+        filtros: interpretacion.filtros_detectados,
+        totalResultados: items.length,
+      },
     };
   }
 
-  /**
-   * 🔍 Método interno para interpretar consultas sin ejecutar todo el pipeline.
-   */
   async interpretQuery(query: string) {
     const limpio = this.sanitizerUseCase.execute(query);
     const corregido = await this.orthographyUseCase.execute(limpio);

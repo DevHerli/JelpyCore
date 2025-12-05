@@ -10,22 +10,26 @@ export class SearchController {
 
   @Get()
   async search(@Query() dto: SearchDto) {
-    if (!dto.q) throw new BadRequestException('Falta parámetro q');
+    // Permitir q o termino
+    const query = dto.q ?? dto.termino;
+
+    if (!query) {
+      throw new BadRequestException('Falta parámetro q o termino');
+    }
 
     const resp = await this.svc.search({
-      q: dto.q,
+      q: query,
       ciudad: dto.ciudad,
 
-      // Igual que tenías
       abiertoAhora: dto.abiertoAhora === 'true',
       lat: dto.lat ? Number(dto.lat) : undefined,
       lng: dto.lng ? Number(dto.lng) : undefined,
       radioKm: dto.radioKm ? Number(dto.radioKm) : undefined,
 
-      // Nuevos campos del DTO (solo agregados, no se cambió nada)
       categoriaId: dto.categoriaId ? Number(dto.categoriaId) : undefined,
       subcategoriaId: dto.subcategoriaId ? Number(dto.subcategoriaId) : undefined,
       especialidadId: dto.especialidadId ? Number(dto.especialidadId) : undefined,
+
       promos: dto.promos === 'true',
     });
 

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ReportesModeracionService } from '../../reports/reportes-moderacion/reportes-moderacion.service';
 
 /**
- * 🧩 Use Case: Detección de lenguaje inapropiado o tóxico.
+ * Use Case: Detección de lenguaje inapropiado o tóxico.
  * - Revisa si un texto contiene palabras prohibidas.
  * - Registra el incidente en la tabla de reportes de moderación.
  */

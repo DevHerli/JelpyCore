@@ -4,10 +4,12 @@ import {
   Column,
   ManyToOne,
   JoinColumn,
+  OneToMany,
 } from 'typeorm';
 import { Negocio } from '../../negocios/entities/negocio.entity';
 import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
+import { SucursalCaracteristica } from '../../caracteristicas_sucursales/entities/sucursal-caracteristica.entity';
 
 @Entity('sucursales_negocios')
 export class SucursalNegocio {
@@ -18,6 +20,10 @@ export class SucursalNegocio {
   @ManyToOne(() => Negocio, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
+
+  @OneToMany(() => SucursalCaracteristica, (sc) => sc.sucursal)
+  caracteristicas: SucursalCaracteristica[];
+
 
   @Column({ name: 'nombre_sucursal', length: 150 })
   nombreSucursal: string;

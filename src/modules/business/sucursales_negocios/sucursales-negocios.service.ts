@@ -13,7 +13,7 @@ export class SucursalesNegociosService {
   ) {}
 
   async crear(dto: CreateSucursalNegocioDto): Promise<SucursalNegocio> {
-    const entity: SucursalNegocio = this.sucursalRepo.create({
+    const entity = this.sucursalRepo.create({
       ...dto,
       negocio: { id: dto.negocioId } as any,
       ciudad: { id: dto.ciudadId } as any,
@@ -29,14 +29,18 @@ export class SucursalesNegociosService {
   }): Promise<SucursalNegocio[]> {
     const where: FindOptionsWhere<SucursalNegocio> = { eliminado: false } as any;
 
-    if (params?.negocioId) (where as any).negocio = { id: params.negocioId } as any;
-    if (params?.ciudadId) (where as any).ciudad = { id: params.ciudadId } as any;
-    if (params?.estadoId) (where as any).estado = { id: params.estadoId } as any;
+    if (params?.negocioId) where.negocio = { id: params.negocioId } as any;
+    if (params?.ciudadId) where.ciudad = { id: params.ciudadId } as any;
+    if (params?.estadoId) where.estado = { id: params.estadoId } as any;
 
     return this.sucursalRepo.find({
       where,
       order: { id: 'ASC' },
-      relations: ['negocio'], // ciudad y estado son eager
+      relations: [
+        'negocio',
+        'caracteristicas',              // 👈 IMPORTANTE
+        'caracteristicas.caracteristica' // 👈 Para obtener datos completos
+      ],
     });
   }
 
@@ -47,8 +51,13 @@ export class SucursalesNegociosService {
   async obtener(id: number): Promise<SucursalNegocio> {
     const suc = await this.sucursalRepo.findOne({
       where: { id, eliminado: false },
-      relations: ['negocio'],
+      relations: [
+        'negocio',
+        'caracteristicas',              
+        'caracteristicas.caracteristica'
+      ],
     });
+
     if (!suc) throw new NotFoundException('Sucursal no encontrada');
     return suc;
   }
@@ -56,7 +65,6 @@ export class SucursalesNegociosService {
   async actualizar(id: number, dto: UpdateSucursalNegocioDto): Promise<SucursalNegocio> {
     const suc = await this.obtener(id);
 
-    // mapear relaciones si vienen en el DTO
     const rels: Partial<SucursalNegocio> = {};
     if (dto.negocioId) rels.negocio = { id: dto.negocioId } as any;
     if (dto.ciudadId) rels.ciudad = { id: dto.ciudadId } as any;
@@ -64,7 +72,7 @@ export class SucursalesNegociosService {
 
     Object.assign(suc, dto, rels);
     return this.sucursalRepo.save(suc);
-    }
+  }
 
   async eliminar(id: number): Promise<void> {
     const suc = await this.obtener(id);

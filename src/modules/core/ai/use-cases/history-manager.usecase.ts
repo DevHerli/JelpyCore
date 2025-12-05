@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { UserQueryHistory } from '../../metrics/estadistica-historico/entities/user-query-history.entity';
 
 /**
- * 🧩 Use Case: History Manager
+ * Use Case: History Manager
  * Guarda las consultas del suscriptor al asistente (historial de uso).
  */
 @Injectable()
