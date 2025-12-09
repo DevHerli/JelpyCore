@@ -11,12 +11,10 @@ export class AiController {
     private readonly metricsUseCase: TrackMetricsUseCase,
   ) {}
 
-  /**
-   * Endpoint principal para procesar mensajes
-   */
   @Post('process')
   async procesarMensaje(
     @Body('mensaje') mensaje: string,
+    @Body('ciudad') ciudad?: string,           
     @Body('usuarioId') usuarioId?: number,
     @Body('latitud') latitud?: number,
     @Body('longitud') longitud?: number,
@@ -27,11 +25,11 @@ export class AiController {
 
     this.logger.log(`Mensaje recibido: ${mensaje}`);
 
-    // 📌 AHORA SÍ SE ENVÍA EL GPS AL AiService
     const resultado = await this.aiService.processUserMessage(
       mensaje,
       usuarioId,
       {
+        ciudad,               // ✅ ← ENVIADO A AiService
         latitud,
         longitud,
       }
@@ -40,9 +38,6 @@ export class AiController {
     const respuesta: any = resultado?.respuesta ?? {};
     const items: any[] = Array.isArray(respuesta.items) ? respuesta.items : [];
 
-    /**
-     * Registrar métricas SOLO si hay sucursales válidas
-     */
     if (items.length > 0) {
       try {
         for (const item of items) {
@@ -68,9 +63,6 @@ export class AiController {
     };
   }
 
-  /**
-   * Solo interpretar (sin pipeline completo)
-   */
   @Post('interpret')
   async interpretarQuery(@Body('query') query: string) {
     if (!query) {

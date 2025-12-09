@@ -75,6 +75,7 @@ export class NegociosService {
         'estado',
         'ciudad',
         'sucursales',
+        'sucursales.horarios',
       ],
     });
 

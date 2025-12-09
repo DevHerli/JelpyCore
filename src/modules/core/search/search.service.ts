@@ -26,83 +26,36 @@ export class SearchService {
     private cfg: ConfigService,
   ) {}
 
-  /**
-   * Stopwords básicas para no intentar matchear palabras irrelevantes
-   * en las búsquedas textuales y en hints de taxonomía.
-   */
   private readonly stopwords: string[] = [
-    'en',
-    'de',
-    'del',
-    'la',
-    'el',
-    'los',
-    'las',
-    'un',
-    'una',
-    'unos',
-    'unas',
-    'y',
-    'o',
-    'para',
-    'por',
-    'con',
-    'sin',
-    'que',
-    'quiero',
-    'busco',
-    'buscar',
-    'donde',
-    'dónde',
-    'hay',
-    'me',
-    'mi',
-    'mí',
-    'cerca',
-    'cerquita',
-    'abierto',
-    'abiertos',
-    'ahora',
-    'ahorita',
-    'promos',
-    'promo',
-    'oferta',
-    'ofertas',
-    'descuento',
-    'descuentos',
+    'en','de','del','la','el','los','las','un','una','unos','unas',
+    'y','o','para','por','con','sin','que',
+    'quiero','busco','buscar','donde','dónde',
+    'hay','me','mi','mí',
+    'cerca','cerquita',
+    'abierto','abiertos','ahora','ahorita',
+    'promos','promo','oferta','ofertas',
+    'descuento','descuentos',
   ];
 
-  /**
-   * Variantes ortográficas genéricas para soportar errores comunes:
-   * - s <-> z
-   * - sh <-> ch
-   * - quitar vocales
-   * - mover primera letra al final
-   * - duplicar última letra
-   */
   private generateMisspellings(word: string): string[] {
     const variantes = new Set<string>();
     const w = word.toLowerCase();
 
     if (w.length <= 2) return [];
 
-    // Cambios genéricos
     variantes.add(w.replace(/s/g, 'z'));
     variantes.add(w.replace(/z/g, 's'));
     variantes.add(w.replace(/c/g, 's'));
     variantes.add(w.replace(/sh/g, 'ch'));
     variantes.add(w.replace(/ch/g, 'sh'));
 
-    // Quitar todas las vocales
     variantes.add(w.replace(/[aeiouáéíóú]/g, ''));
 
-    // Quitar primera o última letra
     if (w.length > 3) {
       variantes.add(w.slice(1));
       variantes.add(w.slice(0, -1));
     }
 
-    // Duplicar última letra
     variantes.add(w + w[w.length - 1]);
 
     return [...variantes].filter((v) => v && v.length > 2 && v !== w);
@@ -125,18 +78,32 @@ export class SearchService {
     const minute = parts.find((p) => p.type === 'minute')?.value || '00';
 
     const mapDias: Record<string, string> = {
-      lunes: 'lunes',
-      martes: 'martes',
-      miércoles: 'miércoles',
-      miercoles: 'miércoles',
-      jueves: 'jueves',
-      viernes: 'viernes',
-      sábado: 'sábado',
-      sabado: 'sábado',
+      lunes: 'lunes', martes: 'martes',
+      miércoles: 'miércoles', miercoles: 'miércoles',
+      jueves: 'jueves', viernes: 'viernes',
+      sábado: 'sábado', sabado: 'sábado',
       domingo: 'domingo',
     };
 
     return { dia: mapDias[wd] || 'lunes', time: `${hour}:${minute}:00` };
+  }
+
+  /** 🔥 Genera mensaje estilo Google Maps */
+  private formatMensajeHorario(apertura: string, cierre: string, tz: string) {
+    if (!apertura || !cierre) return null;
+
+    const now = this.getLocalNow(tz);
+    const current = now.time;
+
+    if (current >= apertura && current <= cierre) {
+      return `Abierto ahora — Cierra a las ${cierre.slice(0, 5)} hrs`;
+    }
+
+    if (current < apertura) {
+      return `Cerrado — Abre a las ${apertura.slice(0, 5)} hrs`;
+    }
+
+    return `Cerrado — Abre mañana a las ${apertura.slice(0, 5)} hrs`;
   }
 
   async search(params: {
@@ -164,35 +131,25 @@ export class SearchService {
 
     const qNorm = normalizeBasic(qRaw);
 
-    // ==========================
-    //  TOKENS LIMPIOS
-    // ==========================
     const baseTokens = qNorm
       .split(/\s+/)
       .map((t) => t.trim())
       .filter((t) => t.length > 2 && !this.stopwords.includes(t));
 
-    // ==========================
-    //  HINTS TAXONÓMICOS (INFO)
-    // ==========================
     let hints: KeywordTaxonomia[] = [];
 
     if (baseTokens.length > 0) {
       const hintsQb = this.kwRepo.createQueryBuilder('k');
-
-      // Normalizamos keyword en SQL similar a JelpyAssistant
       hintsQb.where('1=0');
+
       baseTokens.forEach((tk, idx) => {
         const param = `t${idx}`;
         hintsQb.orWhere(
           `
           REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
             LOWER(k.keyword),
-            'á','a'),
-            'é','e'),
-            'í','i'),
-            'ó','o'),
-            'ú','u') LIKE :${param}
+            'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u')
+          LIKE :${param}
         `,
           { [param]: `%${tk}%` },
         );
@@ -203,7 +160,6 @@ export class SearchService {
         .limit(10)
         .getMany();
     } else {
-      // Fallback muy básico si no hubo tokens útiles
       hints = await this.kwRepo
         .createQueryBuilder('k')
         .where('k.keyword LIKE :w', { w: `%${qNorm}%` })
@@ -220,50 +176,30 @@ export class SearchService {
         }
       : undefined;
 
-    // ==========================
-    //  QUERY BASE
-    // ==========================
     const qb = this.vistaRepo.createQueryBuilder('v');
 
-    // Ciudad
     if (params.ciudad) {
       qb.andWhere('v.ciudad = :ciudad', { ciudad: params.ciudad });
     }
 
-    // Taxonomía exacta detectada (de JelpyAssistant)
     const tieneTaxonomia =
       !!params.categoriaId || !!params.subcategoriaId || !!params.especialidadId;
 
     if (params.categoriaId) {
-      qb.andWhere('v.categoria_id = :categoriaId', {
-        categoriaId: params.categoriaId,
-      });
+      qb.andWhere('v.categoria_id = :categoriaId', { categoriaId: params.categoriaId });
     }
-
     if (params.subcategoriaId) {
-      qb.andWhere('v.subcategoria_id = :subcategoriaId', {
-        subcategoriaId: params.subcategoriaId,
-      });
+      qb.andWhere('v.subcategoria_id = :subcategoriaId', { subcategoriaId: params.subcategoriaId });
     }
-
     if (params.especialidadId) {
-      qb.andWhere('v.especialidad_id = :especialidadId', {
-        especialidadId: params.especialidadId,
-      });
+      qb.andWhere('v.especialidad_id = :especialidadId', { especialidadId: params.especialidadId });
     }
 
-    // ============================================
-    //  🔥 MATCH TEXTUAL SOLO SI NO HAY TAXONOMÍA
-    // ============================================
     if (!tieneTaxonomia) {
-      // Incluimos variantes ortográficas para cada token
       const tokensConVariantes = new Set<string>();
-
       baseTokens.forEach((tk) => {
         tokensConVariantes.add(tk);
-        this.generateMisspellings(tk).forEach((v) =>
-          tokensConVariantes.add(v),
-        );
+        this.generateMisspellings(tk).forEach((v) => tokensConVariantes.add(v));
       });
 
       const tokens = [...tokensConVariantes];
@@ -300,38 +236,28 @@ export class SearchService {
       }
     }
 
-    // Abierto ahora
     if (params.abiertoAhora) {
       const { dia, time } = this.getLocalNow(tz);
       qb.andWhere('v.dia_semana = :dia', { dia });
-      qb.andWhere(':now BETWEEN v.hora_apertura AND v.hora_cierre', {
-        now: time,
-      });
+      qb.andWhere(':now BETWEEN v.hora_apertura AND v.hora_cierre', { now: time });
     }
 
-    // Abierto 24h
     if (params.abierto24h) {
       qb.andWhere('v.hora_apertura = "00:00:00" AND v.hora_cierre = "23:59:59"');
     }
 
-    // Urgencias
     if (params.urgencias) {
       qb.andWhere('v.atiende_urgencias = 1');
     }
 
-    // Servicio a domicilio
     if (params.domicilio) {
       qb.andWhere('v.servicio_domicilio = 1');
     }
 
-    // Promos activas
     if (params.promos) {
-      qb.andWhere(
-        'CURRENT_DATE() BETWEEN v.promo_fecha_inicio AND v.promo_fecha_fin',
-      );
+      qb.andWhere('CURRENT_DATE() BETWEEN v.promo_fecha_inicio AND v.promo_fecha_fin');
     }
 
-    // Cercanía GPS
     if (typeof params.lat === 'number' && typeof params.lng === 'number') {
       const radioKm = params.radioKm ?? 10;
 
@@ -350,7 +276,6 @@ export class SearchService {
         .having('km <= :r', { r: radioKm })
         .orderBy('km', 'ASC');
     } else {
-      // Orden básico: primero promos, luego por nombre
       qb.orderBy('v.promo_titulo IS NOT NULL', 'DESC');
       qb.addOrderBy('v.nombre_negocio', 'ASC');
     }
@@ -359,43 +284,46 @@ export class SearchService {
 
     const rows = await qb.getRawAndEntities();
 
-    // MAPEO FINAL
-    const items = rows.entities.map(
-      (e: VistaNegociosCompleta, idx: number) => ({
-        negocio_id: e.negocio_id,
-        nombre_negocio: e.nombre_negocio,
-        sucursal: e.nombre_sucursal,
-        ciudad: e.ciudad,
+    const items = rows.entities.map((e: VistaNegociosCompleta, idx: number) => ({
+      negocio_id: e.negocio_id,
+      nombre_negocio: e.nombre_negocio,
+      sucursal: e.nombre_sucursal,
+      ciudad: e.ciudad,
 
-        categoria_id: e.categoria_id,
-        subcategoria_id: e.subcategoria_id,
-        especialidad_id: e.especialidad_id,
+      categoria_id: e.categoria_id,
+      subcategoria_id: e.subcategoria_id,
+      especialidad_id: e.especialidad_id,
 
-        categoria: e.categoria,
-        subcategoria: e.subcategoria,
-        especialidad: e.especialidad,
+      categoria: e.categoria,
+      subcategoria: e.subcategoria,
+      especialidad: e.especialidad,
 
-        latitud: e.latitud ? Number(e.latitud) : null,
-        longitud: e.longitud ? Number(e.longitud) : null,
+      latitud: e.latitud ? Number(e.latitud) : null,
+      longitud: e.longitud ? Number(e.longitud) : null,
 
-        abierto: !!(e.hora_apertura && e.hora_cierre),
+      abierto: !!(e.hora_apertura && e.hora_cierre),
 
-        promo: e.promo_titulo
-          ? {
-              titulo: e.promo_titulo,
-              desde: e.promo_fecha_inicio,
-              hasta: e.promo_fecha_fin,
-            }
+      /** 🔥 AGREGADO: HORARIO DETALLADO */
+      horario: {
+        apertura: e.hora_apertura ?? null,
+        cierre: e.hora_cierre ?? null,
+        mensaje: this.formatMensajeHorario(e.hora_apertura, e.hora_cierre, tz),
+      },
+
+      promo: e.promo_titulo
+        ? {
+            titulo: e.promo_titulo,
+            desde: e.promo_fecha_inicio,
+            hasta: e.promo_fecha_fin,
+          }
+        : null,
+
+      distancia_km:
+        rows.raw[idx]?.km !== undefined && rows.raw[idx]?.km !== null
+          ? Number(Number(rows.raw[idx].km).toFixed(2))
           : null,
+    }));
 
-        distancia_km:
-          rows.raw[idx]?.km !== undefined && rows.raw[idx]?.km !== null
-            ? Number(Number(rows.raw[idx].km).toFixed(2))
-            : null,
-      }),
-    );
-
-    // Unificar por negocio-sucursal
     const mapa = new Map<string, any>();
     for (const item of items) {
       const key = `${item.negocio_id}-${item.sucursal}`;

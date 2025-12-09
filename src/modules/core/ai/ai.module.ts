@@ -22,6 +22,10 @@ import { UserQueryHistory } from '../metrics/estadistica-historico/entities/user
 import { ReportesModeracionModule } from '../reports/reportes-moderacion/reportes-moderacion.module';
 import { EstadisticasModule } from '../metrics/estadisticas/estadisticas.module';
 import { EstadisticaHistoricoModule } from '../metrics/estadistica-historico/estadistica-historico.module';
+import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
+import { ChatResponses } from './utils/chat-responses';
+import { PublicidadChatModule } from '../publicidad-chat/publicidad-chat.module';
+import { UsuarioPreferenciasModule } from '../preferencias-usuarios/usuario-preferencias.module';
 
 @Module({
   imports: [
@@ -35,6 +39,8 @@ import { EstadisticaHistoricoModule } from '../metrics/estadistica-historico/est
     ReportesModeracionModule,
     EstadisticasModule,
     EstadisticaHistoricoModule,
+    PublicidadChatModule,
+    UsuarioPreferenciasModule
   ],
 
   controllers: [AiController],
@@ -48,6 +54,8 @@ import { EstadisticaHistoricoModule } from '../metrics/estadistica-historico/est
     SanitizerUseCase,
     TrackMetricsUseCase,
     HistoryManagerUseCase,
+    IntentDetectorUseCase,
+    ChatResponses, 
   ],
 
   exports: [

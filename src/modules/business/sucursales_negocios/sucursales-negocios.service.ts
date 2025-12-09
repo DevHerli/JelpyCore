@@ -38,8 +38,9 @@ export class SucursalesNegociosService {
       order: { id: 'ASC' },
       relations: [
         'negocio',
-        'caracteristicas',              // 👈 IMPORTANTE
-        'caracteristicas.caracteristica' // 👈 Para obtener datos completos
+        'caracteristicas',          
+        'caracteristicas.caracteristica',
+        'horarios' 
       ],
     });
   }

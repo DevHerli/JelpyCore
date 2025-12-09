@@ -15,7 +15,7 @@ export class CreateNegocioDto {
 
   @IsOptional()
   @IsString()
-  logoUrl?: string; // ✅ importante para cuando venga por URL
+  logoUrl?: string; 
 
   @IsNotEmpty()
   @IsNumber()

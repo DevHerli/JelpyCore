@@ -1,75 +1,107 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ReportesModeracionService } from '../../reports/reportes-moderacion/reportes-moderacion.service';
 
-/**
- * Use Case: Detección de lenguaje inapropiado o tóxico.
- * - Revisa si un texto contiene palabras prohibidas.
- * - Registra el incidente en la tabla de reportes de moderación.
- */
 @Injectable()
 export class ProfanityCheckUseCase {
   private readonly logger = new Logger(ProfanityCheckUseCase.name);
 
-  /**
-   * Lista de palabras o expresiones prohibidas.
-   * Puedes ampliarla según tus necesidades.
-   */
-  private readonly bannedWords = [
-    'pendejo', 'puta', 'mierda', 'cabron', 'idiota',
-    'estupido', 'verga', 'chingar', 'coño', 'culero',
-    'matar', 'golpear', 'asesinar', 'violencia'
+  /** Nivel fuerte → BLOQUEA */
+  private readonly bannedStrong = [
+    'pendej', 'put', 'mierd', 'verga', 'ching', 
+    'culer', 'coño', 'matar', 'asesinar', 'golpear'
+  ];
+
+  /** Nivel suave → PERMITE PERO ADVIERTE */
+  private readonly bannedSoft = [
+    'idiota', 'estupido', 'estúpido', 'menso', 'tonto'
+  ];
+
+  /** Expresiones completas fuertes */
+  private readonly bannedExpressions = [
+    'a tu madre',
+    'a su madre',
+    'chinguen a su madre',
+    'vete a la verga',
+    'chinga tu madre'
   ];
 
   constructor(
     private readonly reportesService: ReportesModeracionService,
   ) {}
 
-  /**
-   * Analiza un texto, detecta groserías y registra un reporte si es necesario.
-   *
-   * @param texto Texto original del usuario
-   * @param corregido Texto corregido (opcional)
-   * @param contexto Información adicional (IP, user-agent, usuarioId, etc.)
-   */
   async execute(
     texto: string,
     corregido?: string,
     contexto?: { ip?: string; userAgent?: string; usuarioId?: number },
-  ): Promise<{ permitido: boolean; motivo?: string; palabra?: string }> {
-    if (!texto) {
-      return { permitido: true };
-    }
+  ): Promise<{ 
+    permitido: boolean; 
+    motivo?: string; 
+    palabra?: string; 
+    advertencia?: string;
+  }> {
+
+    if (!texto) return { permitido: true };
 
     const lower = texto.toLowerCase();
-    const palabra = this.bannedWords.find(w => lower.includes(w));
 
-    if (palabra) {
-      try {
-        // 🧠 Registrar el incidente en la base de datos
-        await this.reportesService.crear({
-          mensajeOriginal: texto,
-          mensajeCorregido: corregido,
-          motivo: `Lenguaje inapropiado detectado: ${palabra}`,
-          tipo: 'grosería',
-          // ✅ Guardamos la relación con el suscriptor (foreign key)
-          suscriptor: contexto?.usuarioId ? ({ id: contexto.usuarioId } as any) : null,
-          ipUsuario: contexto?.ip || null,
-          userAgent: contexto?.userAgent || null,
-        });
-
-        this.logger.warn(`⚠️ Grosería detectada: "${palabra}"`);
-      } catch (error) {
-        this.logger.error('❌ Error al registrar reporte de moderación', error);
+    // ====== 1. EXPRESIONES FUERTES ======
+    for (const exp of this.bannedExpressions) {
+      if (lower.includes(exp)) {
+        await this.registrarReporte(texto, corregido, contexto, exp);
+        return {
+          permitido: false,
+          motivo: `Lenguaje inapropiado (${exp})`,
+          palabra: exp
+        };
       }
-
-      return {
-        permitido: false,
-        motivo: `Lenguaje inapropiado detectado (${palabra})`,
-        palabra,
-      };
     }
 
-    // ✅ Si no se detectan palabras prohibidas
+    const tokens = lower.split(/\s+/);
+
+    // ====== 2. NIVEL FUERTE ======
+    for (const token of tokens) {
+      for (const root of this.bannedStrong) {
+        if (token.includes(root)) {
+          await this.registrarReporte(texto, corregido, contexto, root);
+          return {
+            permitido: false,
+            motivo: `Lenguaje inapropiado (${root})`,
+            palabra: root
+          };
+        }
+      }
+    }
+
+    // ====== 3. NIVEL SUAVE (IDIOTA, ESTÚPIDO...) ======
+    for (const token of tokens) {
+      for (const soft of this.bannedSoft) {
+        if (token.includes(soft)) {
+          await this.registrarReporte(texto, corregido, contexto, soft);
+          return {
+            permitido: true,
+            advertencia: 'mantener_respecto',
+            palabra: soft
+          };
+        }
+      }
+    }
+
     return { permitido: true };
+  }
+
+  private async registrarReporte(original: string, corregido: string, contexto: any, palabra: string) {
+    try {
+      await this.reportesService.crear({
+        mensajeOriginal: original,
+        mensajeCorregido: corregido,
+        motivo: `Lenguaje inapropiado detectado: ${palabra}`,
+        tipo: 'grosería',
+        suscriptor: contexto?.usuarioId ? ({ id: contexto.usuarioId } as any) : null,
+        ipUsuario: contexto?.ip || null,
+        userAgent: contexto?.userAgent || null,
+      });
+    } catch (error) {
+      this.logger.error('❌ Error al registrar reporte de moderación', error);
+    }
   }
 }

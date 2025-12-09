@@ -124,7 +124,7 @@ export class JelpyAssistantService {
       relevancia: 5,
     });
 
-    console.log(`🧠 Nuevo aprendizaje: "${palabra}" → subcategoría ${subcategoriaId}`);
+    console.log(`Nuevo aprendizaje: "${palabra}" → subcategoría ${subcategoriaId}`);
 
     // Registrar variantes
     const variantes = this.generateMisspellings(palabra);
@@ -154,13 +154,25 @@ export class JelpyAssistantService {
   // ------------------------------------------------------------
   // INTERPRETAR MENSAJE
   // ------------------------------------------------------------
-  async interpretar(texto: string, latitud?: number, longitud?: number) {
-    const filtros: any = {};
-    const textoNorm = this.normalizar(texto);
 
-    // -------------------------------
-    // Detectar CIUDAD
-    // -------------------------------
+async interpretar(
+  texto: string,
+  latitud?: number,
+  longitud?: number,
+  ciudadManual?: string,   
+) {
+  const filtros: any = {};
+  const textoNorm = this.normalizar(texto);
+
+
+  // CIUDAD DEL FRONTEND — PRIORIDAD ABSOLUTA
+
+  if (ciudadManual) {
+    filtros.ciudad = ciudadManual;
+  } else {
+
+    //DETECTAR CIUDAD EN EL TEXTO (FALLBACK)
+
     const ciudades = await this.ciudadRepo.find();
     for (const c of ciudades) {
       if (textoNorm.includes(this.normalizar(c.nombre))) {
@@ -168,6 +180,8 @@ export class JelpyAssistantService {
         filtros.ciudadId = Number(c.id);
       }
     }
+  }
+
 
     // -------------------------------
     // Detectar KEYWORDS

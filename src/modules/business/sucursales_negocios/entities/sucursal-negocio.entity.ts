@@ -10,6 +10,7 @@ import { Negocio } from '../../negocios/entities/negocio.entity';
 import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
 import { SucursalCaracteristica } from '../../caracteristicas_sucursales/entities/sucursal-caracteristica.entity';
+import { HorarioSucursal } from '../../horario_sucursal/entities/horarios-sucursal.entity';
 
 @Entity('sucursales_negocios')
 export class SucursalNegocio {
@@ -23,6 +24,9 @@ export class SucursalNegocio {
 
   @OneToMany(() => SucursalCaracteristica, (sc) => sc.sucursal)
   caracteristicas: SucursalCaracteristica[];
+
+@OneToMany(() => HorarioSucursal, (h) => h.sucursal, { eager: true })
+horarios: HorarioSucursal[];
 
 
   @Column({ name: 'nombre_sucursal', length: 150 })

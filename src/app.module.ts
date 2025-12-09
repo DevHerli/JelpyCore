@@ -35,6 +35,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { Suscriptor } from './modules/business/suscriptores/entities/suscriptores.entity';
 import { CodigoOtp } from './modules/auth/entities/codigo-otp.entity';
 import { CaracteristicasSucursalModule } from './modules/business/caracteristicas_sucursales/caracteristicas-sucursal.module';
+import { PublicidadChatModule } from './modules/core/publicidad-chat/publicidad-chat.module';
+import { UsuarioPreferenciasModule } from './modules/core/preferencias-usuarios/usuario-preferencias.module';
 
 @Module({
   imports: [
@@ -61,6 +63,8 @@ import { CaracteristicasSucursalModule } from './modules/business/caracteristica
     AiModule,
     AuthModule,
     CaracteristicasSucursalModule,
+    PublicidadChatModule,
+    UsuarioPreferenciasModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),
