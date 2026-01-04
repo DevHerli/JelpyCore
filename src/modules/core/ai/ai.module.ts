@@ -26,6 +26,7 @@ import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
 import { ChatResponses } from './utils/chat-responses';
 import { PublicidadChatModule } from '../publicidad-chat/publicidad-chat.module';
 import { UsuarioPreferenciasModule } from '../preferencias-usuarios/usuario-preferencias.module';
+import { SucursalLikesModule } from '../sucursal-likes/sucursal-likes.module';
 
 @Module({
   imports: [
@@ -40,7 +41,8 @@ import { UsuarioPreferenciasModule } from '../preferencias-usuarios/usuario-pref
     EstadisticasModule,
     EstadisticaHistoricoModule,
     PublicidadChatModule,
-    UsuarioPreferenciasModule
+    UsuarioPreferenciasModule,
+    SucursalLikesModule,
   ],
 
   controllers: [AiController],

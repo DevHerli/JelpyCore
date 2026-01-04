@@ -8,12 +8,14 @@ import {
   ParseIntPipe,
   Query,
   BadRequestException,
+  Delete,
 } from '@nestjs/common';
 import { CategoriasService } from './categorias.service';
 import { CreateCategoriaDto } from './dtos/create-categoria.dto';
 import { UpdateCategoriaDto } from './dtos/update-categoria.dto';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Categoria } from './entities/categorias.entity';
+import { QueryCategoriasDto } from './dtos/query-categorias.dto';
 
 @ApiTags('Categorias')
 @Controller('categorias')
@@ -27,11 +29,40 @@ export class CategoriasController {
     return this.categoriasService.create(dto);
   }
 
+  /**
+   * GET /categorias
+   * Filtros opcionales:
+   * - q
+   * - activo
+   * - fecha_desde
+   * - fecha_hasta
+   * - includeSubcategorias
+   * - orderBy
+   * - orderDir
+   * - page
+   * - limit
+   */
   @Get()
-  @ApiOperation({ summary: 'Obtener todas las categorías activas' })
-  @ApiResponse({ status: 200, type: [Categoria] })
-  findAll() {
-    return this.categoriasService.findAll();
+  @ApiOperation({ summary: 'Obtener categorías (con filtros opcionales)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Listado paginado con filtros',
+  })
+  @ApiQuery({ name: 'q', required: false, type: String })
+  @ApiQuery({ name: 'activo', required: false, type: Boolean })
+  @ApiQuery({ name: 'fecha_desde', required: false, type: String })
+  @ApiQuery({ name: 'fecha_hasta', required: false, type: String })
+  @ApiQuery({ name: 'includeSubcategorias', required: false, type: Boolean })
+  @ApiQuery({
+    name: 'orderBy',
+    required: false,
+    enum: ['id', 'nombre', 'fechaCreacion'],
+  })
+  @ApiQuery({ name: 'orderDir', required: false, enum: ['ASC', 'DESC'] })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  findAll(@Query() query: QueryCategoriasDto) {
+    return this.categoriasService.findAll(query);
   }
 
   @Get('activas')
@@ -64,15 +95,19 @@ export class CategoriasController {
     status: 200,
     description: 'Categoría desactivada correctamente',
   })
+  @ApiQuery({
+    name: 'eliminadoPor',
+    required: true,
+    type: Number,
+    description: 'ID del usuario que desactiva la categoría',
+  })
   softDelete(
     @Param('id', ParseIntPipe) id: number,
     @Query('eliminadoPor') eliminadoPorRaw: string,
   ) {
     // Validar que venga
     if (!eliminadoPorRaw) {
-      throw new BadRequestException(
-        'El parámetro eliminadoPor es obligatorio.',
-      );
+      throw new BadRequestException('El parámetro eliminadoPor es obligatorio.');
     }
 
     // Convertir a número
@@ -86,5 +121,15 @@ export class CategoriasController {
     }
 
     return this.categoriasService.softDelete(id, eliminadoPor);
+  }
+
+  @Delete(':id/permanente')
+  @ApiOperation({ summary: 'Eliminar una categoría permanentemente (hard delete)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Categoría eliminada permanentemente',
+  })
+  deletePermanente(@Param('id', ParseIntPipe) id: number) {
+    return this.categoriasService.hardDelete(id);
   }
 }

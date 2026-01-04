@@ -11,13 +11,22 @@ export class AiController {
     private readonly metricsUseCase: TrackMetricsUseCase,
   ) {}
 
+  /**
+   * Endpoint principal para procesar mensajes
+   */
   @Post('process')
   async procesarMensaje(
     @Body('mensaje') mensaje: string,
-    @Body('ciudad') ciudad?: string,           
     @Body('usuarioId') usuarioId?: number,
-    @Body('latitud') latitud?: number,
-    @Body('longitud') longitud?: number,
+
+    // 🔥 AGREGADO: contexto opcional para lat/lng/ciudad
+    @Body('contexto') contexto?: {
+      latitud?: number;
+      longitud?: number;
+      ciudad?: string;
+      ip?: string;
+      userAgent?: string;
+    },
   ) {
     if (!mensaje) {
       throw new BadRequestException('El campo "mensaje" es obligatorio');
@@ -25,19 +34,20 @@ export class AiController {
 
     this.logger.log(`Mensaje recibido: ${mensaje}`);
 
+    // 🔥 Pasamos también el contexto al AiService (sin romper nada tuyo)
     const resultado = await this.aiService.processUserMessage(
       mensaje,
       usuarioId,
-      {
-        ciudad,               // ✅ ← ENVIADO A AiService
-        latitud,
-        longitud,
-      }
+      contexto,
     );
 
     const respuesta: any = resultado?.respuesta ?? {};
     const items: any[] = Array.isArray(respuesta.items) ? respuesta.items : [];
 
+    /**
+     * Registrar métricas SOLO si hay sucursales válidas
+     * ⚠️ ESTO LO RESPETO EXACTAMENTE COMO LO TENÍAS
+     */
     if (items.length > 0) {
       try {
         for (const item of items) {
@@ -63,13 +73,18 @@ export class AiController {
     };
   }
 
+
+
+  /**
+   * Solo interpretar (sin pipeline completo)
+   */
   @Post('interpret')
   async interpretarQuery(@Body('query') query: string) {
     if (!query) {
       throw new BadRequestException('El campo "query" es obligatorio');
     }
 
-    this.logger.log(`Interpretando consulta: ${query}`);
+    this.logger.log(`🧠 Interpretando consulta: ${query}`);
 
     const interpretacion = await this.aiService.interpretQuery(query);
 

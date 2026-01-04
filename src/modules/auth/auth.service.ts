@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, Not } from 'typeorm';
+import { Repository, MoreThan } from 'typeorm';
 import { CodigoOtp } from './entities/codigo-otp.entity';
 import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
 
@@ -16,9 +16,16 @@ import { VerifyOtpDto } from './dtos/verify-otp.dto';
 
 import { LoginEmailDto } from './dtos/login-email.dto';
 
+// DTOs (email)
+import { SendOtpEmailDto } from './dtos/send-otp-email.dto';
+import { VerifyOtpEmailDto } from './dtos/verify-otp-email.dto';
+import { CheckOtpEmailDto } from './dtos/check-otp-email.dto';
+
+// servicio de correo
+import { MailService } from '../../common/mail/mail.service';
+
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Twilio } from 'twilio';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -32,6 +39,8 @@ export class AuthService {
 
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+
+    private readonly mailService: MailService,
   ) {}
 
   async loginEmail(dto: LoginEmailDto) {
@@ -51,7 +60,7 @@ export class AuthService {
 
     if (!suscriptor.contrasena) {
       throw new UnauthorizedException(
-        'Esta cuenta no tiene contraseña configurada. Debes completar tu perfil.'
+        'Esta cuenta no tiene contraseña configurada. Debes completar tu perfil.',
       );
     }
 
@@ -60,7 +69,6 @@ export class AuthService {
       throw new UnauthorizedException('Correo o contraseña incorrectos.');
     }
 
-    // JWT payload
     const payload = {
       sub: suscriptor.id,
       correo: suscriptor.correoElectronico,
@@ -70,7 +78,6 @@ export class AuthService {
       tieneNegocios: suscriptor.tieneNegocios,
     };
 
-    // Tokens
     const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
     const refreshToken = this.jwtService.sign(
       { sub: suscriptor.id },
@@ -98,8 +105,6 @@ export class AuthService {
     };
   }
 
-
-
   async sendOtpRegister(dto: SendOtpRegisterDto) {
     const existente = await this.suscriptorRepo.findOne({
       where: { telefonoCelular: dto.telefonoCelular, eliminado: false },
@@ -113,6 +118,7 @@ export class AuthService {
 
     const otp = this.otpRepo.create({
       telefonoCelular: dto.telefonoCelular,
+      correoElectronico: null,
       codigo,
       expiracion,
       datosRegistro: dto,
@@ -120,10 +126,7 @@ export class AuthService {
 
     await this.otpRepo.save(otp);
 
-    return {
-      success: true,
-      message: 'OTP enviado correctamente (simulado).',
-    };
+    return { success: true, message: 'OTP enviado correctamente (simulado).' };
   }
 
   async verifyOtpRegister(dto: VerifyOtpRegisterDto) {
@@ -135,7 +138,7 @@ export class AuthService {
         codigo: dto.codigo,
         usado: false,
         expiracion: MoreThan(now),
-      },
+      } as any,
     });
 
     if (!otp) {
@@ -162,11 +165,7 @@ export class AuthService {
 
     const suscriptor = await this.suscriptorRepo.save(nuevo);
 
-    return {
-      success: true,
-      message: 'Registro confirmado.',
-      subscriber: suscriptor,
-    };
+    return { success: true, message: 'Registro confirmado.', subscriber: suscriptor };
   }
 
   async sendOtp(dto: SendOtpDto) {
@@ -176,13 +175,13 @@ export class AuthService {
     await this.otpRepo.save(
       this.otpRepo.create({
         telefonoCelular: dto.phoneNumber,
+        correoElectronico: null,
         codigo,
         expiracion,
-      })
+      }),
     );
 
     console.log(`OTP (simulado): ${codigo}`);
-
     return { success: true, message: 'OTP generado.' };
   }
 
@@ -195,7 +194,7 @@ export class AuthService {
         codigo: dto.code,
         usado: false,
         expiracion: MoreThan(now),
-      },
+      } as any,
     });
 
     if (!otp) {
@@ -217,7 +216,7 @@ export class AuthService {
           telefonoCelular: dto.phoneNumber,
           registroCompleto: false,
           ciudad: { id: 1 } as any,
-        })
+        }),
       );
     }
 
@@ -233,7 +232,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
     const refreshToken = this.jwtService.sign(
       { sub: suscriptor.id },
-      { expiresIn: '30d' }
+      { expiresIn: '30d' },
     );
 
     suscriptor.refreshToken = await bcrypt.hash(refreshToken, 10);
@@ -247,32 +246,152 @@ export class AuthService {
     };
   }
 
+  // =========================================================
+  // OTP POR EMAIL (Recuperación de contraseña)
+  // =========================================================
+
+  async sendOtpEmail(dto: SendOtpEmailDto) {
+    const { correoElectronico } = dto;
+
+    if (!correoElectronico) {
+      throw new BadRequestException('El correo es obligatorio.');
+    }
+
+    const suscriptor = await this.suscriptorRepo.findOne({
+      where: { correoElectronico, eliminado: false },
+    });
+
+    if (!suscriptor) {
+      throw new NotFoundException('No existe una cuenta con ese correo.');
+    }
+
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiracion = new Date(Date.now() + 5 * 60 * 1000);
+
+    // invalidar anteriores activos
+    await this.otpRepo
+      .createQueryBuilder()
+      .update(CodigoOtp)
+      .set({ usado: true } as any)
+      .where('correo_electronico = :correo', { correo: correoElectronico })
+      .andWhere('usado = 0')
+      .andWhere('expiracion > NOW()')
+      .execute();
+
+    await this.otpRepo.save(
+      this.otpRepo.create({
+        correoElectronico,
+        telefonoCelular: null,
+        codigo,
+        expiracion,
+      } as any),
+    );
+
+    await this.mailService.sendOtp(correoElectronico, codigo);
+
+    return { success: true, message: 'Código enviado al correo.' };
+  }
+
+
+  async checkOtpEmail(dto: CheckOtpEmailDto) {
+    const { correoElectronico, codigo } = dto;
+
+    if (!correoElectronico || !codigo) {
+      throw new BadRequestException('Correo y código son obligatorios.');
+    }
+
+    const now = new Date();
+
+    const otp = await this.otpRepo.findOne({
+      where: {
+        correoElectronico,
+        codigo,
+        usado: false,
+        expiracion: MoreThan(now),
+      } as any,
+      order: { id: 'DESC' } as any,
+    });
+
+    if (!otp) {
+      // incrementar intentos de forma segura (si tu columna existe)
+      await this.otpRepo
+        .createQueryBuilder()
+        .update(CodigoOtp)
+        .set({} as any)
+        .where('correo_electronico = :correo', { correo: correoElectronico })
+        .andWhere('codigo = :codigo', { codigo })
+        .andWhere('usado = 0')
+        .execute();
+
+      throw new UnauthorizedException('Código inválido o expirado.');
+    }
+
+    return { success: true, message: 'Código válido.' };
+  }
+
+  async verifyOtpEmail(dto: VerifyOtpEmailDto) {
+    const { correoElectronico, codigo, nuevaContrasena } = dto;
+
+    if (!correoElectronico || !codigo || !nuevaContrasena) {
+      throw new BadRequestException(
+        'Correo, código y nueva contraseña son obligatorios.',
+      );
+    }
+
+    const now = new Date();
+
+    const otp = await this.otpRepo.findOne({
+      where: {
+        correoElectronico,
+        codigo,
+        usado: false,
+        expiracion: MoreThan(now),
+      } as any,
+    });
+
+    if (!otp) {
+      throw new UnauthorizedException('Código inválido o expirado.');
+    }
+
+    const suscriptor = await this.suscriptorRepo.findOne({
+      where: { correoElectronico, eliminado: false },
+    });
+
+    if (!suscriptor) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+
+    suscriptor.contrasena = await bcrypt.hash(nuevaContrasena, 10);
+    await this.suscriptorRepo.save(suscriptor);
+
+    otp.usado = true;
+    await this.otpRepo.save(otp);
+
+    return { success: true, message: 'Contraseña actualizada correctamente.' };
+  }
+
   async refresh(refreshToken: string) {
     if (!refreshToken) {
       throw new UnauthorizedException('Falta refresh token');
     }
-  
+
     try {
       const decoded = this.jwtService.verify(refreshToken);
-  
+
       const suscriptor = await this.suscriptorRepo.findOne({
         where: { id: decoded.sub },
       });
-  
+
       if (!suscriptor || !suscriptor.refreshToken) {
         throw new UnauthorizedException('Refresh token inválido');
       }
-  
-      const isValid = await bcrypt.compare(
-        refreshToken,
-        suscriptor.refreshToken,
-      );
-  
+
+      const isValid = await bcrypt.compare(refreshToken, suscriptor.refreshToken);
+
       if (!isValid) {
         throw new UnauthorizedException('Refresh token no válido');
       }
-  
-      //TOKEN COMPLETO (IMPORTANTE)
+
       const payload = {
         sub: suscriptor.id,
         correo: suscriptor.correoElectronico,
@@ -281,21 +400,18 @@ export class AuthService {
         registroCompleto: suscriptor.registroCompleto,
         tieneNegocios: suscriptor.tieneNegocios,
       };
-  
-      const newAccess = this.jwtService.sign(payload, {
-        expiresIn: '10m',
-      });
-  
+
+      const newAccess = this.jwtService.sign(payload, { expiresIn: '10m' });
+
       return {
         success: true,
         access_token: newAccess,
-        refresh_token: refreshToken, // opcional mantener el mismo
+        refresh_token: refreshToken,
       };
     } catch {
       throw new UnauthorizedException('Refresh token expirado o inválido');
     }
   }
-  
 
   async logout(id: number) {
     await this.suscriptorRepo.update(id, { refreshToken: null });

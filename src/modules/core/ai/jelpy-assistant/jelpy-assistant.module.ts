@@ -13,6 +13,7 @@ import { Categoria } from '../../../catalogos/categorias/entities/categorias.ent
 import { Subcategoria } from '../../../catalogos/subcategorias/entities/subcategorias.entity';
 import { Especialidad } from '../../../catalogos/especialidades/entities/especialidades.entity';
 import { KeywordTaxonomia } from '../../taxonomia/entities/keyword-taxonomia.entity';
+import { UsuarioPreferenciasModule } from '../../preferencias-usuarios/usuario-preferencias.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { KeywordTaxonomia } from '../../taxonomia/entities/keyword-taxonomia.ent
     ]),
 
     forwardRef(() => SearchModule),       
+    forwardRef(() => UsuarioPreferenciasModule),       
     forwardRef(() => FiltrosBusquedaModule),
     forwardRef(() => AiModule),
   ],

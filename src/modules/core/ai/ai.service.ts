@@ -10,15 +10,12 @@ import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
 import { ChatResponses } from './utils/chat-responses';
 import { PublicidadChatService } from '../publicidad-chat/publicidad-chat.service';
 import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-preferencias.service';
+import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
 
-  /**
-   * Memoria ligera en RAM de preferencias por usuario.
-   * (No rompe nada de BD; es solo un plus en caliente.)
-   */
   private readonly preferenciasPorUsuario = new Map<
     number,
     {
@@ -47,78 +44,63 @@ export class AiService {
 
     private readonly publicidadChatService: PublicidadChatService,
     private readonly usuarioPreferenciasService: UsuarioPreferenciasService,
+
+    private readonly likesService: SucursalLikesService
   ) {}
 
-  // ============================================================
-  // RECOMENDACIÓN PROACTIVA SUAVE (después de la búsqueda)
-  // ============================================================
+  //-------------------------------------------------------------
+  // RECOMENDACIÓN PROACTIVA
+  //-------------------------------------------------------------
   private generarRecomendacionProactiva(filtros: any, items: any[]) {
     const f = filtros || {};
-
-    // Si hubo resultados
-    if (items.length > 0) {
-      // Si ya está en modo promos, no spameamos más
-      if (f.promos) return null;
-
-      if (f.subcategoriaId) {
-        return '¿Quieres ver promociones relacionadas? 💸';
-      }
-
-      if (f.categoriaId) {
-        return 'También puedo mostrarte promociones o negocios similares.';
-      }
-
-      return 'Si quieres, puedo buscar solo negocios abiertos ahora. 😊';
+    const total = items.length;
+    if (total === 0) {
+      return 'No encontré opciones exactas 😕 ¿Quieres que busque algo parecido o en otra ciudad? 🌎';
     }
 
-    // Si NO hubo resultados
-    return '¿Quieres que busque algo parecido o en otra ciudad? 🌎';
+    const itemsConPromo = items.filter(i => i.promo).length;
+    const porcentajePromos = itemsConPromo / total;
+
+    if (itemsConPromo > 0) {
+      if (porcentajePromos >= 0.5) {
+        return 'Puedo mostrarte también opiniones, horarios o negocios parecidos. ¿Quieres ver más opciones similares? 😊';
+      }
+      return 'Algunas sucursales tienen promociones activas 🎉 ¿Quieres que te muestre solo las que tienen promo?';
+    }
+
+    if (f.subcategoriaId || f.categoriaId) {
+      return '¿Quieres ver promociones disponibles en esta categoría? 💸';
+    }
+
+    return '¿Quieres ver negocios abiertos ahora cerca de ti? 😊';
   }
 
-  // ============================================================
-  // ⭐ UPSELL POR HORA DEL DÍA (base)
-  // ============================================================
+  //-------------------------------------------------------------
+  // UPSSELL POR HORA
+  //-------------------------------------------------------------
   private obtenerUpsellPorHora(): string {
     const hora = new Date().getHours();
-
-    if (hora >= 6 && hora < 11) {
-      return '¿Te gustaría ver lugares para desayunar? 🥞';
-    }
-    if (hora >= 11 && hora < 15) {
-      return 'Hora de comer 🍽️ ¿Quieres opciones cerca de ti?';
-    }
-    if (hora >= 15 && hora < 19) {
-      return '¿Antojo de café o postre? ☕🍰';
-    }
-    if (hora >= 19 && hora < 24) {
-      return 'Perfecto para cenar 🍕 ¿Buscas algo rico?';
-    }
-
+    if (hora >= 6 && hora < 11) return '¿Te gustaría ver lugares para desayunar? 🥞';
+    if (hora >= 11 && hora < 15) return 'Hora de comer 🍽️ ¿Quieres opciones cerca de ti?';
+    if (hora >= 15 && hora < 19) return '¿Antojo de café o postre? ☕🍰';
+    if (hora >= 19 && hora < 24) return 'Perfecto para cenar 🍕 ¿Buscas algo rico?';
     return '¿Quieres ver lugares abiertos 24 horas? 🌙';
   }
 
-  // ============================================================
-  // ⭐ APRENDIZAJE DE PREFERENCIAS DEL USUARIO (en memoria)
-  // ============================================================
-  private actualizarPreferenciasUsuario(
-    usuarioId: number | undefined,
-    filtros: any,
-    items: any[],
-  ) {
+  //-------------------------------------------------------------
+  // APRENDIZAJE RAM
+  //-------------------------------------------------------------
+  private actualizarPreferenciasUsuario(usuarioId: number | undefined, filtros: any, items: any[]) {
     if (!usuarioId) return;
-    const f = filtros || {};
 
     let prefs = this.preferenciasPorUsuario.get(usuarioId);
     if (!prefs) {
-      prefs = {
-        categorias: {},
-        subcategorias: {},
-        ciudades: {},
-      };
+      prefs = { categorias: {}, subcategorias: {}, ciudades: {} };
       this.preferenciasPorUsuario.set(usuarioId, prefs);
     }
 
-    // Categoría / Subcategoría: primero por filtros detectados
+    const f = filtros || {};
+
     if (f.categoriaId) {
       const cid = Number(f.categoriaId);
       prefs.categorias[cid] = (prefs.categorias[cid] || 0) + 1;
@@ -127,31 +109,8 @@ export class AiService {
       const sid = Number(f.subcategoriaId);
       prefs.subcategorias[sid] = (prefs.subcategorias[sid] || 0) + 1;
     }
-
-    // Ciudad detectada
     if (f.ciudad) {
-      const ciudad = String(f.ciudad);
-      prefs.ciudades[ciudad] = (prefs.ciudades[ciudad] || 0) + 1;
-    }
-
-    // Si no hubo filtros, intentar inferir de los resultados
-    if (!f.categoriaId && items.length > 0) {
-      const cid = Number(items[0].categoria_id || items[0].categoriaId);
-      if (!isNaN(cid)) {
-        prefs.categorias[cid] = (prefs.categorias[cid] || 0) + 1;
-      }
-    }
-
-    if (!f.subcategoriaId && items.length > 0) {
-      const sid = Number(items[0].subcategoria_id || items[0].subcategoriaId);
-      if (!isNaN(sid)) {
-        prefs.subcategorias[sid] = (prefs.subcategorias?.[sid] || 0) + 1;
-      }
-    }
-
-    if (!f.ciudad && items.length > 0 && items[0].ciudad) {
-      const ciudad = String(items[0].ciudad);
-      prefs.ciudades[ciudad] = (prefs.ciudades[ciudad] || 0) + 1;
+      prefs.ciudades[f.ciudad] = (prefs.ciudades[f.ciudad] || 0) + 1;
     }
 
     prefs.ultimaBusqueda = {
@@ -160,49 +119,6 @@ export class AiService {
       ciudad: f.ciudad,
       fecha: new Date(),
     };
-  }
-
-  // ============================================================
-  // ⭐ UPSELL PERSONALIZADO (historial + hora)
-  // ============================================================
-  private generarUpsellPersonalizado(
-    usuarioId: number | undefined,
-    filtros: any,
-  ): string {
-    const upsellHora = this.obtenerUpsellPorHora();
-
-    if (!usuarioId) {
-      return upsellHora;
-    }
-
-    const prefs = this.preferenciasPorUsuario.get(usuarioId);
-    if (!prefs) {
-      return upsellHora;
-    }
-
-    const f = filtros || {};
-
-    const topCategoriaId = this.obtenerTopId(prefs.categorias);
-    const topSubcategoriaId = this.obtenerTopId(prefs.subcategorias);
-    const topCiudad = this.obtenerTopClave(prefs.ciudades);
-
-    // Si hay historial fuerte de comida específica (subcategoría)
-    if (topSubcategoriaId && !f.subcategoriaId) {
-      return `Sueles buscar mucho esta categoría 🔍 ¿Quieres que te muestre promociones relacionadas?`;
-    }
-
-    // Si la ciudad favorita es otra distinta a la actual
-    if (topCiudad && f.ciudad && topCiudad !== f.ciudad) {
-      return `También sueles buscar en ${topCiudad}. ¿Quieres que te muestre opciones ahí? 🌎`;
-    }
-
-    // Si tiene categoría favorita distinta
-    if (topCategoriaId && f.categoriaId && topCategoriaId !== f.categoriaId) {
-      return 'También puedo mostrarte algo de tus categorías favoritas. 😉';
-    }
-
-    // Si no hay nada muy claro, regresamos el upsell por hora
-    return upsellHora;
   }
 
   private obtenerTopId(map: Record<number, number>): number | null {
@@ -219,65 +135,66 @@ export class AiService {
     return entries[0][0];
   }
 
-  // ============================================================
-  // ⭐ MENSAJE CONTEXTUAL (fin de semana / temporada)
-  // ============================================================
+  //-------------------------------------------------------------
+  // MENSAJE CONTEXTUAL
+  //-------------------------------------------------------------
   private generarMensajeContextual(ciudad?: string): string | null {
     const now = new Date();
-    const mes = now.getMonth(); // 0-11
-    const diaSemana = now.getDay(); // 0 = domingo
-    const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
+    const mes = now.getMonth();
+    const dia = now.getDay();
 
-    // Navidad / Año nuevo
-    if (mes === 11 || mes === 0) {
+    if (mes === 11 || mes === 0)
       return 'Es temporada navideña ✨ Algunos lugares pueden tener menús especiales o horarios distintos.';
-    }
-
-    // Verano (junio, julio, agosto)
-    if (mes >= 5 && mes <= 7) {
+    if (mes >= 5 && mes <= 7)
       return 'En temporada de calor muchos lugares se llenan rápido 🥵. Te conviene revisar opciones con reservación.';
-    }
-
-    if (esFinDeSemana) {
-      return 'Es fin de semana 🎉 Algunos negocios pueden estar más llenos de lo normal. Te recomiendo revisar horarios y promociones.';
-    }
-
-    if (ciudad) {
-      return `Buscando en ${ciudad}. Si quieres, luego puedo sugerirte otras ciudades cercanas.`;
-    }
+    if (dia === 0 || dia === 6)
+      return 'Es fin de semana 🎉 Algunos negocios pueden estar más llenos de lo normal.';
+    if (ciudad) return `Buscando en ${ciudad}.`;
 
     return null;
   }
 
-  // ============================================================
-  // PROCESAR MENSAJE DEL USUARIO
-  // ============================================================
-  async processUserMessage(
-    input: string,
-    usuarioId?: number,
-    contexto?: {
-      ip?: string;
-      userAgent?: string;
-      latitud?: number;
-      longitud?: number;
-      ciudad?: string;
-    },
-  ) {
+  //-------------------------------------------------------------
+  // UPSSELL PERSONALIZADO
+  //-------------------------------------------------------------
+  private generarUpsellPersonalizado(usuarioId: number | undefined, filtros: any): string {
+    const upsellHora = this.obtenerUpsellPorHora();
+
+    if (!usuarioId) return upsellHora;
+
+    const prefs = this.preferenciasPorUsuario.get(usuarioId);
+    if (!prefs) return upsellHora;
+
+    const f = filtros || {};
+
+    const topCategoriaId = this.obtenerTopId(prefs.categorias);
+    const topSubcategoriaId = this.obtenerTopId(prefs.subcategorias);
+    const topCiudad = this.obtenerTopClave(prefs.ciudades);
+
+    if (topSubcategoriaId && !f.subcategoriaId) {
+      return 'Sueles buscar mucho esta categoría 🔍 ¿Quieres ver promociones relacionadas?';
+    }
+
+    if (topCiudad && f.ciudad && topCiudad !== f.ciudad) {
+      return `También sueles buscar en ${topCiudad}. ¿Quieres opciones ahí? 🌎`;
+    }
+
+    if (topCategoriaId && f.categoriaId && topCategoriaId !== f.categoriaId) {
+      return 'Puedo mostrarte también algo de tus categorías favoritas 😉';
+    }
+
+    return upsellHora;
+  }
+
+  //-------------------------------------------------------------
+  // ⭐ PROCESS MESSAGE
+  //-------------------------------------------------------------
+  async processUserMessage(input: string, usuarioId?: number, contexto?: any) {
     this.logger.debug(`Procesando mensaje: "${input}"`);
-  
-    const latitud = contexto?.latitud ?? null;
-    const longitud = contexto?.longitud ?? null;
-    const ciudad = contexto?.ciudad ?? null;
-  
-    // ============================================================
-    // SANEAR + CORREGIR
-    // ============================================================
+
     const textoLimpio = this.sanitizerUseCase.execute(input);
     const textoCorregido = await this.orthographyUseCase.execute(textoLimpio);
-  
-    // ============================================================
-    // MODERACIÓN
-    // ============================================================
+
     const moderacion = await this.profanityUseCase.execute(
       textoLimpio,
       textoCorregido,
@@ -287,17 +204,11 @@ export class AiService {
         usuarioId: usuarioId ?? null,
       },
     );
-  
-    // ❌ GROSERÍA — BLOQUEO
+
     if (!moderacion.permitido) {
-      return {
-        status: 'rechazado',
-        motivo: moderacion.motivo,
-        groseria: moderacion.palabra,
-      };
+      return { status: 'rechazado', motivo: moderacion.motivo };
     }
-  
-    // ⚠️ Advertencia sin bloqueo
+
     if (moderacion.advertencia === 'mantener_respecto') {
       return {
         status: 'advertencia',
@@ -305,95 +216,121 @@ export class AiService {
         respuesta: { titulo: 'Por favor mantén un lenguaje respetuoso.' },
       };
     }
-  
-    // ============================================================
-    // DETECTOR — CHAT CASUAL
-    // ============================================================
+
     const intent = this.intentDetector.detect(textoCorregido);
-  
     if (intent === 'chat') {
-      const respuesta = ChatResponses.responder(textoCorregido);
-  
       return {
         status: 'chat',
         mensajeOriginal: input,
         mensajeCorregido: textoCorregido,
-        respuesta,
+        respuesta: ChatResponses.responder(textoCorregido),
       };
     }
-  
-    // ============================================================
-    // HISTORIAL SOLO PARA BÚSQUEDA
-    // ============================================================
+
     await this.historyUseCase.saveQuery(usuarioId ?? 0, textoCorregido);
-  
-    // ============================================================
-    // INTERPRETACIÓN JELPY — BÚSQUEDA
-    // ============================================================
+
+    //-------------------------------------------------------------
+    // JEPLY ASSISTANT
+    //-------------------------------------------------------------
     const interpretacion = await this.jelpyAssistant.interpretar(
       textoCorregido,
-      latitud ?? undefined,
-      longitud ?? undefined,
-      ciudad ?? undefined,
+      contexto?.latitud,
+      contexto?.longitud,
+      contexto?.ciudad,
+      usuarioId,
     );
-  
+
     const items = Array.isArray(interpretacion.resultados)
       ? interpretacion.resultados
       : interpretacion.resultados?.items ?? [];
-  
-    // ============================================================
-    // ⭐ APRENDIZAJE REAL (BD) — Registrar preferencia aquí
-    // ============================================================
-    await this.usuarioPreferenciasService.registrarPreferencia(
-      usuarioId ?? 0,
-      interpretacion.filtros_detectados?.categoriaId,
-      interpretacion.filtros_detectados?.subcategoriaId,
-    );
-  
-    // ============================================================
-    // MÉTRICAS POR SUCURSAL
-    // ============================================================
+
+    //-------------------------------------------------------------
+    // ORDENAR POR POPULARIDAD
+    //-------------------------------------------------------------
     try {
       for (const item of items) {
-        const sucursalId =
-          item.sucursal_id ||
-          item.sucursalId ||
-          item.id_sucursal ||
-          item.sucursal?.id;
-  
+        const sucursalId = Number(
+          item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id,
+        );
         if (sucursalId) {
-          await this.trackMetricsUseCase.execute(
-            'busqueda',
-            'sucursal',
-            Number(sucursalId),
-          );
+          const info = await this.likesService.contarLikesSucursal(sucursalId);
+          item.likes = info.totalLikes ?? 0;
         }
       }
+
+      items.sort((a, b) => (b.likes || 0) - (a.likes || 0));
     } catch (err) {
-      this.logger.error('❌ Error registrando métricas', err);
+      this.logger.error('Error obteniendo likes de sucursales', err);
     }
-  
-    // ============================================================
-    // RESPUESTA BASE AMIGABLE
-    // ============================================================
+
+    //-------------------------------------------------------------
+    // MÉTRICAS
+    //-------------------------------------------------------------
+    for (const item of items) {
+      const sucursalId = Number(
+        item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id,
+      );
+      if (sucursalId) {
+        await this.trackMetricsUseCase.execute('busqueda', 'sucursal', sucursalId);
+      }
+    }
+
+    //-------------------------------------------------------------
+    // RESPUESTA FINAL
+    //-------------------------------------------------------------
     const friendly: any = AIResponseBuilder.buildFriendlyResponse(
       interpretacion.filtros_detectados,
       items,
     );
-  
-    // ============================================================
-    // ⭐ PUBLICIDAD CONTEXTUAL (respeta tu módulo actual)
-    // ============================================================
+
+    //-------------------------------------------------------------
+    // ⭐ LIKE BUTTON + CONTADORES
+    //-------------------------------------------------------------
+    if (items.length > 0) {
+      for (const item of friendly.items ?? []) {
+        const sucursalId = Number(
+          item.id || item.sucursal_id || item.sucursal?.id,
+        );
+
+        item.likeDisponible = true;
+        item.likeAction = {
+          endpoint: '/likes/toggle',
+          metodo: 'POST',
+          payload: { sucursalId, usuarioId: usuarioId ?? null },
+        };
+
+        // liked
+        if (usuarioId) {
+          const yaLike = await this.likesService.usuarioHaDadoLike(
+            usuarioId,
+            sucursalId,
+          );
+          item.liked = yaLike;
+        }
+
+        // ⭐ CONTADOR DE LIKES — NUEVO
+        // (sin romper nada y manteniendo toda la lógica existente)
+        try {
+          const info = await this.likesService.contarLikesSucursal(sucursalId);
+          item.likesCount = info.totalLikes ?? 0;
+        } catch {
+          item.likesCount = 0;
+        }
+      }
+    }
+
+    //-------------------------------------------------------------
+    // PUBLICIDAD
+    //-------------------------------------------------------------
     try {
       const filtros = interpretacion.filtros_detectados || {};
-  
       const publicidadActiva = await this.publicidadChatService.obtenerActiva({
         ciudad: filtros.ciudad,
         categoriaId: filtros.categoriaId,
         subcategoriaId: filtros.subcategoriaId,
         texto: textoCorregido,
       });
-  
+
       if (publicidadActiva) {
         friendly.publicidad = {
           id: publicidadActiva.id,
@@ -403,52 +340,41 @@ export class AiService {
           sucursal_id: publicidadActiva.sucursalId,
           url_destino: publicidadActiva.urlDestino,
           destacado: true,
-          nivel_membresia: (publicidadActiva as any).nivelMembresia ?? undefined,
         };
       }
     } catch (err) {
       this.logger.error('❌ Error obteniendo publicidad', err);
     }
-  
-    // ============================================================
-    // ⭐ APRENDIZAJE EN RAM + UPSSELL
-    // ============================================================
+
+    //-------------------------------------------------------------
+    // APRENDIZAJE + RECOMENDACIÓN + UPSELL + CONTEXTO
+    //-------------------------------------------------------------
     this.actualizarPreferenciasUsuario(
       usuarioId,
       interpretacion.filtros_detectados,
       items,
     );
-  
+
     const recomendacion = this.generarRecomendacionProactiva(
       interpretacion.filtros_detectados,
       items,
     );
-  
-    if (recomendacion) {
-      friendly.recomendacion = recomendacion;
-    }
-  
+    if (recomendacion) friendly.recomendacion = recomendacion;
+
     const upsell = this.generarUpsellPersonalizado(
       usuarioId,
       interpretacion.filtros_detectados,
     );
-    if (upsell) {
-      friendly.upsell = upsell;
-    }
-  
-    // ============================================================
-    // ⭐ CONTEXTO (FIN DE SEMANA / TEMPORADA)
-    // ============================================================
+    if (upsell) friendly.upsell = upsell;
+
     const contextoMsg = this.generarMensajeContextual(
       interpretacion.filtros_detectados?.ciudad,
     );
-    if (contextoMsg) {
-      friendly.contexto = contextoMsg;
-    }
-  
-    // ============================================================
-    // RESPUESTA FINAL
-    // ============================================================
+    if (contextoMsg) friendly.contexto = contextoMsg;
+
+    //-------------------------------------------------------------
+    // RETURN FINAL
+    //-------------------------------------------------------------
     return {
       status: 'aceptado',
       mensajeOriginal: input,
@@ -460,7 +386,6 @@ export class AiService {
       },
     };
   }
-  
 
   async interpretQuery(query: string) {
     const limpio = this.sanitizerUseCase.execute(query);

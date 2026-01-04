@@ -13,6 +13,9 @@ export class CodigoOtp {
   @Column({ name: 'telefono_celular', length: 20 })
   telefonoCelular: string;
 
+  @Column({ name: 'correo_electronico', length: 190, nullable: true })
+  correoElectronico?: string | null;
+
   @Column({ length: 6 })
   codigo: string;
 
@@ -28,4 +31,8 @@ datosRegistro?: any;
 
   @CreateDateColumn({ name: 'creado_en' })
   creadoEn: Date;
+
+  @Column({ type: 'tinyint', unsigned: true, default: 0 })
+intentos: number;
+
 }

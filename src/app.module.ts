@@ -37,6 +37,8 @@ import { CodigoOtp } from './modules/auth/entities/codigo-otp.entity';
 import { CaracteristicasSucursalModule } from './modules/business/caracteristicas_sucursales/caracteristicas-sucursal.module';
 import { PublicidadChatModule } from './modules/core/publicidad-chat/publicidad-chat.module';
 import { UsuarioPreferenciasModule } from './modules/core/preferencias-usuarios/usuario-preferencias.module';
+import { SucursalLikesModule } from './modules/core/sucursal-likes/sucursal-likes.module';
+import { RankingModule } from './modules/core/ranking/ranking.module';
 
 @Module({
   imports: [
@@ -65,6 +67,8 @@ import { UsuarioPreferenciasModule } from './modules/core/preferencias-usuarios/
     CaracteristicasSucursalModule,
     PublicidadChatModule,
     UsuarioPreferenciasModule,
+    SucursalLikesModule,
+    RankingModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),

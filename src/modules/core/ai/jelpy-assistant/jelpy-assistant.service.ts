@@ -9,6 +9,7 @@ import { Especialidad } from '../../../catalogos/especialidades/entities/especia
 
 import { KeywordTaxonomia } from '../../taxonomia/entities/keyword-taxonomia.entity';
 import { SearchService } from '../../search/search.service';
+import { UsuarioPreferenciasService } from '../../preferencias-usuarios/usuario-preferencias.service';
 
 @Injectable()
 export class JelpyAssistantService {
@@ -29,6 +30,8 @@ export class JelpyAssistantService {
     private readonly keywordRepo: Repository<KeywordTaxonomia>,
 
     private readonly searchService: SearchService,
+
+    private readonly usuarioPreferenciasService: UsuarioPreferenciasService,
   ) {}
 
   // ------------------------------------------------------------
@@ -155,33 +158,32 @@ export class JelpyAssistantService {
   // INTERPRETAR MENSAJE
   // ------------------------------------------------------------
 
-async interpretar(
-  texto: string,
-  latitud?: number,
-  longitud?: number,
-  ciudadManual?: string,   
-) {
-  const filtros: any = {};
-  const textoNorm = this.normalizar(texto);
+  async interpretar(
+    texto: string,
+    latitud?: number,
+    longitud?: number,
+    ciudadManual?: string,
+    usuarioId?: number,
+  ) {
+    const filtros: any = {};
+    const textoNorm = this.normalizar(texto);
 
+    // Para reutilizar preferencias en todo el flujo
+    let prefs: any[] | null = null;
 
-  // CIUDAD DEL FRONTEND — PRIORIDAD ABSOLUTA
-
-  if (ciudadManual) {
-    filtros.ciudad = ciudadManual;
-  } else {
-
-    //DETECTAR CIUDAD EN EL TEXTO (FALLBACK)
-
-    const ciudades = await this.ciudadRepo.find();
-    for (const c of ciudades) {
-      if (textoNorm.includes(this.normalizar(c.nombre))) {
-        filtros.ciudad = c.nombre;
-        filtros.ciudadId = Number(c.id);
+    // CIUDAD DEL FRONTEND — PRIORIDAD ABSOLUTA
+    if (ciudadManual) {
+      filtros.ciudad = ciudadManual;
+    } else {
+      // DETECTAR CIUDAD EN EL TEXTO (FALLBACK)
+      const ciudades = await this.ciudadRepo.find();
+      for (const c of ciudades) {
+        if (textoNorm.includes(this.normalizar(c.nombre))) {
+          filtros.ciudad = c.nombre;
+          filtros.ciudadId = Number(c.id);
+        }
       }
     }
-  }
-
 
     // -------------------------------
     // Detectar KEYWORDS
@@ -265,6 +267,27 @@ async interpretar(
       }
     }
 
+    // ============================================================
+    // APLICAR PREFERENCIAS COMO FILTROS BÁSICOS (SI HAY USUARIO)
+    // ============================================================
+    if (usuarioId) {
+      prefs = await this.usuarioPreferenciasService.obtenerPreferencias(usuarioId);
+
+      if (prefs && prefs.length > 0) {
+        // Si no se detectó subcategoría en el mensaje, usar la más frecuente
+        const prefSub = prefs.find(p => p.subcategoriaId);
+        if (!filtros.subcategoriaId && prefSub) {
+          filtros.subcategoriaId = prefSub.subcategoriaId;
+        }
+
+        // Si no se detectó categoría, usar categoría preferida
+        const prefCat = prefs.find(p => p.categoriaId);
+        if (!filtros.categoriaId && prefCat) {
+          filtros.categoriaId = prefCat.categoriaId;
+        }
+      }
+    }
+
     // -------------------------------
     // EJECUTAR BÚSQUEDA
     // -------------------------------
@@ -280,6 +303,34 @@ async interpretar(
       lng: filtros.lng,
       radioKm: 10,
     });
+
+    // ===============================
+    // USAR PREFERENCIAS DEL USUARIO
+    // (SOLO SI USUARIO ESTA LOGEADO)
+    // ===============================
+    if (usuarioId) {
+      // Si por alguna razón no se cargaron antes, las obtenemos aquí
+      if (!prefs) {
+        prefs = await this.usuarioPreferenciasService.obtenerPreferencias(usuarioId);
+      }
+
+      if (prefs && resultados.items?.length > 0) {
+        resultados.items = resultados.items.map(item => {
+          const coincideCat = prefs!.some(p => p.categoriaId === item.categoria_id);
+          const coincideSub = prefs!.some(p => p.subcategoriaId === item.subcategoria_id);
+
+          return {
+            ...item,
+            score_preferencias: coincideSub ? 1 : coincideCat ? 0.7 : 0.3,
+          };
+        });
+
+        // ORDENA por score de preferencias
+        resultados.items.sort(
+          (a, b) => (b.score_preferencias ?? 0) - (a.score_preferencias ?? 0),
+        );
+      }
+    }
 
     if (!resultados || resultados.items.length === 0) {
       resultados = await this.searchService.search({

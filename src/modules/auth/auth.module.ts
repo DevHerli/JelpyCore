@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { CodigoOtp } from './entities/codigo-otp.entity';
 import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
+import { MailModule } from '../../common/mail/mail.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entit
 
     // ConfigModule para leer variables de entorno (.env)
     ConfigModule,
+    MailModule,
 
     // Registro asíncrono del módulo JWT con configuración dinámica
     JwtModule.registerAsync({
