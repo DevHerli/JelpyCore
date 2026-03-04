@@ -1,0 +1,165 @@
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { SucursalReview } from './entities/sucursal-review.entity';
+import { CreateSucursalReviewDto } from './dtos/create-sucursal-review.dto';
+import { UpdateSucursalReviewDto } from './dtos/update-sucursal-review.dto';
+import { Suscriptor } from '../suscriptores/entities/suscriptores.entity';
+
+@Injectable()
+export class SucursalReviewService {
+  constructor(
+    @InjectRepository(SucursalReview)
+    private readonly reviewRepo: Repository<SucursalReview>,
+
+    @InjectRepository(Suscriptor)
+    private readonly suscriptorRepo: Repository<Suscriptor>,
+  ) {}
+
+
+  // Crear reseña
+async create(dto: CreateSucursalReviewDto) {
+  const existe = await this.reviewRepo.findOne({
+    where: {
+      sucursal: { id: dto.sucursalId },
+      suscriptor: { id: dto.suscriptorId },
+    },
+  });
+
+  if (existe) {
+    throw new BadRequestException(
+      'Ya has dejado una reseña en esta sucursal',
+    );
+  }
+
+  const suscriptor = await this.suscriptorRepo.findOne({
+    where: { id: dto.suscriptorId },
+  });
+
+  if (!suscriptor) {
+    throw new BadRequestException('Suscriptor no encontrado');
+  }
+
+  const nombreMostrado = `${suscriptor.nombre} ${suscriptor.apellidoPaterno}`;
+
+  const review = this.reviewRepo.create({
+    rating: dto.rating,
+    comentario: dto.comentario,
+    nombreMostrado,
+    estado: 'publicada',
+    sucursal: { id: dto.sucursalId } as any,
+    suscriptor: suscriptor,
+    respuestaNegocio: null,
+    fechaRespuesta: null,
+  });
+
+  return this.reviewRepo.save(review);
+}
+
+
+
+async responderReview(reviewId: number, respuesta: string) {
+  const review = await this.reviewRepo.findOne({
+    where: { id: reviewId },
+  });
+
+  if (!review) {
+    throw new BadRequestException('Reseña no encontrada');
+  }
+
+  review.respuestaNegocio = respuesta;
+  review.fechaRespuesta = new Date();
+
+  return this.reviewRepo.save(review);
+}
+
+
+async update(
+  reviewId: number,
+  suscriptorId: number,
+  dto: UpdateSucursalReviewDto,
+) {
+  const review = await this.reviewRepo.findOne({
+    where: {
+      id: reviewId,
+      suscriptor: { id: suscriptorId },
+    },
+  });
+
+  if (!review) {
+    throw new BadRequestException(
+      'Reseña no encontrada o no tienes permisos para editarla',
+    );
+  }
+
+  const LIMITE_HORAS = 24;
+
+  const limite = new Date(review.fechaCreacion);
+  limite.setHours(limite.getHours() + LIMITE_HORAS);
+
+  if (new Date() > limite) {
+    throw new BadRequestException(
+      'Solo puedes editar tu reseña dentro de las primeras 24 horas',
+    );
+  }
+
+  if (review.respuestaNegocio) {
+    throw new BadRequestException(
+      'No puedes editar una reseña que ya fue respondida por el negocio',
+    );
+  }
+
+  Object.assign(review, dto);
+
+  return this.reviewRepo.save(review);
+}
+
+
+async findBySucursal(sucursalId: number) {
+  return this.reviewRepo.find({
+    where: {
+      sucursal: { id: sucursalId },
+      estado: 'publicada', 
+    },
+    order: { fechaCreacion: 'DESC' },
+  });
+}
+
+
+  // Promedio de rating
+  async getRatingSummary(sucursalId: number) {
+    const result = await this.reviewRepo
+      .createQueryBuilder('r')
+      .select('AVG(r.rating)', 'promedio')
+      .addSelect('COUNT(*)', 'total')
+      .where('r.sucursal_id = :id', { id: sucursalId })
+      .andWhere('r.estado = :estado', { estado: 'publicada' })
+      .getRawOne();
+
+    return {
+      promedio: Number(result.promedio || 0).toFixed(1),
+      total: Number(result.total || 0),
+    };
+  }
+
+async updateEstado(
+  reviewId: number,
+  estado: 'pendiente' | 'publicada' | 'rechazada',
+) {
+  const review = await this.reviewRepo.findOne({
+    where: { id: reviewId },
+  });
+
+  if (!review) {
+    throw new BadRequestException('Reseña no encontrada');
+  }
+
+  review.estado = estado;
+  review.fechaActualizacion = new Date();
+
+  return this.reviewRepo.save(review);
+}
+
+
+
+}

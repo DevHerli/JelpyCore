@@ -39,6 +39,11 @@ import { PublicidadChatModule } from './modules/core/publicidad-chat/publicidad-
 import { UsuarioPreferenciasModule } from './modules/core/preferencias-usuarios/usuario-preferencias.module';
 import { SucursalLikesModule } from './modules/core/sucursal-likes/sucursal-likes.module';
 import { RankingModule } from './modules/core/ranking/ranking.module';
+import { CatalogoProductosModule } from './modules/business/catalogo_productos/catalogo-productos.module';
+import { SucursalReviewModule } from './modules/business/sucursales_reviews/sucursal-review.module';
+import { BookmarksModule } from './modules/business/bookmark_branch/bookmarks.module';
+import { AnunciosModule } from './modules/business/anuncios/anuncios.module';
+import { PromocionesNegociosModule } from './modules/business/promociones_negocio/promociones-negocios.module';
 
 @Module({
   imports: [
@@ -68,7 +73,12 @@ import { RankingModule } from './modules/core/ranking/ranking.module';
     PublicidadChatModule,
     UsuarioPreferenciasModule,
     SucursalLikesModule,
+    CatalogoProductosModule,
     RankingModule,
+    SucursalReviewModule,
+    BookmarksModule,
+    AnunciosModule,
+    PromocionesNegociosModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),

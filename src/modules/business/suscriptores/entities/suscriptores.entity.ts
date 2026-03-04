@@ -1,12 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
 import { Membresia } from '../../membresias/entities/membresia.entity';
+import { SucursalReview } from '../../sucursales_reviews/entities/sucursal-review.entity';
 
 @Entity('suscriptores')
 export class Suscriptor {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
+
+  @OneToMany(() => SucursalReview, (r) => r.suscriptor)
+reseñas: SucursalReview[];
 
   // --- Datos personales básicos ---
   @Column({ length: 100 })

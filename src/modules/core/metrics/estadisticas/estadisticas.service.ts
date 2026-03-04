@@ -6,7 +6,7 @@ export class EstadisticasService {
   constructor(private readonly connection: Connection) {}
 
   /**
-   * 🔹 Registrar evento genérico (vistas, clics, búsqueda)
+   * Registrar evento genérico (vistas, clics, búsqueda)
    */
   async registrarEvento(
     tipo: 'vista' | 'clic' | 'busqueda',
@@ -47,7 +47,7 @@ export class EstadisticasService {
   }
 
   /**
-   * 🔹 Obtener métricas resumidas de negocios
+   * Obtener métricas resumidas de negocios
    */
   async resumenNegocios() {
     const data = await this.connection.query(`
@@ -69,7 +69,7 @@ export class EstadisticasService {
   }
 
   /**
-   * 🔹 Obtener métricas resumidas de sucursales
+   * Obtener métricas resumidas de sucursales
    */
   async resumenSucursales() {
     const data = await this.connection.query(`
@@ -91,7 +91,7 @@ export class EstadisticasService {
   }
 
   /**
-   * 🔹 Resumen global del sistema (Dashboard principal)
+   * Resumen global del sistema (Dashboard principal)
    */
   async resumenGlobal(filtros?: { ciudadId?: number; fechaInicio?: string; fechaFin?: string }) {
     const { ciudadId, fechaInicio, fechaFin } = filtros || {};
@@ -165,7 +165,7 @@ export class EstadisticasService {
       LIMIT 5
     `);
 
-    // 🔹 Métricas agrupadas por tipo de membresía
+    // Métricas agrupadas por tipo de membresía
     const resumenPorMembresia = await this.connection.query(`
       SELECT 
         m.id,
@@ -197,4 +197,24 @@ export class EstadisticasService {
       membresias: resumenPorMembresia,
     };
   }
+
+  /**
+   * Obtener KPIs ligeros (totales) de una sucursal específica
+   */
+  async getKpisSucursal(sucursalId: number) {
+    const res = await this.connection.query(
+      `SELECT 
+         COALESCE(vistas, 0) as vistas, 
+         COALESCE(clics, 0) as clics, 
+         COALESCE(busquedas, 0) as busquedas 
+       FROM estadisticas_sucursales 
+       WHERE sucursal_id = ? 
+       LIMIT 1`,
+      [sucursalId],
+    );
+
+    // Si no hay registros aún, devolvemos ceros
+    return res[0] || { vistas: 0, clics: 0, busquedas: 0 };
+  }
+  
 }

@@ -13,6 +13,6 @@ import { PromocionSucursal } from '../../../business/promociones_sucursal/entiti
   ],
   controllers: [EstadisticasController],
   providers: [EstadisticasService],
-  exports: [EstadisticasService], // por si lo usas en otros módulos (por ejemplo dashboard o admin)
+  exports: [EstadisticasService],
 })
 export class EstadisticasModule {}

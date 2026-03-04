@@ -7,17 +7,17 @@ import {
 } from 'typeorm';
 import { SucursalNegocio } from '../../sucursales_negocios/entities/sucursal-negocio.entity';
 
+export type OrigenPromocion = 'BRANCH' | 'BUSINESS';
+
 @Entity('promociones_sucursales')
 export class PromocionSucursal {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  // 🔗 Relación con sucursal
   @ManyToOne(() => SucursalNegocio, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sucursal_id' })
   sucursal: SucursalNegocio;
 
-  // 📋 Información principal
   @Column({ length: 150 })
   titulo: string;
 
@@ -41,7 +41,6 @@ export class PromocionSucursal {
   })
   valorDescuento?: number;
 
-  // 📅 Fechas y días
   @Column({ name: 'fecha_inicio', type: 'date' })
   fechaInicio: string;
 
@@ -56,21 +55,18 @@ export class PromocionSucursal {
   })
   diasVigencia: string | null;
 
-  // ⏰ Horarios opcionales
   @Column({ name: 'hora_inicio', type: 'time', nullable: true })
   horaInicio?: string;
 
   @Column({ name: 'hora_fin', type: 'time', nullable: true })
   horaFin?: string;
 
-  // 📄 Detalles y recursos
   @Column({ type: 'text', nullable: true })
   condiciones?: string;
 
-  @Column({ name: 'imagen_url', length: 255, nullable: true })
+  @Column({ name: 'imagen_url', length: 500, nullable: true })
   imagenUrl?: string;
 
-  // ⚙️ Estado y control
   @Column({ type: 'tinyint', width: 1, default: 1 })
   activa: boolean;
 
@@ -91,4 +87,20 @@ export class PromocionSucursal {
 
   @Column({ type: 'tinyint', width: 1, default: 0 })
   eliminado: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: ['BRANCH', 'BUSINESS'],
+    default: 'BRANCH',
+  })
+  origen: OrigenPromocion;
+
+  @Column({
+    name: 'lote_global_id',
+    type: 'char',
+    length: 36,
+    nullable: true,
+  })
+  loteGlobalId?: string | null;
+
 }

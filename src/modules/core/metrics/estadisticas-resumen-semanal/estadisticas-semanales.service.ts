@@ -23,7 +23,7 @@ export class EstadisticasSemanalesService {
     if (filtros.fechaInicio && filtros.fechaFin)
       where.semanaInicio = Between(filtros.fechaInicio, filtros.fechaFin);
 
-    // ✅ Usamos QueryBuilder para permitir order por relación (ciudad.nombre)
+    // Usamos QueryBuilder para permitir order por relación (ciudad.nombre)
     const query = this.resumenRepo
       .createQueryBuilder('resumen')
       .leftJoinAndSelect('resumen.ciudad', 'ciudad')

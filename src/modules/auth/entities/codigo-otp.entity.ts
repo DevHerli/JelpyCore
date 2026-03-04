@@ -35,4 +35,6 @@ datosRegistro?: any;
   @Column({ type: 'tinyint', unsigned: true, default: 0 })
 intentos: number;
 
+
+
 }

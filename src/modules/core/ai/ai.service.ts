@@ -187,7 +187,7 @@ export class AiService {
   }
 
   //-------------------------------------------------------------
-  // ⭐ PROCESS MESSAGE
+  // PROCESS MESSAGE
   //-------------------------------------------------------------
   async processUserMessage(input: string, usuarioId?: number, contexto?: any) {
     this.logger.debug(`Procesando mensaje: "${input}"`);
@@ -284,7 +284,7 @@ export class AiService {
     );
 
     //-------------------------------------------------------------
-    // ⭐ LIKE BUTTON + CONTADORES
+    // LIKE BUTTON + CONTADORES
     //-------------------------------------------------------------
     if (items.length > 0) {
       for (const item of friendly.items ?? []) {
@@ -308,7 +308,7 @@ export class AiService {
           item.liked = yaLike;
         }
 
-        // ⭐ CONTADOR DE LIKES — NUEVO
+        // CONTADOR DE LIKES — NUEVO
         // (sin romper nada y manteniendo toda la lógica existente)
         try {
           const info = await this.likesService.contarLikesSucursal(sucursalId);
@@ -343,7 +343,7 @@ export class AiService {
         };
       }
     } catch (err) {
-      this.logger.error('❌ Error obteniendo publicidad', err);
+      this.logger.error('Error obteniendo publicidad', err);
     }
 
     //-------------------------------------------------------------

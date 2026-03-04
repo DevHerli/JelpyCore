@@ -197,7 +197,7 @@ export class SuscriptoresService {
   
     const actualizado = await this.suscriptorRepo.save(suscriptor);
   
-    // 🔥 TOKEN NUEVO
+    // TOKEN NUEVO
     const payload = {
       sub: suscriptor.id,
       nombre: suscriptor.nombre,

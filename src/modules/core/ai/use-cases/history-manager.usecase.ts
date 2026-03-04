@@ -39,9 +39,9 @@ export class HistoryManagerUseCase {
       };
 
       await this.historyRepo.save(registro);
-      this.logger.log(`🕓 Historial guardado para suscriptor ${suscriptorId ?? 'anónimo'}`);
+      this.logger.log(`Historial guardado para suscriptor ${suscriptorId ?? 'anónimo'}`);
     } catch (error) {
-      this.logger.error('❌ Error al guardar historial de consultas', error);
+      this.logger.error('Error al guardar historial de consultas', error);
     }
   }
 

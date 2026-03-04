@@ -18,6 +18,11 @@ export class PromocionesSucursalesController {
     return this.promoService.listar();
   }
 
+  @Get('negocio/:negocioId')
+listarPorNegocio(@Param('negocioId', ParseIntPipe) negocioId: number) {
+  return this.promoService.listarPorNegocio(negocioId);
+}
+
   @Get('sucursal/:sucursalId')
   listarPorSucursal(@Param('sucursalId', ParseIntPipe) sucursalId: number) {
     return this.promoService.listarPorSucursal(sucursalId);

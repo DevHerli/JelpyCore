@@ -83,4 +83,8 @@ export class CreateSucursalNegocioDto {
   @IsOptional()
   @IsBoolean()
   esMatriz?: boolean;
+
+  @IsOptional()
+@IsString()
+imagenUrl?: string;
 }

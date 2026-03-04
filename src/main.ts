@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as dotenv from 'dotenv';
 
 
-// 🔹 Cargar variables de entorno (.env) antes de todo
+// Cargar variables de entorno (.env) antes de todo
 dotenv.config();
 
 
@@ -43,7 +43,7 @@ async function bootstrap() {
     }),
   );
 
-  // ✅ Verificar existencia de carpetas locales (solo útil si usas almacenamiento local)
+  //Verificar existencia de carpetas locales (solo útil si usas almacenamiento local)
   const uploadPath = join(__dirname, '..', 'uploads', 'negocios', 'logos');
   if (!fs.existsSync(uploadPath)) {
     fs.mkdirSync(uploadPath, { recursive: true });
@@ -53,11 +53,11 @@ async function bootstrap() {
   // Servir archivos estáticos (si usas almacenamiento local)
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
-  // ✅ Verificación de variables Cloudinary
+  //Verificación de variables Cloudinary
   if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-    Logger.warn('⚠️ Cloudinary no está configurado correctamente. Revisa tus variables .env', 'Bootstrap');
+    Logger.warn('Cloudinary no está configurado correctamente. Revisa tus variables .env', 'Bootstrap');
   } else {
-    Logger.log(`☁️ Cloudinary conectado como ${process.env.CLOUDINARY_CLOUD_NAME}`, 'Bootstrap');
+    Logger.log(`Cloudinary conectado como ${process.env.CLOUDINARY_CLOUD_NAME}`, 'Bootstrap');
   }
 
   // Swagger sin Auth (temporal)
@@ -73,12 +73,20 @@ async function bootstrap() {
     swaggerOptions: { persistAuthorization: true },
   });
 
-  // 🚀 Levantar servidor
-  const port = process.env.PORT || 3000;
+  // Levantar servidor
+  const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');
+  const closeApp = async () => {
+  console.log('Cerrando servidor...');
+  await app.close();
+  process.exit(0);
+};
 
-  Logger.log(`🚀 Servidor corriendo en http://localhost:${port}`, 'Bootstrap');
-  Logger.log(`📘 Documentación Swagger: http://localhost:${port}/docs`, 'Swagger');
+process.on('SIGTERM', closeApp);
+process.on('SIGINT', closeApp);
+
+  Logger.log(`Servidor corriendo en http://localhost:${port}`, 'Bootstrap');
+  Logger.log(`Documentación Swagger: http://localhost:${port}/docs`, 'Swagger');
 }
 
 bootstrap();

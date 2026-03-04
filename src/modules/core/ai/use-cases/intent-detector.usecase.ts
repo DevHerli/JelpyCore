@@ -35,7 +35,7 @@ export class IntentDetectorUseCase {
       'donde', 'dónde', 'cerca', 'abierto',
       'promocion', 'promo', 'descuento',
       'tienda', 'servicio', 'doctor', 'restaurante',
-      'sushi', 'pizza', 'tacos', 'farmacia', 'spa', 'barber'
+      'sushi', 'pizza', 'tacos', 'farmacia', 'spa', 'barber', 'alitas'
     ];
 
     if (searchKeywords.some(f => t.includes(f))) {
@@ -43,7 +43,7 @@ export class IntentDetectorUseCase {
     }
 
     // Detectar búsqueda aunque sea sin verbo
-    if (/sushi|pizza|tacos|farmacia|barber|spa/i.test(t)) {
+    if (/sushi|pizza|alitas|tacos|farmacia|barber|spa/i.test(t)) {
       return 'search';
     }
 

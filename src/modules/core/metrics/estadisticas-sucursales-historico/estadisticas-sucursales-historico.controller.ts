@@ -31,7 +31,7 @@ export class EstadisticasSucursalesHistoricoController {
   }
 
 
-// 🏆 TOP SUCURSALES
+// TOP SUCURSALES
 @Get('top')
 async topSucursales(
   @Query('negocioId') negocioId?: number,

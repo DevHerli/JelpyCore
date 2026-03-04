@@ -1,4 +1,4 @@
-import { Controller, Post, Body, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, BadRequestException, Get, Query } from '@nestjs/common';
 import { SucursalLikesService } from './sucursal-likes.service';
 
 @Controller('likes')
@@ -49,4 +49,31 @@ export class SucursalLikesController {
       mensaje: 'Like agregado correctamente',
     };
   }
+
+
+  // ============================================================
+// CHECK LIKE
+// ============================================================
+@Get('check')
+async check(
+  @Query('usuarioId') usuarioId: number,
+  @Query('sucursalId') sucursalId: number,
+) {
+  if (!usuarioId || !sucursalId) {
+    throw new BadRequestException('usuarioId y sucursalId son obligatorios');
+  }
+
+  const liked = await this.likesService.usuarioHaDadoLike(
+    Number(usuarioId),
+    Number(sucursalId),
+  );
+
+  const totalLikes = await this.likesService.contar(Number(sucursalId));
+
+  return {
+    liked,
+    totalLikes,
+  };
+}
+
 }

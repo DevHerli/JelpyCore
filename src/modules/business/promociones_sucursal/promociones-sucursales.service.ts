@@ -106,7 +106,10 @@ export class PromocionesSucursalesService {
       .where('promo.eliminado = 0')
       .andWhere('promo.activa = 1')
       .andWhere('CURDATE() BETWEEN promo.fecha_inicio AND promo.fecha_fin')
-      .andWhere('FIND_IN_SET(:dia, promo.dias_vigencia) > 0', { dia: diaActual });
+      .andWhere('(promo.dias_vigencia IS NULL OR promo.dias_vigencia = "" OR FIND_IN_SET(:dia, promo.dias_vigencia) > 0)', {
+  dia: diaActual,
+});
+
 
     if (ciudadId) query.andWhere('ciudad.id = :ciudadId', { ciudadId });
     if (categoriaId) query.andWhere('categoria.id = :categoriaId', { categoriaId });
@@ -115,6 +118,7 @@ export class PromocionesSucursalesService {
     const resultados = await query.orderBy('promo.fecha_inicio', 'DESC').getMany();
     return resultados;
   }
+
 
 
 /**
@@ -184,7 +188,7 @@ async obtenerResumenPromociones(): Promise<any> {
   const fechaLimite = new Date();
   fechaLimite.setDate(hoy.getDate() + 3);
 
-  // 🔸 Total de promociones activas
+  // Total de promociones activas
   const totalActivas = await this.promoRepo
     .createQueryBuilder('promo')
     .where('promo.activa = 1')
@@ -192,7 +196,7 @@ async obtenerResumenPromociones(): Promise<any> {
     .andWhere('CURDATE() BETWEEN promo.fecha_inicio AND promo.fecha_fin')
     .getCount();
 
-  // 🔸 Total de promociones próximas
+  // Total de promociones próximas
   const totalProximas = await this.promoRepo
     .createQueryBuilder('promo')
     .where('promo.activa = 1')
@@ -200,14 +204,14 @@ async obtenerResumenPromociones(): Promise<any> {
     .andWhere('promo.fecha_inicio > CURDATE()')
     .getCount();
 
-  // 🔸 Total de promociones finalizadas
+  // Total de promociones finalizadas
   const totalFinalizadas = await this.promoRepo
     .createQueryBuilder('promo')
     .where('promo.eliminado = 0')
     .andWhere('promo.fecha_fin < CURDATE()')
     .getCount();
 
-  // 🔸 Promociones por vencer (dentro de los próximos 3 días)
+  // Promociones por vencer (dentro de los próximos 3 días)
   const proximasAVencer = await this.promoRepo
     .createQueryBuilder('promo')
     .leftJoinAndSelect('promo.sucursal', 'sucursal')
@@ -218,7 +222,7 @@ async obtenerResumenPromociones(): Promise<any> {
     .orderBy('promo.fecha_fin', 'ASC')
     .getMany();
 
-  // 🔸 Categorías con más promociones activas
+  // Categorías con más promociones activas
   const categoriasTop = await this.promoRepo
     .createQueryBuilder('promo')
     .leftJoin('promo.sucursal', 'sucursal')
@@ -247,9 +251,6 @@ async obtenerResumenPromociones(): Promise<any> {
 }
 
 
-/**
- * 🔹 Obtener estadísticas avanzadas de promociones
- */
 async obtenerEstadisticasPromociones(): Promise<any> {
   // Total de vistas y clics
   const totales = await this.promoRepo.query(`
@@ -318,9 +319,6 @@ async obtenerEstadisticasPromociones(): Promise<any> {
 }
 
 
-/**
- * 🔹 Registrar una vista de promoción
- */
 async registrarVista(promocionId: number): Promise<any> {
   const existe = await this.promoRepo.query(
     `SELECT * FROM estadisticas_promociones WHERE promocion_id = ? LIMIT 1`,
@@ -405,4 +403,17 @@ async actualizar(id: number, dto: UpdatePromocionSucursalDto): Promise<Promocion
 
     return this.promoRepo.save(promo);
   }
+
+
+  async listarPorNegocio(negocioId: number): Promise<PromocionSucursal[]> {
+  return this.promoRepo
+    .createQueryBuilder('promo')
+    .leftJoinAndSelect('promo.sucursal', 'sucursal')
+    .leftJoinAndSelect('sucursal.negocio', 'negocio')
+    .where('promo.eliminado = 0')
+    .andWhere('negocio.id = :negocioId', { negocioId })
+    .orderBy('promo.fecha_inicio', 'DESC')
+    .getMany();
+}
+
 }

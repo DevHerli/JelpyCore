@@ -19,7 +19,7 @@ export class AiController {
     @Body('mensaje') mensaje: string,
     @Body('usuarioId') usuarioId?: number,
 
-    // 🔥 AGREGADO: contexto opcional para lat/lng/ciudad
+    // AGREGADO: contexto opcional para lat/lng/ciudad
     @Body('contexto') contexto?: {
       latitud?: number;
       longitud?: number;
@@ -34,7 +34,7 @@ export class AiController {
 
     this.logger.log(`Mensaje recibido: ${mensaje}`);
 
-    // 🔥 Pasamos también el contexto al AiService (sin romper nada tuyo)
+    // Pasamos también el contexto al AiService (sin romper nada tuyo)
     const resultado = await this.aiService.processUserMessage(
       mensaje,
       usuarioId,
@@ -46,7 +46,7 @@ export class AiController {
 
     /**
      * Registrar métricas SOLO si hay sucursales válidas
-     * ⚠️ ESTO LO RESPETO EXACTAMENTE COMO LO TENÍAS
+     * ESTO LO RESPETO EXACTAMENTE COMO LO TENÍAS
      */
     if (items.length > 0) {
       try {

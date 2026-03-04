@@ -11,6 +11,9 @@ import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
 import { SucursalCaracteristica } from '../../caracteristicas_sucursales/entities/sucursal-caracteristica.entity';
 import { HorarioSucursal } from '../../horario_sucursal/entities/horarios-sucursal.entity';
+import { SucursalImagen } from './sucursal-imagen.entity';
+import { SucursalReview } from '../../sucursales_reviews/entities/sucursal-review.entity';
+import { PromotionBusinessBranch } from '../../promociones_negocio/entities/promotion-business-branch.entity';
 
 @Entity('sucursales_negocios')
 export class SucursalNegocio {
@@ -27,6 +30,13 @@ export class SucursalNegocio {
 
 @OneToMany(() => HorarioSucursal, (h) => h.sucursal, { eager: true })
 horarios: HorarioSucursal[];
+
+@OneToMany(() => SucursalImagen, (imagen) => imagen.sucursal, { eager: true })
+  imagenes: SucursalImagen[];
+
+
+  @OneToMany(() => SucursalReview, (r) => r.sucursal)
+reseñas: SucursalReview[];
 
 
   @Column({ name: 'nombre_sucursal', length: 150 })
@@ -110,6 +120,12 @@ horarios: HorarioSucursal[];
   })
   fechaActualizacion?: Date;
 
+@Column({ name: 'imagen_url', type: 'varchar', length: 255, nullable: true })
+  imagenUrl?: string;
+
   @Column({ type: 'tinyint', width: 1, default: 0 })
   eliminado: boolean;
+
+  @OneToMany(() => PromotionBusinessBranch, (x) => x.sucursal)
+  promocionesGlobalesLinks?: PromotionBusinessBranch[];
 }

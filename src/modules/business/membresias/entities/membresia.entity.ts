@@ -28,4 +28,16 @@ export class Membresia {
 
   @UpdateDateColumn({ type: 'datetime', nullable: true, onUpdate: 'CURRENT_TIMESTAMP' })
   fecha_actualizacion: Date;
+
+  // Membresia entity
+@Column({ name: 'anuncios_mensuales', type: 'int', default: 0 })
+anunciosMensuales: number;
+
+@Column({ name: 'anuncios_simultaneos', type: 'int', default: 0 })
+anunciosSimultaneos: number;
+
+@Column({ name: 'anuncios_ilimitados', type: 'tinyint', width: 1, default: 0 })
+anunciosIlimitados: boolean;
+
+
 }

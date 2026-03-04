@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { SucursalNegocio } from './entities/sucursal-negocio.entity';
+import { SucursalImagen } from './entities/sucursal-imagen.entity';
 import { CreateSucursalNegocioDto } from './dto/create-sucursal-negocio.dto';
 import { UpdateSucursalNegocioDto } from './dto/update-sucursal-negocio.dto';
 
@@ -10,11 +11,18 @@ export class SucursalesNegociosService {
   constructor(
     @InjectRepository(SucursalNegocio)
     private readonly sucursalRepo: Repository<SucursalNegocio>,
+
+    @InjectRepository(SucursalImagen)
+    private readonly imagenRepo: Repository<SucursalImagen>,
   ) {}
 
-  async crear(dto: CreateSucursalNegocioDto): Promise<SucursalNegocio> {
+  // =================================================================
+  // Crear (Mantenemos tu lógica de imagenUrl)
+  // =================================================================
+  async crear(dto: CreateSucursalNegocioDto & { imagenUrl?: string }): Promise<SucursalNegocio> {
     const entity = this.sucursalRepo.create({
       ...dto,
+      imagenUrl: dto.imagenUrl, 
       negocio: { id: dto.negocioId } as any,
       ciudad: { id: dto.ciudadId } as any,
       estado: { id: dto.estadoId } as any,
@@ -22,6 +30,20 @@ export class SucursalesNegociosService {
     return this.sucursalRepo.save(entity);
   }
 
+  async agregarImagenes(sucursalId: number, fotos: { url: string; publicId: string }[]) {
+    const entities = fotos.map(foto => 
+      this.imagenRepo.create({
+        url: foto.url,
+        publicId: foto.publicId,
+        sucursal: { id: sucursalId } as any
+      })
+    );
+    return this.imagenRepo.save(entities);
+  }
+
+  // =================================================================
+  // LISTAR: Agregamos relaciones para que venga la membresía
+  // =================================================================
   async listar(params?: {
     negocioId?: number;
     ciudadId?: number;
@@ -38,9 +60,12 @@ export class SucursalesNegociosService {
       order: { id: 'ASC' },
       relations: [
         'negocio',
+        'negocio.suscriptor',           // <--- IMPORTANTE
+        'negocio.suscriptor.membresia', // <--- AQUÍ ESTÁ EL PLAN
         'caracteristicas',          
         'caracteristicas.caracteristica',
-        'horarios' 
+        'horarios',
+        'imagenes' 
       ],
     });
   }
@@ -49,13 +74,22 @@ export class SucursalesNegociosService {
     return this.listar({ negocioId });
   }
 
+  // =================================================================
+  // OBTENER: Agregamos relaciones (ESTA ES LA QUE USA TU MODAL)
+  // =================================================================
   async obtener(id: number): Promise<SucursalNegocio> {
     const suc = await this.sucursalRepo.findOne({
       where: { id, eliminado: false },
       relations: [
         'negocio',
+        'negocio.suscriptor',           // <--- NECESARIO
+        'negocio.suscriptor.membresia', // <--- TRAE "CORTESIA"
         'caracteristicas',              
-        'caracteristicas.caracteristica'
+        'caracteristicas.caracteristica',
+        'horarios',
+        'imagenes',
+        'ciudad',                       // <--- Agregado por si lo usas en el header
+        'estado'
       ],
     });
 
@@ -63,13 +97,20 @@ export class SucursalesNegociosService {
     return suc;
   }
 
-  async actualizar(id: number, dto: UpdateSucursalNegocioDto): Promise<SucursalNegocio> {
+  // =================================================================
+  // Actualizar
+  // =================================================================
+  async actualizar(id: number, dto: UpdateSucursalNegocioDto & { imagenUrl?: string }): Promise<SucursalNegocio> {
     const suc = await this.obtener(id);
 
     const rels: Partial<SucursalNegocio> = {};
     if (dto.negocioId) rels.negocio = { id: dto.negocioId } as any;
     if (dto.ciudadId) rels.ciudad = { id: dto.ciudadId } as any;
     if (dto.estadoId) rels.estado = { id: dto.estadoId } as any;
+
+    if (dto.imagenUrl) {
+      suc.imagenUrl = dto.imagenUrl;
+    }
 
     Object.assign(suc, dto, rels);
     return this.sucursalRepo.save(suc);
@@ -79,5 +120,14 @@ export class SucursalesNegociosService {
     const suc = await this.obtener(id);
     suc.eliminado = true;
     await this.sucursalRepo.save(suc);
+  }
+
+  async eliminarImagen(imagenId: number) {
+    const img = await this.imagenRepo.findOne({ where: { id: imagenId } });
+    if (img) {
+      await this.imagenRepo.remove(img);
+      return img.publicId; 
+    }
+    return null;
   }
 }

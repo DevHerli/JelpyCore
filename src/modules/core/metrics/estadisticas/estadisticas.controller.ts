@@ -1,9 +1,14 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { EstadisticasService } from './estadisticas.service';
 
 @Controller('estadisticas')
 export class EstadisticasController {
   constructor(private readonly estadisticasService: EstadisticasService) {}
+
+  @Post('evento')
+  registrarEventoBody(@Body() body: { entidad: 'negocio' | 'sucursal', id: number, tipo: 'vista' | 'clic' | 'busqueda' }) {
+    return this.estadisticasService.registrarEvento(body.tipo, body.entidad, body.id);
+  }
 
   // Registrar evento (vista, clic, búsqueda)
   @Post(':entidad/:id/:tipo')
