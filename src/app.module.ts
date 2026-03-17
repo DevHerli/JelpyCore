@@ -44,6 +44,11 @@ import { SucursalReviewModule } from './modules/business/sucursales_reviews/sucu
 import { BookmarksModule } from './modules/business/bookmark_branch/bookmarks.module';
 import { AnunciosModule } from './modules/business/anuncios/anuncios.module';
 import { PromocionesNegociosModule } from './modules/business/promociones_negocio/promociones-negocios.module';
+import { SuscripcionesModule } from './modules/suscripciones/suscripciones.module';
+import { PagosModule } from './modules/pagos/pagos.module';
+import { PostalCodesModule } from './modules/domicilios/codigos_postal/postal-codes.module';
+import { ColoniasModule } from './modules/domicilios/colonias/colonias.module';
+import { StreetsModule } from './modules/domicilios/calles/streets.module';
 
 @Module({
   imports: [
@@ -79,6 +84,11 @@ import { PromocionesNegociosModule } from './modules/business/promociones_negoci
     BookmarksModule,
     AnunciosModule,
     PromocionesNegociosModule,
+    SuscripcionesModule,
+    PagosModule,
+    PostalCodesModule,
+    ColoniasModule,
+    StreetsModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),

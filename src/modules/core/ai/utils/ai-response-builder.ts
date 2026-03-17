@@ -127,7 +127,7 @@ export class AIResponseBuilder {
   }
 
   // ==================================
-  // LISTADO — AQUÍ SOLO AGREGO HORARIOS 🔥
+  // LISTADO — AQUÍ SOLO AGREGO HORARIOS
   // ==================================
   static listado(items: any[]) {
       return items.map((i, idx) => ({
@@ -145,7 +145,7 @@ export class AIResponseBuilder {
         abierto: i.abierto ? 'Abierto ahora' : 'Cerrado temporalmente',
         estadoIcono: i.abierto ? 'open' : 'closed',
 
-        // 🔥🔥🔥 HORARIO COMPLETO (AGREGADO SIN CAMBIAR NADA MÁS)
+        //HORARIO COMPLETO (AGREGADO SIN CAMBIAR NADA MÁS)
         horario: {
           apertura: i.horario?.apertura ?? null,
           cierre: i.horario?.cierre ?? null,

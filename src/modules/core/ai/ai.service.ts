@@ -45,7 +45,7 @@ export class AiService {
     private readonly publicidadChatService: PublicidadChatService,
     private readonly usuarioPreferenciasService: UsuarioPreferenciasService,
 
-    private readonly likesService: SucursalLikesService
+    private readonly likesService: SucursalLikesService,
   ) {}
 
   //-------------------------------------------------------------
@@ -54,11 +54,12 @@ export class AiService {
   private generarRecomendacionProactiva(filtros: any, items: any[]) {
     const f = filtros || {};
     const total = items.length;
+
     if (total === 0) {
       return 'No encontré opciones exactas 😕 ¿Quieres que busque algo parecido o en otra ciudad? 🌎';
     }
 
-    const itemsConPromo = items.filter(i => i.promo).length;
+    const itemsConPromo = items.filter((i) => i.promo).length;
     const porcentajePromos = itemsConPromo / total;
 
     if (itemsConPromo > 0) {
@@ -80,17 +81,23 @@ export class AiService {
   //-------------------------------------------------------------
   private obtenerUpsellPorHora(): string {
     const hora = new Date().getHours();
+
     if (hora >= 6 && hora < 11) return '¿Te gustaría ver lugares para desayunar? 🥞';
     if (hora >= 11 && hora < 15) return 'Hora de comer 🍽️ ¿Quieres opciones cerca de ti?';
     if (hora >= 15 && hora < 19) return '¿Antojo de café o postre? ☕🍰';
     if (hora >= 19 && hora < 24) return 'Perfecto para cenar 🍕 ¿Buscas algo rico?';
+
     return '¿Quieres ver lugares abiertos 24 horas? 🌙';
   }
 
   //-------------------------------------------------------------
   // APRENDIZAJE RAM
   //-------------------------------------------------------------
-  private actualizarPreferenciasUsuario(usuarioId: number | undefined, filtros: any, items: any[]) {
+  private actualizarPreferenciasUsuario(
+    usuarioId: number | undefined,
+    filtros: any,
+    items: any[],
+  ) {
     if (!usuarioId) return;
 
     let prefs = this.preferenciasPorUsuario.get(usuarioId);
@@ -105,10 +112,12 @@ export class AiService {
       const cid = Number(f.categoriaId);
       prefs.categorias[cid] = (prefs.categorias[cid] || 0) + 1;
     }
+
     if (f.subcategoriaId) {
       const sid = Number(f.subcategoriaId);
       prefs.subcategorias[sid] = (prefs.subcategorias[sid] || 0) + 1;
     }
+
     if (f.ciudad) {
       prefs.ciudades[f.ciudad] = (prefs.ciudades[f.ciudad] || 0) + 1;
     }
@@ -124,6 +133,7 @@ export class AiService {
   private obtenerTopId(map: Record<number, number>): number | null {
     const entries = Object.entries(map || {});
     if (!entries.length) return null;
+
     entries.sort((a, b) => b[1] - a[1]);
     return Number(entries[0][0]);
   }
@@ -131,6 +141,7 @@ export class AiService {
   private obtenerTopClave(map: Record<string, number>): string | null {
     const entries = Object.entries(map || {});
     if (!entries.length) return null;
+
     entries.sort((a, b) => b[1] - a[1]);
     return entries[0][0];
   }
@@ -143,12 +154,18 @@ export class AiService {
     const mes = now.getMonth();
     const dia = now.getDay();
 
-    if (mes === 11 || mes === 0)
+    if (mes === 11 || mes === 0) {
       return 'Es temporada navideña ✨ Algunos lugares pueden tener menús especiales o horarios distintos.';
-    if (mes >= 5 && mes <= 7)
+    }
+
+    if (mes >= 5 && mes <= 7) {
       return 'En temporada de calor muchos lugares se llenan rápido 🥵. Te conviene revisar opciones con reservación.';
-    if (dia === 0 || dia === 6)
+    }
+
+    if (dia === 0 || dia === 6) {
       return 'Es fin de semana 🎉 Algunos negocios pueden estar más llenos de lo normal.';
+    }
+
     if (ciudad) return `Buscando en ${ciudad}.`;
 
     return null;
@@ -157,7 +174,10 @@ export class AiService {
   //-------------------------------------------------------------
   // UPSSELL PERSONALIZADO
   //-------------------------------------------------------------
-  private generarUpsellPersonalizado(usuarioId: number | undefined, filtros: any): string {
+  private generarUpsellPersonalizado(
+    usuarioId: number | undefined,
+    filtros: any,
+  ): string {
     const upsellHora = this.obtenerUpsellPorHora();
 
     if (!usuarioId) return upsellHora;
@@ -205,32 +225,59 @@ export class AiService {
       },
     );
 
+    //-------------------------------------------------------------
+    // MODERACIÓN FUERTE → RECHAZAR
+    //-------------------------------------------------------------
     if (!moderacion.permitido) {
-      return { status: 'rechazado', motivo: moderacion.motivo };
+      return {
+        status: 'rechazado',
+        mensajeOriginal: input,
+        mensajeCorregido: textoCorregido,
+        motivo: moderacion.motivo,
+        respuesta: {
+          titulo: 'No puedo procesar ese mensaje',
+          mensaje:
+            'Detecté lenguaje inapropiado o agresivo. Si quieres, reformula tu mensaje y con gusto te ayudo a buscar lo que necesitas.',
+        },
+      };
     }
 
+    //-------------------------------------------------------------
+    // MODERACIÓN SUAVE → ADVERTENCIA
+    //-------------------------------------------------------------
     if (moderacion.advertencia === 'mantener_respecto') {
       return {
         status: 'advertencia',
         mensajeOriginal: input,
-        respuesta: { titulo: 'Por favor mantén un lenguaje respetuoso.' },
+        mensajeCorregido: textoCorregido,
+        respuesta: {
+          titulo: 'Por favor mantén un lenguaje respetuoso.',
+          mensaje:
+            'Por favor mantén un lenguaje respetuoso, estoy aquí para ayudarte. Si quieres, reformula tu mensaje y con gusto continuamos.',
+        },
       };
     }
 
+    //-------------------------------------------------------------
+    // INTENCIÓN CHAT
+    //-------------------------------------------------------------
     const intent = this.intentDetector.detect(textoCorregido);
+
     if (intent === 'chat') {
       return {
         status: 'chat',
         mensajeOriginal: input,
         mensajeCorregido: textoCorregido,
-        respuesta: ChatResponses.responder(textoCorregido),
+        respuesta: ChatResponses.responder(textoCorregido, {
+          ciudad: contexto?.ciudad,
+        }),
       };
     }
 
     await this.historyUseCase.saveQuery(usuarioId ?? 0, textoCorregido);
 
     //-------------------------------------------------------------
-    // JEPLY ASSISTANT
+    // JELPY ASSISTANT
     //-------------------------------------------------------------
     const interpretacion = await this.jelpyAssistant.interpretar(
       textoCorregido,
@@ -250,8 +297,12 @@ export class AiService {
     try {
       for (const item of items) {
         const sucursalId = Number(
-          item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id,
+          item.sucursal_id ||
+            item.id_sucursal ||
+            item.sucursalId ||
+            item.sucursal?.id,
         );
+
         if (sucursalId) {
           const info = await this.likesService.contarLikesSucursal(sucursalId);
           item.likes = info.totalLikes ?? 0;
@@ -268,8 +319,12 @@ export class AiService {
     //-------------------------------------------------------------
     for (const item of items) {
       const sucursalId = Number(
-        item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id,
+        item.sucursal_id ||
+          item.id_sucursal ||
+          item.sucursalId ||
+          item.sucursal?.id,
       );
+
       if (sucursalId) {
         await this.trackMetricsUseCase.execute('busqueda', 'sucursal', sucursalId);
       }
@@ -299,7 +354,6 @@ export class AiService {
           payload: { sucursalId, usuarioId: usuarioId ?? null },
         };
 
-        // liked
         if (usuarioId) {
           const yaLike = await this.likesService.usuarioHaDadoLike(
             usuarioId,
@@ -308,8 +362,6 @@ export class AiService {
           item.liked = yaLike;
         }
 
-        // CONTADOR DE LIKES — NUEVO
-        // (sin romper nada y manteniendo toda la lógica existente)
         try {
           const info = await this.likesService.contarLikesSucursal(sucursalId);
           item.likesCount = info.totalLikes ?? 0;

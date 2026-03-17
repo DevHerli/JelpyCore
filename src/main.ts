@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import helmet from 'helmet';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import * as bodyParser from 'body-parser';
 import * as express from 'express';
 import { join } from 'path';
 import * as fs from 'fs';
@@ -17,10 +18,20 @@ dotenv.config();
 export const serverStartedAt = new Date();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+  });
 
   // Seguridad HTTP
   app.use(helmet());
+
+   // Stripe webhook requires raw body
+  app.use('/pagos/webhook/stripe', bodyParser.raw({ type: 'application/json' }));
+
+    // Para el resto normal JSON:
+  app.use(bodyParser.json({ limit: '2mb' }));
+  app.use(bodyParser.urlencoded({ extended: true, limit: '2mb' }));
 
   // CORS (puedes restringirlo más adelante)
   app.enableCors({

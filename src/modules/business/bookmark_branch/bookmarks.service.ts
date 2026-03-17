@@ -1,6 +1,4 @@
-// src/bookmarks/bookmarks.service.ts
-
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Bookmark } from './entities/bookmark.entity';
@@ -46,7 +44,10 @@ export class BookmarksService {
   async findByUser(suscriptorId: number) {
     return this.bookmarkRepo.find({
       where: { suscriptor: { id: suscriptorId } },
-      relations: ['sucursal'],
+      relations: [
+        'sucursal',
+        'sucursal.negocio',
+      ],
       order: { fechaCreacion: 'DESC' },
     });
   }

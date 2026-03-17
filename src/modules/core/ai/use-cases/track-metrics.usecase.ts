@@ -20,9 +20,9 @@ export class TrackMetricsUseCase {
 
       await this.estadisticasService.registrarEvento(tipo, entidad, id);
 
-      this.logger.log(`📊 Evento registrado: [${tipo}] ${entidad}#${id}`);
+      this.logger.log(`Evento registrado: [${tipo}] ${entidad}#${id}`);
     } catch (error) {
-      this.logger.error(`❌ Error registrando métrica`, error);
+      this.logger.error(`Error registrando métrica`, error);
     }
   }
 }

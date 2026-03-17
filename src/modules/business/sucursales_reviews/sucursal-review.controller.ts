@@ -22,6 +22,11 @@ export class SucursalReviewController {
     return this.service.getRatingSummary(+id);
   }
 
+  @Get('negocio/:id')
+  findByNegocio(@Param('id', ParseIntPipe) id: number) {
+  return this.service.findByNegocio(id);
+  }
+
 @Patch(':id')
 update(
   @Param('id') id: number,

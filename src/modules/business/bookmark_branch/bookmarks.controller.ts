@@ -10,7 +10,7 @@ export class BookmarksController {
     @Body('sucursalId') sucursalId: number,
     @Body('suscriptorId') suscriptorId: number,
   ) {
-    return this.bookmarksService.toggle(sucursalId, suscriptorId);
+    return this.bookmarksService.toggle(Number(sucursalId), Number(suscriptorId));
   }
 
   @Get('user/:suscriptorId')

@@ -142,6 +142,31 @@ async findBySucursal(sucursalId: number) {
     };
   }
 
+
+async findByNegocio(negocioId: number) {
+  const reviews = await this.reviewRepo
+    .createQueryBuilder('review')
+    .leftJoinAndSelect('review.sucursal', 'sucursal')
+    .leftJoinAndSelect('sucursal.negocio', 'negocio')
+    .where('negocio.id = :negocioId', { negocioId })
+    .andWhere('review.estado = :estado', { estado: 'publicada' })
+    .orderBy('review.fechaCreacion', 'DESC')
+    .getMany();
+
+  return reviews.map((review) => ({
+    id: review.id,
+    rating: review.rating,
+    comentario: review.comentario,
+    nombreMostrado: review.nombreMostrado,
+    respuestaNegocio: review.respuestaNegocio,
+    fechaRespuesta: review.fechaRespuesta,
+    fechaCreacion: review.fechaCreacion,
+    sucursalId: review.sucursal?.id,
+    sucursalNombre: review.sucursal?.nombreSucursal || 'Sucursal',
+  }));
+}
+
+
 async updateEstado(
   reviewId: number,
   estado: 'pendiente' | 'publicada' | 'rechazada',

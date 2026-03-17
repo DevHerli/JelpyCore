@@ -84,7 +84,7 @@ export class AiController {
       throw new BadRequestException('El campo "query" es obligatorio');
     }
 
-    this.logger.log(`🧠 Interpretando consulta: ${query}`);
+    this.logger.log(`Interpretando consulta: ${query}`);
 
     const interpretacion = await this.aiService.interpretQuery(query);
 
