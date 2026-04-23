@@ -375,42 +375,49 @@ export class AuthService {
       throw new UnauthorizedException('Falta refresh token');
     }
 
+    let decoded: any;
     try {
-      const decoded = this.jwtService.verify(refreshToken);
-
-      const suscriptor = await this.suscriptorRepo.findOne({
-        where: { id: decoded.sub },
-      });
-
-      if (!suscriptor || !suscriptor.refreshToken) {
-        throw new UnauthorizedException('Refresh token inválido');
-      }
-
-      const isValid = await bcrypt.compare(refreshToken, suscriptor.refreshToken);
-
-      if (!isValid) {
-        throw new UnauthorizedException('Refresh token no válido');
-      }
-
-      const payload = {
-        sub: suscriptor.id,
-        correo: suscriptor.correoElectronico,
-        nombre: suscriptor.nombre,
-        apellidoPaterno: suscriptor.apellidoPaterno,
-        registroCompleto: suscriptor.registroCompleto,
-        tieneNegocios: suscriptor.tieneNegocios,
-      };
-
-      const newAccess = this.jwtService.sign(payload, { expiresIn: '10m' });
-
-      return {
-        success: true,
-        access_token: newAccess,
-        refresh_token: refreshToken,
-      };
+      decoded = this.jwtService.verify(refreshToken);
     } catch {
       throw new UnauthorizedException('Refresh token expirado o inválido');
     }
+
+    const suscriptor = await this.suscriptorRepo.findOne({
+      where: { id: decoded.sub },
+    });
+
+    if (!suscriptor || !suscriptor.refreshToken) {
+      throw new UnauthorizedException('Refresh token inválido');
+    }
+
+    const isValid = await bcrypt.compare(refreshToken, suscriptor.refreshToken);
+    if (!isValid) {
+      throw new UnauthorizedException('Refresh token no válido');
+    }
+
+    const payload = {
+      sub: suscriptor.id,
+      correo: suscriptor.correoElectronico,
+      nombre: suscriptor.nombre,
+      apellidoPaterno: suscriptor.apellidoPaterno,
+      registroCompleto: suscriptor.registroCompleto,
+      tieneNegocios: suscriptor.tieneNegocios,
+    };
+
+    const newAccess = this.jwtService.sign(payload, { expiresIn: '15m' });
+    const newRefresh = this.jwtService.sign(
+      { sub: suscriptor.id },
+      { expiresIn: '30d' },
+    );
+
+    suscriptor.refreshToken = await bcrypt.hash(newRefresh, 10);
+    await this.suscriptorRepo.save(suscriptor);
+
+    return {
+      success: true,
+      access_token: newAccess,
+      refresh_token: newRefresh,
+    };
   }
 
   async logout(id: number) {
