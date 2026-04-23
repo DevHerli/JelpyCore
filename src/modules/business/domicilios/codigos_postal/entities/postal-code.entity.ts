@@ -5,7 +5,7 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
+import { Ciudad } from '../../../../catalogos/ciudades/entities/ciudades.entity';
 
 @Entity({ name: 'codigos_postales' })
 export class PostalCode {

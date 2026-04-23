@@ -14,13 +14,13 @@ import { HorarioSucursal } from '../../horario_sucursal/entities/horarios-sucurs
 import { SucursalImagen } from './sucursal-imagen.entity';
 import { SucursalReview } from '../../sucursales_reviews/entities/sucursal-review.entity';
 import { PromotionBusinessBranch } from '../../promociones_negocio/entities/promotion-business-branch.entity';
+import { EventoNegocio } from '../../eventos_negocios/entities/evento-negocio.entity';
 
 @Entity('sucursales_negocios')
 export class SucursalNegocio {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  // Negocio
   @ManyToOne(() => Negocio, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
@@ -28,16 +28,14 @@ export class SucursalNegocio {
   @OneToMany(() => SucursalCaracteristica, (sc) => sc.sucursal)
   caracteristicas: SucursalCaracteristica[];
 
-@OneToMany(() => HorarioSucursal, (h) => h.sucursal, { eager: true })
-horarios: HorarioSucursal[];
+  @OneToMany(() => HorarioSucursal, (h) => h.sucursal, { eager: true })
+  horarios: HorarioSucursal[];
 
-@OneToMany(() => SucursalImagen, (imagen) => imagen.sucursal, { eager: true })
+  @OneToMany(() => SucursalImagen, (imagen) => imagen.sucursal, { eager: true })
   imagenes: SucursalImagen[];
 
-
   @OneToMany(() => SucursalReview, (r) => r.sucursal)
-reseñas: SucursalReview[];
-
+  reseñas: SucursalReview[];
 
   @Column({ name: 'nombre_sucursal', length: 150 })
   nombreSucursal: string;
@@ -54,13 +52,15 @@ reseñas: SucursalReview[];
   @Column({ length: 120 })
   colonia: string;
 
-  @Column({ name: 'entre_calles', length: 255, nullable: true })
-  entreCalles?: string;
+  @Column({ name: 'entre_calle_1', length: 150, nullable: true })
+  entreCalle1?: string;
+
+  @Column({ name: 'entre_calle_2', length: 150, nullable: true })
+  entreCalle2?: string;
 
   @Column({ name: 'codigo_postal', length: 10 })
   codigoPostal: string;
 
-  // Ciudad y Estado (catálogos)
   @ManyToOne(() => Ciudad, { eager: true })
   @JoinColumn({ name: 'ciudad_id' })
   ciudad: Ciudad;
@@ -102,6 +102,12 @@ reseñas: SucursalReview[];
   @Column({ length: 20, nullable: true })
   whatsapp?: string;
 
+  @Column({ name: 'referencia_mapa', length: 255, nullable: true })
+  referenciaMapa?: string;
+
+  @Column({ name: 'tipo_sucursal', length: 50, nullable: true })
+  tipoSucursal?: string;
+
   @Column({ name: 'es_matriz', type: 'tinyint', width: 1, default: 0 })
   esMatriz: boolean;
 
@@ -120,7 +126,7 @@ reseñas: SucursalReview[];
   })
   fechaActualizacion?: Date;
 
-@Column({ name: 'imagen_url', type: 'varchar', length: 255, nullable: true })
+  @Column({ name: 'imagen_url', type: 'varchar', length: 255, nullable: true })
   imagenUrl?: string;
 
   @Column({ type: 'tinyint', width: 1, default: 0 })
@@ -128,4 +134,7 @@ reseñas: SucursalReview[];
 
   @OneToMany(() => PromotionBusinessBranch, (x) => x.sucursal)
   promocionesGlobalesLinks?: PromotionBusinessBranch[];
+
+  @OneToMany(() => EventoNegocio, (evento) => evento.sucursal)
+  eventosNegocios: EventoNegocio[];
 }

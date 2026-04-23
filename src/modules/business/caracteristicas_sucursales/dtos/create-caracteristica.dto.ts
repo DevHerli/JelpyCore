@@ -1,4 +1,24 @@
-import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+  IsNumber,
+  IsIn,
+  IsBoolean,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+class AplicabilidadDto {
+  @IsIn(['categoria', 'subcategoria', 'especialidad', 'tipo_servicio', 'todos'])
+  nivel: 'categoria' | 'subcategoria' | 'especialidad' | 'tipo_servicio' | 'todos';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  referenciaId?: number | null;
+}
 
 export class CreateCaracteristicaDto {
   @IsNotEmpty()
@@ -11,7 +31,7 @@ export class CreateCaracteristicaDto {
 
   @IsNotEmpty()
   @IsString()
-  categoria: string;
+  categoriaVisual: string;
 
   @IsOptional()
   @IsString()
@@ -19,5 +39,16 @@ export class CreateCaracteristicaDto {
 
   @IsOptional()
   @IsString()
-  aplica_a?: string;
+  icono?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  activo?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AplicabilidadDto)
+  aplicabilidades?: AplicabilidadDto[];
 }

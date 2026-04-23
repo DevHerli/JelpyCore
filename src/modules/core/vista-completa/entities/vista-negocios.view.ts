@@ -11,6 +11,9 @@ export class VistaNegociosCompleta {
   @ViewColumn()
   descripcion_negocio: string | null;
 
+@ViewColumn()
+ciudad_id: number | null;
+
   @ViewColumn()
   ciudad: string | null;
 
@@ -45,16 +48,7 @@ export class VistaNegociosCompleta {
   longitud: number | null;
 
   @ViewColumn()
-  dia_semana: string | null;
-
-  @ViewColumn()
-  hora_apertura: string | null;
-
-  @ViewColumn()
-  hora_cierre: string | null;
-
-  @ViewColumn()
-  cerrado: number | null;
+  horarios_keywords: string | null;
 
   @ViewColumn()
   promo_titulo: string | null;
@@ -88,4 +82,19 @@ export class VistaNegociosCompleta {
 
   @ViewColumn()
   promo_imagen_url: string | null;
+
+  @ViewColumn()
+  promo_origen: string | null;
+
+  @ViewColumn()
+  catalogo_keywords: string | null;
+
+  @ViewColumn()
+  anuncio_keywords: string | null;
+
+  @ViewColumn()
+  caracteristicas_keywords: string | null;
+
+  @ViewColumn()
+items_keywords: string | null;
 }

@@ -14,6 +14,8 @@ import { Subcategoria } from '../../../catalogos/subcategorias/entities/subcateg
 import { Especialidad } from '../../../catalogos/especialidades/entities/especialidades.entity';
 import { KeywordTaxonomia } from '../../taxonomia/entities/keyword-taxonomia.entity';
 import { UsuarioPreferenciasModule } from '../../preferencias-usuarios/usuario-preferencias.module';
+import { JelpyAiModule } from '../../../jelpy-ai/jelpy-ai.module';
+import { ItemNegocio } from '../../../business/catalogo_productos/entities/item-negocio.entity';
 
 @Module({
   imports: [
@@ -23,12 +25,15 @@ import { UsuarioPreferenciasModule } from '../../preferencias-usuarios/usuario-p
       Subcategoria,
       Especialidad,
       KeywordTaxonomia,
+      ItemNegocio,
+
     ]),
 
     forwardRef(() => SearchModule),       
     forwardRef(() => UsuarioPreferenciasModule),       
     forwardRef(() => FiltrosBusquedaModule),
     forwardRef(() => AiModule),
+    forwardRef(() => JelpyAiModule),
   ],
 
   controllers: [JelpyAssistantController],

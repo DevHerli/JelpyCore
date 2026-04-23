@@ -6,11 +6,11 @@ import { TrackMetricsUseCase } from './use-cases/track-metrics.usecase';
 import { HistoryManagerUseCase } from './use-cases/history-manager.usecase';
 import { JelpyAssistantService } from './jelpy-assistant/jelpy-assistant.service';
 import { AIResponseBuilder } from './utils/ai-response-builder';
-import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
 import { ChatResponses } from './utils/chat-responses';
 import { PublicidadChatService } from '../publicidad-chat/publicidad-chat.service';
 import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-preferencias.service';
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
+import { JelpyAiService } from '../../jelpy-ai/jelpy-ai.service';
 
 @Injectable()
 export class AiService {
@@ -37,14 +37,13 @@ export class AiService {
     private readonly sanitizerUseCase: SanitizerUseCase,
     private readonly trackMetricsUseCase: TrackMetricsUseCase,
     private readonly historyUseCase: HistoryManagerUseCase,
-    private readonly intentDetector: IntentDetectorUseCase,
 
     @Inject(forwardRef(() => JelpyAssistantService))
     private readonly jelpyAssistant: JelpyAssistantService,
 
+    private readonly jelpyAiService: JelpyAiService,
     private readonly publicidadChatService: PublicidadChatService,
     private readonly usuarioPreferenciasService: UsuarioPreferenciasService,
-
     private readonly likesService: SucursalLikesService,
   ) {}
 
@@ -259,11 +258,59 @@ export class AiService {
     }
 
     //-------------------------------------------------------------
-    // INTENCIÓN CHAT
+    // FASTAPI DECIDE LA INTENCIÓN
     //-------------------------------------------------------------
-    const intent = this.intentDetector.detect(textoCorregido);
 
-    if (intent === 'chat') {
+    const aiIntent = await this.jelpyAiService.interpretar({
+      text: textoCorregido,
+      city_hint: contexto?.ciudad ?? null,
+      lat: contexto?.latitud ?? null,
+      lng: contexto?.longitud ?? null,
+      user_id: usuarioId ?? null,
+    });
+
+    // if (aiIntent.reply?.mode === 'direct_reply') {
+    //   return {
+    //     status: aiIntent.intent === 'chat' ? 'chat' : 'recomendacion',
+    //     mensajeOriginal: input,
+    //     mensajeCorregido: textoCorregido,
+    //     respuesta: {
+    //       titulo: aiIntent.reply.title,
+    //       mensaje: aiIntent.reply.message,
+    //       sugerencias: aiIntent.reply.suggestions ?? [],
+    //     },
+    //     debug: {
+    //       aiIntent,
+    //     },
+    //   };
+    // }
+
+    const esBusquedaReal =
+  !!aiIntent.entities?.categoria ||
+  !!aiIntent.entities?.subcategoria ||
+  !!aiIntent.entities?.especialidad ||
+  !!aiIntent.normalized_text;
+
+if (aiIntent.reply?.mode === 'direct_reply' && !esBusquedaReal) {
+  return {
+    status: aiIntent.intent === 'chat' ? 'chat' : 'recomendacion',
+    mensajeOriginal: input,
+    mensajeCorregido: textoCorregido,
+    respuesta: {
+      titulo: aiIntent.reply.title,
+      mensaje: aiIntent.reply.message,
+      sugerencias: aiIntent.reply.suggestions ?? [],
+    },
+    debug: {
+      aiIntent,
+    },
+  };
+}
+
+    //-------------------------------------------------------------
+    // SI FASTAPI DECIDE CHAT
+    //-------------------------------------------------------------
+    if (aiIntent.intent === 'chat') {
       return {
         status: 'chat',
         mensajeOriginal: input,
@@ -271,6 +318,9 @@ export class AiService {
         respuesta: ChatResponses.responder(textoCorregido, {
           ciudad: contexto?.ciudad,
         }),
+        debug: {
+          aiIntent,
+        },
       };
     }
 
@@ -341,35 +391,68 @@ export class AiService {
     //-------------------------------------------------------------
     // LIKE BUTTON + CONTADORES
     //-------------------------------------------------------------
+    // if (items.length > 0) {
+    //   for (const item of friendly.items ?? []) {
+    //     const sucursalId = Number(
+    //       item.id || item.sucursal_id || item.sucursal?.id,
+    //     );
+
+    //     item.likeDisponible = true;
+    //     item.likeAction = {
+    //       endpoint: '/likes/toggle',
+    //       metodo: 'POST',
+    //       payload: { sucursalId, usuarioId: usuarioId ?? null },
+    //     };
+
+    //     if (usuarioId) {
+    //       const yaLike = await this.likesService.usuarioHaDadoLike(
+    //         usuarioId,
+    //         sucursalId,
+    //       );
+    //       item.liked = yaLike;
+    //     }
+
+    //     try {
+    //       const info = await this.likesService.contarLikesSucursal(sucursalId);
+    //       item.likesCount = info.totalLikes ?? 0;
+    //     } catch {
+    //       item.likesCount = 0;
+    //     }
+    //   }
+    // }
+
     if (items.length > 0) {
-      for (const item of friendly.items ?? []) {
-        const sucursalId = Number(
-          item.id || item.sucursal_id || item.sucursal?.id,
-        );
+  for (const item of friendly.items ?? []) {
+    const sucursalId = Number(
+      item.sucursalId ||
+      item.sucursal_id ||
+      item.sucursal?.id ||
+      item.id
+    );
 
-        item.likeDisponible = true;
-        item.likeAction = {
-          endpoint: '/likes/toggle',
-          metodo: 'POST',
-          payload: { sucursalId, usuarioId: usuarioId ?? null },
-        };
+    item.likeDisponible = true;
+    item.likeAction = {
+      endpoint: '/likes/toggle',
+      metodo: 'POST',
+      payload: { sucursalId, usuarioId: usuarioId ?? null },
+    };
 
-        if (usuarioId) {
-          const yaLike = await this.likesService.usuarioHaDadoLike(
-            usuarioId,
-            sucursalId,
-          );
-          item.liked = yaLike;
-        }
-
-        try {
-          const info = await this.likesService.contarLikesSucursal(sucursalId);
-          item.likesCount = info.totalLikes ?? 0;
-        } catch {
-          item.likesCount = 0;
-        }
-      }
+    if (usuarioId) {
+      const yaLike = await this.likesService.usuarioHaDadoLike(
+        usuarioId,
+        sucursalId,
+      );
+      item.liked = yaLike;
     }
+
+    try {
+      const info = await this.likesService.contarLikesSucursal(sucursalId);
+      item.likesCount = info.totalLikes ?? 0;
+    } catch {
+      item.likesCount = 0;
+    }
+  }
+}
 
     //-------------------------------------------------------------
     // PUBLICIDAD
@@ -433,6 +516,7 @@ export class AiService {
       mensajeCorregido: textoCorregido,
       respuesta: friendly,
       debug: {
+        aiIntent,
         filtros: interpretacion.filtros_detectados,
         totalResultados: items.length,
       },
@@ -442,6 +526,13 @@ export class AiService {
   async interpretQuery(query: string) {
     const limpio = this.sanitizerUseCase.execute(query);
     const corregido = await this.orthographyUseCase.execute(limpio);
-    return this.jelpyAssistant.interpretar(corregido);
+
+    return this.jelpyAiService.interpretar({
+      text: corregido,
+      city_hint: null,
+      lat: null,
+      lng: null,
+      user_id: null,
+    });
   }
 }

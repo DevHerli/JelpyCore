@@ -9,11 +9,11 @@ import {
   Put,
   Query,
   UploadedFiles,
-  UploadedFile, 
+  UploadedFile,
   UseInterceptors,
-  ParseFilePipe, 
-  FileTypeValidator, 
-  MaxFileSizeValidator, 
+  ParseFilePipe,
+  FileTypeValidator,
+  MaxFileSizeValidator,
 } from '@nestjs/common';
 import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
@@ -35,12 +35,11 @@ export class SucursalesNegociosController {
   @Post()
   @UseInterceptors(FileInterceptor('imagen'))
   async crear(
-    @Body() body: any, 
+    @Body() body: any,
     @UploadedFile() file: Express.Multer.File,
   ) {
     let imagenUrl = null;
 
-    // A. Subir imagen a Cloudinary (si existe)
     if (file) {
       try {
         const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
@@ -85,7 +84,6 @@ export class SucursalesNegociosController {
       imagenUrl,
     };
 
-    console.log('Creando sucursal con datos:', datosLimpios);
     return this.service.crear(datosLimpios as any);
   }
 
@@ -97,10 +95,10 @@ export class SucursalesNegociosController {
       new ParseFilePipe({
         validators: [
           new FileTypeValidator({ fileType: '.(png|jpeg|jpg|webp)' }),
-          new MaxFileSizeValidator({ maxSize: 1024 * 1024 * 5 }), 
+          new MaxFileSizeValidator({ maxSize: 1024 * 1024 * 5 }),
         ],
       }),
-    ) 
+    )
     files: Express.Multer.File[],
   ) {
     const fotosSubidas = [];
@@ -126,10 +124,14 @@ export class SucursalesNegociosController {
     return this.service.agregarImagenes(id, fotosSubidas);
   }
 
-
   @Get(':id/kpis-light')
   async getKpisLight(@Param('id', ParseIntPipe) id: number) {
     return this.estadisticasService.getKpisSucursal(id);
+  }
+
+  @Get('negocio/:negocioId')
+  listarPorNegocio(@Param('negocioId', ParseIntPipe) negocioId: number) {
+    return this.service.listarPorNegocio(negocioId);
   }
 
   @Get()
@@ -197,11 +199,6 @@ export class SucursalesNegociosController {
     return { success: true, message: 'Imagen eliminada' };
   }
 
-  @Get('/negocio/:negocioId')
-  listarPorNegocio(@Param('negocioId', ParseIntPipe) negocioId: number) {
-    return this.service.listarPorNegocio(negocioId);
-  }
-
   @Get(':id/caracteristicas')
   obtenerCaracteristicas(@Param('id', ParseIntPipe) id: number) {
     return this.sucCarService.getBySucursal(id);
@@ -214,6 +211,4 @@ export class SucursalesNegociosController {
   ) {
     return this.sucCarService.assignCaracteristica(id, dto);
   }
-
-  
 }

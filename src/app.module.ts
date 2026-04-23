@@ -46,9 +46,11 @@ import { AnunciosModule } from './modules/business/anuncios/anuncios.module';
 import { PromocionesNegociosModule } from './modules/business/promociones_negocio/promociones-negocios.module';
 import { SuscripcionesModule } from './modules/suscripciones/suscripciones.module';
 import { PagosModule } from './modules/pagos/pagos.module';
-import { PostalCodesModule } from './modules/domicilios/codigos_postal/postal-codes.module';
-import { ColoniasModule } from './modules/domicilios/colonias/colonias.module';
-import { StreetsModule } from './modules/domicilios/calles/streets.module';
+import { PostalCodesModule } from './modules/business/domicilios/codigos_postal/postal-codes.module';
+import { ColoniasModule } from './modules/business/domicilios/colonias/colonias.module';
+import { StreetsModule } from './modules/business/domicilios/calles/streets.module';
+import { JelpyAiModule } from './modules/jelpy-ai/jelpy-ai.module';
+import { EventosNegociosModule } from './modules/business/eventos_negocios/eventos-negocios.module';
 
 @Module({
   imports: [
@@ -89,6 +91,8 @@ import { StreetsModule } from './modules/domicilios/calles/streets.module';
     PostalCodesModule,
     ColoniasModule,
     StreetsModule,
+    JelpyAiModule,
+    EventosNegociosModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),

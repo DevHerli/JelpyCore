@@ -17,7 +17,7 @@ import * as dotenv from 'dotenv';
 import { NegociosService } from './negocios.service';
 import { CreateNegocioDto } from './dto/create-negocio.dto';
 import { UpdateNegocioDto } from './dto/update-negocio.dto';
-import { Express } from 'express'; 
+import { Express } from 'express';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -30,41 +30,49 @@ cloudinary.config({
   secure: true,
 });
 
-console.log('Cloudinary conectado como:', cloudinary.config().cloud_name);
+// console.log('Cloudinary conectado como:', cloudinary.config().cloud_name);
 
 @Controller('negocios')
 export class NegociosController {
   constructor(private readonly negociosService: NegociosService) {}
 
-  // Listar todos los negocios
+  // ============================================================
+  // CONSULTAS
+  // ============================================================
+
+  // Listar todos los negocios (resumen)
   @Get()
   listar() {
     return this.negociosService.listar();
   }
 
-  // Obtener negocio por ID
-  @Get(':id')
-  obtener(@Param('id', ParseIntPipe) id: number) {
-    return this.negociosService.obtenerPorId(id);
-  }
-
-  // Listar negocios por suscriptor
+  // Listar negocios por suscriptor (resumen)
   @Get('suscriptor/:id')
   listarPorSuscriptor(@Param('id', ParseIntPipe) suscriptorId: number) {
     return this.negociosService.listarPorSuscriptor(suscriptorId);
   }
 
-  // Obtener detalle completo
+  // Obtener detalle completo del negocio con sucursales
   @Get(':id/detalle')
-  async obtenerDetalle(@Param('id', ParseIntPipe) id: number) {
+  obtenerDetalle(@Param('id', ParseIntPipe) id: number) {
     return this.negociosService.obtenerDetalle(id);
   }
+
+  // Obtener negocio por ID (resumen)
+  @Get(':id')
+  obtener(@Param('id', ParseIntPipe) id: number) {
+    return this.negociosService.obtenerPorId(id);
+  }
+
+  // ============================================================
+  // CREAR
+  // ============================================================
 
   // Crear negocio con subida directa a Cloudinary (buffer)
   @Post()
   @UseInterceptors(FileInterceptor('logo'))
   async crear(
-    @UploadedFile() file: Express.Multer.File, //Express tip importado
+    @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateNegocioDto,
   ) {
     let logoUrl: string | null = null;
@@ -72,7 +80,6 @@ export class NegociosController {
     if (file) {
       console.log('Archivo recibido:', file.originalname);
 
-      // Subir a Cloudinary usando buffer (sin guardar en disco)
       const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           { folder: 'jelpy/negocios/logos' },
@@ -83,7 +90,6 @@ export class NegociosController {
         );
         stream.end(file.buffer);
       });
-      
 
       logoUrl = upload.secure_url;
       console.log('Imagen subida a Cloudinary:', logoUrl);
@@ -93,6 +99,10 @@ export class NegociosController {
 
     return this.negociosService.crear({ ...dto, logoUrl });
   }
+
+  // ============================================================
+  // ACTUALIZAR
+  // ============================================================
 
   // Actualizar datos generales del negocio
   @Put(':id')
@@ -119,7 +129,6 @@ export class NegociosController {
     const negocio = await this.negociosService.obtenerPorId(id);
     const logoActual = negocio.logoUrl;
 
-    // Subir nuevo logo a Cloudinary
     const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         { folder: 'jelpy/negocios/logos' },
@@ -130,12 +139,10 @@ export class NegociosController {
       );
       stream.end(file.buffer);
     });
-    
 
     const nuevoLogoUrl = upload.secure_url;
     console.log('Nuevo logo subido:', nuevoLogoUrl);
 
-    // Eliminar logo anterior si existía
     if (logoActual && logoActual.includes('res.cloudinary.com')) {
       try {
         const publicIdMatch = logoActual.match(/\/jelpy\/negocios\/logos\/([^/.]+)/);
@@ -150,8 +157,7 @@ export class NegociosController {
       }
     }
 
-    negocio.logoUrl = nuevoLogoUrl;
-    await this.negociosService.actualizar(id, negocio);
+    await this.negociosService.actualizar(id, { logoUrl: nuevoLogoUrl } as any);
 
     return {
       success: true,
@@ -160,12 +166,15 @@ export class NegociosController {
     };
   }
 
+  // ============================================================
+  // ELIMINAR
+  // ============================================================
+
   // Eliminar negocio (eliminado lógico)
   @Delete(':id')
   async eliminar(@Param('id', ParseIntPipe) id: number) {
     const negocio = await this.negociosService.obtenerPorId(id);
 
-    // Eliminar logo de Cloudinary si existe
     if (negocio.logoUrl && negocio.logoUrl.includes('res.cloudinary.com')) {
       try {
         const publicIdMatch = negocio.logoUrl.match(/\/jelpy\/negocios\/logos\/([^/.]+)/);

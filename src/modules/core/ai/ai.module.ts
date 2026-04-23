@@ -27,6 +27,7 @@ import { ChatResponses } from './utils/chat-responses';
 import { PublicidadChatModule } from '../publicidad-chat/publicidad-chat.module';
 import { UsuarioPreferenciasModule } from '../preferencias-usuarios/usuario-preferencias.module';
 import { SucursalLikesModule } from '../sucursal-likes/sucursal-likes.module';
+import { JelpyAiModule } from '../../jelpy-ai/jelpy-ai.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { SucursalLikesModule } from '../sucursal-likes/sucursal-likes.module';
     PublicidadChatModule,
     UsuarioPreferenciasModule,
     SucursalLikesModule,
+    JelpyAiModule,
   ],
 
   controllers: [AiController],

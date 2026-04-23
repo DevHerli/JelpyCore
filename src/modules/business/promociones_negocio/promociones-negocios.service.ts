@@ -7,6 +7,7 @@ import { PromotionBusinessBranch } from './entities/promotion-business-branch.en
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 import { CreatePromotionBusinessDto } from './dtos/create-promotion-business.dto';
 import { UpdatePromotionBusinessDto } from './dtos/update-promotion-business.dto';
+import { EventosNegociosService } from '../eventos_negocios/eventos-negocios.service';
 
 @Injectable()
 export class PromocionesNegociosService {
@@ -19,6 +20,8 @@ export class PromocionesNegociosService {
 
     @InjectRepository(SucursalNegocio)
     private readonly sucursalRepo: Repository<SucursalNegocio>,
+
+    private readonly eventosNegociosService: EventosNegociosService,
   ) {}
 
   // =========================================================
@@ -36,7 +39,7 @@ export class PromocionesNegociosService {
       : [];
 
     if (dto.aplicaTodasSucursales !== true && sucursalIdsInput.length === 0) {
-      throw new BadRequestException('Debes enviar al menos dos sucursales');
+      throw new BadRequestException('Debes enviar al menos una sucursal.');
     }
 
     // 1) Resolver sucursales válidas (SIEMPRE por join negocio)
@@ -59,10 +62,7 @@ export class PromocionesNegociosService {
       horaInicio: dto.horaInicio ?? null,
       horaFin: dto.horaFin ?? null,
       condiciones: dto.condiciones ?? null,
-
-      // guarda imagen si viene
       imagenUrl: dto.imagenUrl ?? null,
-
       aplicaTodasSucursales: dto.aplicaTodasSucursales === true,
       activa: dto.activa ?? true,
       eliminado: false,
@@ -74,7 +74,23 @@ export class PromocionesNegociosService {
     const idsToLink = sucursalesValidas.map((s) => Number(s.id));
     await this.replaceLinks(saved.id, idsToLink);
 
-    // 4) Respuesta consistente con tus GETs
+    // 4) Registrar evento
+    await this.registrarEventoPromocionGlobal({
+      tipoEvento: 'promocion_global_creada',
+      negocioId,
+      promocionId: saved.id,
+      tituloPromocion: saved.titulo,
+      descripcion: saved.descripcion,
+      aplicaTodasSucursales: saved.aplicaTodasSucursales,
+      sucursalIds: idsToLink,
+      tipoPromocion: saved.tipoPromocion,
+      valorDescuento: saved.valorDescuento,
+      fechaInicio: saved.fechaInicio,
+      fechaFin: saved.fechaFin,
+      imagenUrl: saved.imagenUrl,
+    });
+
+    // 5) Respuesta consistente con tus GETs
     return this.findOne(saved.id);
   }
 
@@ -126,8 +142,13 @@ export class PromocionesNegociosService {
       throw new BadRequestException('id inválido.');
     }
 
-    const promo = await this.promoRepo.findOne({ where: { id: promoId, eliminado: false } });
-    if (!promo) throw new NotFoundException('Promoción global no encontrada.');
+    const promo = await this.promoRepo.findOne({
+      where: { id: promoId, eliminado: false },
+    });
+
+    if (!promo) {
+      throw new NotFoundException('Promoción global no encontrada.');
+    }
 
     const links = await this.linkRepo.find({
       where: { promotionBusinessId: promoId },
@@ -145,7 +166,7 @@ export class PromocionesNegociosService {
   }
 
   // =========================================================
-  // UPDATE (ahora soporta actualizar imagenUrl también)
+  // UPDATE
   // =========================================================
   async update(id: number, dto: UpdatePromotionBusinessDto) {
     const promoId = Number(id);
@@ -153,10 +174,15 @@ export class PromocionesNegociosService {
       throw new BadRequestException('id inválido.');
     }
 
-    const promo = await this.promoRepo.findOne({ where: { id: promoId, eliminado: false } });
-    if (!promo) throw new NotFoundException('Promoción global no encontrada.');
+    const promo = await this.promoRepo.findOne({
+      where: { id: promoId, eliminado: false },
+    });
 
-    // Campos editables (NO se rompe nada)
+    if (!promo) {
+      throw new NotFoundException('Promoción global no encontrada.');
+    }
+
+    // Campos editables
     if (dto.titulo !== undefined) promo.titulo = dto.titulo;
     if (dto.descripcion !== undefined) promo.descripcion = dto.descripcion;
     if (dto.tipoPromocion !== undefined) promo.tipoPromocion = dto.tipoPromocion;
@@ -167,13 +193,9 @@ export class PromocionesNegociosService {
     if (dto.horaInicio !== undefined) promo.horaInicio = dto.horaInicio;
     if (dto.horaFin !== undefined) promo.horaFin = dto.horaFin;
     if (dto.condiciones !== undefined) promo.condiciones = dto.condiciones;
-
-    //ACTUALIZAR IMAGEN (si viene en PATCH, sea por file interceptor o por JSON directo)
     if (dto.imagenUrl !== undefined) promo.imagenUrl = dto.imagenUrl;
-
     if (dto.activa !== undefined) promo.activa = dto.activa;
 
-    // OJO: aplicaTodasSucursales cambia la forma de linkeo
     if (dto.aplicaTodasSucursales !== undefined) {
       promo.aplicaTodasSucursales = dto.aplicaTodasSucursales;
     }
@@ -199,8 +221,30 @@ export class PromocionesNegociosService {
         sucursalIdsInput,
       );
 
-      await this.replaceLinks(promo.id, sucursalesValidas.map((s) => Number(s.id)));
+      await this.replaceLinks(
+        promo.id,
+        sucursalesValidas.map((s) => Number(s.id)),
+      );
     }
+
+    const linksActualizados = await this.linkRepo.find({
+      where: { promotionBusinessId: promo.id },
+    });
+
+    await this.registrarEventoPromocionGlobal({
+      tipoEvento: 'promocion_global_actualizada',
+      negocioId: promo.businessId,
+      promocionId: promo.id,
+      tituloPromocion: promo.titulo,
+      descripcion: promo.descripcion,
+      aplicaTodasSucursales: promo.aplicaTodasSucursales,
+      sucursalIds: linksActualizados.map((x) => Number(x.sucursalId)),
+      tipoPromocion: promo.tipoPromocion,
+      valorDescuento: promo.valorDescuento,
+      fechaInicio: promo.fechaInicio,
+      fechaFin: promo.fechaFin,
+      imagenUrl: promo.imagenUrl,
+    });
 
     return this.findOne(promo.id);
   }
@@ -214,13 +258,33 @@ export class PromocionesNegociosService {
       throw new BadRequestException('id inválido.');
     }
 
-    const promo = await this.promoRepo.findOne({ where: { id: promoId, eliminado: false } });
-    if (!promo) throw new NotFoundException('Promoción global no encontrada.');
+    const promo = await this.promoRepo.findOne({
+      where: { id: promoId, eliminado: false },
+    });
+
+    if (!promo) {
+      throw new NotFoundException('Promoción global no encontrada.');
+    }
 
     promo.eliminado = true;
     await this.promoRepo.save(promo);
 
     await this.linkRepo.delete({ promotionBusinessId: promoId });
+
+    await this.registrarEventoPromocionGlobal({
+      tipoEvento: 'promocion_global_eliminada',
+      negocioId: promo.businessId,
+      promocionId: promo.id,
+      tituloPromocion: promo.titulo,
+      descripcion: promo.descripcion,
+      aplicaTodasSucursales: promo.aplicaTodasSucursales,
+      sucursalIds: [],
+      tipoPromocion: promo.tipoPromocion,
+      valorDescuento: promo.valorDescuento,
+      fechaInicio: promo.fechaInicio,
+      fechaFin: promo.fechaFin,
+      imagenUrl: promo.imagenUrl,
+    });
 
     return { ok: true };
   }
@@ -280,5 +344,74 @@ export class PromocionesNegociosService {
     );
 
     await this.linkRepo.save(rows);
+  }
+
+  private async registrarEventoPromocionGlobal(params: {
+    tipoEvento: 'promocion_global_creada' | 'promocion_global_actualizada' | 'promocion_global_eliminada';
+    negocioId: number;
+    promocionId: number;
+    tituloPromocion: string;
+    descripcion?: string | null;
+    aplicaTodasSucursales?: boolean;
+    sucursalIds?: number[];
+    tipoPromocion?: string | null;
+    valorDescuento?: number | null;
+    fechaInicio?: any;
+    fechaFin?: any;
+    imagenUrl?: string | null;
+  }) {
+    const {
+      tipoEvento,
+      negocioId,
+      promocionId,
+      tituloPromocion,
+      descripcion,
+      aplicaTodasSucursales,
+      sucursalIds,
+      tipoPromocion,
+      valorDescuento,
+      fechaInicio,
+      fechaFin,
+      imagenUrl,
+    } = params;
+
+    let tituloEvento = '';
+    let descripcionEvento = '';
+
+    if (tipoEvento === 'promocion_global_creada') {
+      tituloEvento = 'Nueva promoción global disponible';
+      descripcionEvento = tituloPromocion || 'El negocio publicó una nueva promoción global.';
+    }
+
+    if (tipoEvento === 'promocion_global_actualizada') {
+      tituloEvento = 'Promoción global actualizada';
+      descripcionEvento = tituloPromocion || 'El negocio actualizó una promoción global.';
+    }
+
+    if (tipoEvento === 'promocion_global_eliminada') {
+      tituloEvento = 'Promoción global finalizada';
+      descripcionEvento = tituloPromocion || 'El negocio retiró una promoción global.';
+    }
+
+    await this.eventosNegociosService.crear({
+      negocioId,
+      tipoEvento,
+      titulo: tituloEvento,
+      descripcion: descripcionEvento,
+      visibleParaFavoritos: true,
+      activo: true,
+      payload: {
+        promocionGlobalId: promocionId,
+        tituloPromocion,
+        descripcionPromocion: descripcion ?? null,
+        aplicaTodasSucursales: aplicaTodasSucursales ?? false,
+        sucursalIds: sucursalIds ?? [],
+        tipoPromocion: tipoPromocion ?? null,
+        valorDescuento: valorDescuento ?? null,
+        fechaInicio: fechaInicio ?? null,
+        fechaFin: fechaFin ?? null,
+        imagenUrl: imagenUrl ?? null,
+      },
+    });
   }
 }

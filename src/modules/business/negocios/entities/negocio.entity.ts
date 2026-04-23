@@ -13,6 +13,7 @@ import {
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
 import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { SucursalNegocio } from '../../sucursales_negocios/entities/sucursal-negocio.entity';
+import { EventoNegocio } from '../../eventos_negocios/entities/evento-negocio.entity';
 
 @Entity('negocios')
 export class Negocio {
@@ -70,6 +71,9 @@ export class Negocio {
   @Column({ type: 'tinyint', width: 1, default: 0 })
   eliminado: boolean;
 
-  @OneToMany(() => SucursalNegocio, (sucursal) => sucursal.negocio, { eager: true })
+  @OneToMany(() => SucursalNegocio, (sucursal) => sucursal.negocio)
   sucursales: SucursalNegocio[];
+
+  @OneToMany(() => EventoNegocio, (evento) => evento.negocio)
+  eventosNegocios: EventoNegocio[];
 }

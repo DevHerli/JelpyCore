@@ -28,4 +28,37 @@ export class BookmarksController {
       Number(suscriptorId),
     );
   }
+
+  @Get('suscriptor/:suscriptorId/resumen-no-leidos')
+  obtenerResumenNoLeidosFavoritos(
+    @Param('suscriptorId') suscriptorId: number,
+  ) {
+    return this.bookmarksService.obtenerResumenNoLeidosFavoritos(
+      Number(suscriptorId),
+    );
+  }
+
+  @Get('suscriptor/:suscriptorId/con-novedades')
+  obtenerFavoritosConNovedades(
+    @Param('suscriptorId') suscriptorId: number,
+  ) {
+    return this.bookmarksService.obtenerFavoritosConNovedades(
+      Number(suscriptorId),
+    );
+  }
+
+  @Post('marcar-eventos-leidos')
+  marcarEventosFavoritoComoLeidos(
+    @Body('suscriptorId') suscriptorId: number,
+    @Body('negocioId') negocioId: number,
+    @Body('sucursalId') sucursalId?: number,
+  ) {
+    return this.bookmarksService.marcarEventosFavoritoComoLeidos(
+      Number(suscriptorId),
+      Number(negocioId),
+      sucursalId !== undefined && sucursalId !== null
+        ? Number(sucursalId)
+        : undefined,
+    );
+  }
 }

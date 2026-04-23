@@ -27,6 +27,7 @@ export class ProfanityCheckUseCase {
     'matar',
     'asesinar',
     'golpear',
+    'anal',
   ];
 
   /** Nivel suave → PERMITE PERO ADVIERTE */
@@ -51,6 +52,7 @@ export class ProfanityCheckUseCase {
     'chinguen a su madre',
     'vete a la verga',
     'chinga tu madre',
+    'puta madre',
   ];
 
   constructor(

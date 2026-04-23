@@ -7,17 +7,38 @@ import {
   IsEmail,
   IsBoolean,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateSucursalNegocioDto {
+  // ============================
+  // RELACIONES
+  // ============================
   @IsNumber()
+  @Type(() => Number)
   @IsNotEmpty()
   negocioId: number;
 
+  @IsNumber()
+  @Type(() => Number)
+  @IsNotEmpty()
+  ciudadId: number;
+
+  @IsNumber()
+  @Type(() => Number)
+  @IsNotEmpty()
+  estadoId: number;
+
+  // ============================
+  // DATOS GENERALES
+  // ============================
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
   nombreSucursal: string;
 
+  // ============================
+  // DIRECCIÓN
+  // ============================
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
@@ -28,8 +49,8 @@ export class CreateSucursalNegocioDto {
   @MaxLength(10)
   numeroExterior: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
   @MaxLength(10)
   numeroInterior?: string;
 
@@ -38,38 +59,76 @@ export class CreateSucursalNegocioDto {
   @MaxLength(120)
   colonia: string;
 
-  @IsString()
   @IsOptional()
-  @MaxLength(255)
-  entreCalles?: string;
+  @IsString()
+  @MaxLength(150)
+  entreCalle1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  entreCalle2?: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
   codigoPostal: string;
 
-  @IsNumber()
-  @IsNotEmpty()
-  ciudadId: number;
-
-  @IsNumber()
-  @IsNotEmpty()
-  estadoId: number;
-
   @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  referenciaMapa?: string;
+
+  // ============================
+  // UBICACIÓN
+  // ============================
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   latitud?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   longitud?: number;
 
-  @IsOptional() @MaxLength(20) telefonoFijo1?: string;
-  @IsOptional() @MaxLength(20) telefonoFijo2?: string;
-  @IsOptional() @MaxLength(20) telefonoFijo3?: string;
+  // ============================
+  // CONTACTO
+  // ============================
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  telefonoFijo1?: string;
 
-  @IsOptional() @MaxLength(20) telefonoCelular1?: string;
-  @IsOptional() @MaxLength(20) telefonoCelular2?: string;
-  @IsOptional() @MaxLength(20) telefonoCelular3?: string;
-  @IsOptional() @MaxLength(20) telefonoCelular4?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  telefonoFijo2?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  telefonoFijo3?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  telefonoCelular1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  telefonoCelular2?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  telefonoCelular3?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  telefonoCelular4?: string;
 
   @IsOptional()
   @IsEmail()
@@ -77,14 +136,27 @@ export class CreateSucursalNegocioDto {
   correoContacto?: string;
 
   @IsOptional()
+  @IsString()
   @MaxLength(20)
   whatsapp?: string;
+
+  // ============================
+  // CONFIGURACIÓN
+  // ============================
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  tipoSucursal?: string;
 
   @IsOptional()
   @IsBoolean()
   esMatriz?: boolean;
 
+  // ============================
+  // MEDIA
+  // ============================
   @IsOptional()
-@IsString()
-imagenUrl?: string;
+  @IsString()
+  @MaxLength(255)
+  imagenUrl?: string;
 }

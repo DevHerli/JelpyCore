@@ -3,6 +3,7 @@ import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 import { Estado } from '../../../catalogos/estados/entities/estado.entity';
 import { Membresia } from '../../membresias/entities/membresia.entity';
 import { SucursalReview } from '../../sucursales_reviews/entities/sucursal-review.entity';
+import { LecturaEventoNegocio } from '../../eventos_negocios/entities/lectura-evento-negocio.entity';
 
 @Entity('suscriptores')
 export class Suscriptor {
@@ -112,4 +113,7 @@ reseñas: SucursalReview[];
 
   @Column({ type: 'tinyint', width: 1, default: 0 })
   eliminado: boolean;
+
+  @OneToMany(() => LecturaEventoNegocio, (lectura) => lectura.suscriptor)
+  lecturasEventosNegocios: LecturaEventoNegocio[];
 }

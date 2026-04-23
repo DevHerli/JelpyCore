@@ -6,6 +6,7 @@ import { PromocionSucursal } from './entities/promocion-sucursal.entity';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 import { CreatePromocionSucursalDto } from './dto/create-promocion-sucursal.dto';
 import { UpdatePromocionSucursalDto } from './dto/update-promocion-sucursal.dto';
+import { EventosNegociosService } from '../eventos_negocios/eventos-negocios.service';
 
 @Injectable()
 export class PromocionesSucursalesService {
@@ -15,6 +16,8 @@ export class PromocionesSucursalesService {
 
     @InjectRepository(SucursalNegocio)
     private readonly sucursalRepo: Repository<SucursalNegocio>,
+
+    private readonly eventosNegociosService: EventosNegociosService,
   ) {}
 
   // =========================================================
@@ -35,6 +38,78 @@ export class PromocionesSucursalesService {
 
     const limpio = String(value).trim();
     return limpio.length ? limpio : null;
+  }
+
+  private async registrarEventoPromocionSucursal(params: {
+    tipoEvento: 'promocion_sucursal_creada' | 'promocion_sucursal_actualizada' | 'promocion_sucursal_eliminada';
+    negocioId: number;
+    sucursalId: number;
+    promocionId: number;
+    tituloPromocion: string;
+    nombreSucursal?: string | null;
+    descripcion?: string | null;
+    tipoPromocion?: string | null;
+    valorDescuento?: number | null;
+    fechaInicio?: any;
+    fechaFin?: any;
+    imagenUrl?: string | null;
+  }) {
+    const {
+      tipoEvento,
+      negocioId,
+      sucursalId,
+      promocionId,
+      tituloPromocion,
+      nombreSucursal,
+      descripcion,
+      tipoPromocion,
+      valorDescuento,
+      fechaInicio,
+      fechaFin,
+      imagenUrl,
+    } = params;
+
+    let tituloEvento = '';
+    let descripcionEvento = '';
+
+    if (tipoEvento === 'promocion_sucursal_creada') {
+      tituloEvento = 'Nueva promoción en sucursal';
+      descripcionEvento =
+        tituloPromocion || `La sucursal ${nombreSucursal ?? ''} publicó una promoción.`;
+    }
+
+    if (tipoEvento === 'promocion_sucursal_actualizada') {
+      tituloEvento = 'Promoción de sucursal actualizada';
+      descripcionEvento =
+        tituloPromocion || `La sucursal ${nombreSucursal ?? ''} actualizó una promoción.`;
+    }
+
+    if (tipoEvento === 'promocion_sucursal_eliminada') {
+      tituloEvento = 'Promoción de sucursal finalizada';
+      descripcionEvento =
+        tituloPromocion || `La sucursal ${nombreSucursal ?? ''} retiró una promoción.`;
+    }
+
+    await this.eventosNegociosService.crear({
+      negocioId,
+      sucursalId,
+      tipoEvento,
+      titulo: tituloEvento,
+      descripcion: descripcionEvento,
+      visibleParaFavoritos: true,
+      activo: true,
+      payload: {
+        promocionSucursalId: promocionId,
+        tituloPromocion,
+        nombreSucursal: nombreSucursal ?? null,
+        descripcionPromocion: descripcion ?? null,
+        tipoPromocion: tipoPromocion ?? null,
+        valorDescuento: valorDescuento ?? null,
+        fechaInicio: fechaInicio ?? null,
+        fechaFin: fechaFin ?? null,
+        imagenUrl: imagenUrl ?? null,
+      },
+    });
   }
 
   // =========================================================
@@ -75,7 +150,24 @@ export class PromocionesSucursalesService {
       sucursal,
     });
 
-    return await this.promoRepo.save(nuevaPromo);
+    const promoGuardada = await this.promoRepo.save(nuevaPromo);
+
+    await this.registrarEventoPromocionSucursal({
+      tipoEvento: 'promocion_sucursal_creada',
+      negocioId: Number(sucursal.negocio.id),
+      sucursalId: Number(sucursal.id),
+      promocionId: Number(promoGuardada.id),
+      tituloPromocion: promoGuardada.titulo,
+      nombreSucursal: sucursal.nombreSucursal,
+      descripcion: promoGuardada.descripcion,
+      tipoPromocion: promoGuardada.tipoPromocion,
+      valorDescuento: promoGuardada.valorDescuento,
+      fechaInicio: promoGuardada.fechaInicio,
+      fechaFin: promoGuardada.fechaFin,
+      imagenUrl: promoGuardada.imagenUrl,
+    });
+
+    return promoGuardada;
   }
 
   // =========================================================
@@ -481,7 +573,24 @@ export class PromocionesSucursalesService {
     if (dto.imagenUrl !== undefined) promo.imagenUrl = dto.imagenUrl;
     if (dto.activa !== undefined) promo.activa = dto.activa;
 
-    return this.promoRepo.save(promo);
+    const promoActualizada = await this.promoRepo.save(promo);
+
+    await this.registrarEventoPromocionSucursal({
+      tipoEvento: 'promocion_sucursal_actualizada',
+      negocioId: Number(promo.sucursal.negocio.id),
+      sucursalId: Number(promo.sucursal.id),
+      promocionId: Number(promoActualizada.id),
+      tituloPromocion: promoActualizada.titulo,
+      nombreSucursal: promo.sucursal.nombreSucursal,
+      descripcion: promoActualizada.descripcion,
+      tipoPromocion: promoActualizada.tipoPromocion,
+      valorDescuento: promoActualizada.valorDescuento,
+      fechaInicio: promoActualizada.fechaInicio,
+      fechaFin: promoActualizada.fechaFin,
+      imagenUrl: promoActualizada.imagenUrl,
+    });
+
+    return promoActualizada;
   }
 
   // =========================================================
@@ -496,6 +605,7 @@ export class PromocionesSucursalesService {
 
     const promo = await this.promoRepo.findOne({
       where: { id: promoId, eliminado: false },
+      relations: ['sucursal', 'sucursal.negocio'],
     });
 
     if (!promo) {
@@ -505,7 +615,24 @@ export class PromocionesSucursalesService {
     promo.eliminado = true;
     promo.activa = false;
 
-    return this.promoRepo.save(promo);
+    const promoEliminada = await this.promoRepo.save(promo);
+
+    await this.registrarEventoPromocionSucursal({
+      tipoEvento: 'promocion_sucursal_eliminada',
+      negocioId: Number(promo.sucursal.negocio.id),
+      sucursalId: Number(promo.sucursal.id),
+      promocionId: Number(promoEliminada.id),
+      tituloPromocion: promoEliminada.titulo,
+      nombreSucursal: promo.sucursal.nombreSucursal,
+      descripcion: promoEliminada.descripcion,
+      tipoPromocion: promoEliminada.tipoPromocion,
+      valorDescuento: promoEliminada.valorDescuento,
+      fechaInicio: promoEliminada.fechaInicio,
+      fechaFin: promoEliminada.fechaFin,
+      imagenUrl: promoEliminada.imagenUrl,
+    });
+
+    return promoEliminada;
   }
 
   // =========================================================

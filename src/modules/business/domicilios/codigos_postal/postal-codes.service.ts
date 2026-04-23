@@ -9,7 +9,7 @@ import { Repository } from 'typeorm';
 import { PostalCode } from './entities/postal-code.entity';
 import { CreatePostalCodeDto } from './dtos/create-postal-code.dto';
 import { UpdatePostalCodeDto } from './dtos/update-postal-code.dto';
-import { Ciudad } from '../../catalogos/ciudades/entities/ciudades.entity';
+import { Ciudad } from '../../../catalogos/ciudades/entities/ciudades.entity';
 
 @Injectable()
 export class PostalCodesService {
