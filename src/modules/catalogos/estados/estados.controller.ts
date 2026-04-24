@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   ParseIntPipe,
@@ -44,6 +45,16 @@ export class EstadosController {
   @ApiResponse({ status: 200, type: Estado })
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEstadoDto) {
     return this.estadosService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar (borrado lógico) un estado' })
+  @ApiResponse({
+    status: 200,
+    description: 'Estado eliminado correctamente',
+  })
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.estadosService.softDelete(id);
   }
 
   @Patch(':id/desactivar')
