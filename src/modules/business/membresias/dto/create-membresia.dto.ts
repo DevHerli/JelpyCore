@@ -24,8 +24,22 @@ export class CreateMembresiaDto {
   beneficios?: string;
 
   @IsOptional()
-@IsBoolean()
-@Type(() => Boolean)
-activo?: boolean;
+  @IsBoolean()
+  @Type(() => Boolean)
+  activo?: boolean;
 
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  anunciosMensuales?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  anunciosSimultaneos?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  anunciosIlimitados?: boolean;
 }

@@ -33,8 +33,10 @@ export class MembresiasService {
     return this.membresiaRepo.save(membresia);
   }
 
-  async eliminar(id: number): Promise<void> {
+  async eliminar(id: number): Promise<{ success: boolean; message: string }> {
     const membresia = await this.obtenerPorId(id);
-    await this.membresiaRepo.remove(membresia);
+    membresia.activo = false;
+    await this.membresiaRepo.save(membresia);
+    return { success: true, message: 'Membresía eliminada correctamente.' };
   }
 }

@@ -7,6 +7,7 @@ import { SuscriptorSuscripcion } from './entities/suscriptor-suscripcion.entity'
 import { SuscripcionCiclo } from './entities/suscripcion-ciclo.entity';
 import { MembresiaCuotas } from './entities/membresia-cuotas.entity';
 import { CrearSuscripcionDto } from './dtos/crear-suscripcion.dto';
+import { UpsertMembresiaCuotasDto } from './dtos/upsert-membresia-cuotas.dto';
 import { EstadoCuentaMovimiento } from './entities/estado-cuenta-movimiento.entity';
 import { CrearEstadoCuentaMovimientoDto } from './dtos/crear-estado-cuenta-movimiento.dto';
 
@@ -635,5 +636,57 @@ async consumirCuota(params: {
     if (tipo === 'negocios') ciclo.negociosUsados = (ciclo.negociosUsados || 0) + 1;
     else if (tipo === 'promociones') ciclo.promocionesUsadas = (ciclo.promocionesUsadas || 0) + 1;
     else ciclo.anunciosUsados = (ciclo.anunciosUsados || 0) + 1;
+  }
+
+  // =============================================
+  // CUOTAS DE MEMBRESÍA
+  // =============================================
+
+  async listarCuotas(): Promise<MembresiaCuotas[]> {
+    return this.cuotasRepo.find({ order: { id: 'ASC' } });
+  }
+
+  async obtenerCuotasPorMembresia(membresiaId: number): Promise<MembresiaCuotas> {
+    const cuotas = await this.cuotasRepo.findOne({
+      where: { membresia: { id: membresiaId } as any },
+    });
+    if (!cuotas) throw new NotFoundException(`No hay cuotas configuradas para membresia_id=${membresiaId}`);
+    return cuotas;
+  }
+
+  async upsertCuotas(dto: UpsertMembresiaCuotasDto): Promise<MembresiaCuotas> {
+    const membresia = await this.membresiasRepo.findOne({ where: { id: dto.membresiaId } });
+    if (!membresia) throw new NotFoundException(`Membresía no existe: id=${dto.membresiaId}`);
+
+    let cuotas = await this.cuotasRepo.findOne({
+      where: { membresia: { id: dto.membresiaId } as any },
+    });
+
+    if (!cuotas) {
+      cuotas = this.cuotasRepo.create({ membresia });
+    }
+
+    if (dto.maxNegocios !== undefined) cuotas.maxNegocios = dto.maxNegocios;
+    if (dto.maxPromociones !== undefined) cuotas.maxPromociones = dto.maxPromociones;
+    if (dto.maxAnuncios !== undefined) cuotas.maxAnuncios = dto.maxAnuncios;
+    if (dto.resetPeriodo !== undefined) cuotas.resetPeriodo = dto.resetPeriodo;
+    if (dto.permitePromosDestacadas !== undefined) cuotas.permitePromosDestacadas = dto.permitePromosDestacadas;
+    if (dto.permiteAnunciosPremium !== undefined) cuotas.permiteAnunciosPremium = dto.permiteAnunciosPremium;
+
+    return this.cuotasRepo.save(cuotas);
+  }
+
+  // =============================================
+  // CANCELAR SUSCRIPCIÓN
+  // =============================================
+
+  async cancelarSuscripcion(suscripcionId: number): Promise<SuscriptorSuscripcion> {
+    const suscripcion = await this.susRepo.findOne({ where: { id: suscripcionId } });
+    if (!suscripcion) throw new NotFoundException(`Suscripción no existe: id=${suscripcionId}`);
+    if (suscripcion.estatus === 'cancelada') throw new BadRequestException('La suscripción ya está cancelada.');
+
+    suscripcion.estatus = 'cancelada';
+    suscripcion.fechaFin = new Date();
+    return this.susRepo.save(suscripcion);
   }
 }

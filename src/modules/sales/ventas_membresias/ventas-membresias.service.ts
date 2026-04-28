@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { VentaMembresia } from './entities/ventas-membresia.entity';
+import { Membresia } from '../../business/membresias/entities/membresia.entity';
 import { CreateVentaMembresiaDto } from './dto/create-venta-membresia.dto';
 
 @Injectable()
@@ -9,9 +10,23 @@ export class VentasMembresiasService {
   constructor(
     @InjectRepository(VentaMembresia)
     private readonly ventasRepo: Repository<VentaMembresia>,
+    @InjectRepository(Membresia)
+    private readonly membresiaRepo: Repository<Membresia>,
   ) {}
 
   async registrar(dto: CreateVentaMembresiaDto) {
+    // Calcular fechaExpiracion automáticamente si no viene en el DTO
+    let fechaExpiracion: Date | null = dto.fechaExpiracion ? new Date(dto.fechaExpiracion) : null;
+
+    if (!fechaExpiracion) {
+      const membresia = await this.membresiaRepo.findOne({ where: { id: dto.membresiaId } });
+      if (!membresia) throw new NotFoundException(`Membresía no existe: id=${dto.membresiaId}`);
+
+      const inicio = new Date();
+      inicio.setMonth(inicio.getMonth() + (membresia.duracion_meses || 1));
+      fechaExpiracion = inicio;
+    }
+
     const nueva = this.ventasRepo.create({
       suscriptor: { id: dto.suscriptorId } as any,
       negocio: dto.negocioId ? ({ id: dto.negocioId } as any) : null,
@@ -20,7 +35,7 @@ export class VentasMembresiasService {
       monto: dto.monto,
       metodoPago: dto.metodoPago ?? 'tarjeta',
       estatus: dto.estatus ?? 'pagado',
-      fechaExpiracion: dto.fechaExpiracion ? new Date(dto.fechaExpiracion) : null,
+      fechaExpiracion,
     });
     return this.ventasRepo.save(nueva);
   }
