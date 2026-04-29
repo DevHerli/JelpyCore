@@ -240,9 +240,9 @@ export class CaracteristicasSucursalService {
       .createQueryBuilder('s')
       .innerJoin('s.negocio', 'n')
       .select('s.id', 'sucursalId')
-      .addSelect('n.categoria_id',    'categoriaId')
-      .addSelect('n.subcategoria_id', 'subcategoriaId')
-      .addSelect('n.especialidad_id', 'especialidadId')
+      .addSelect('n.categoriaId',    'categoriaId')
+      .addSelect('n.subcategoriaId', 'subcategoriaId')
+      .addSelect('n.especialidadId', 'especialidadId')
       .where('s.id = :sucursalId', { sucursalId })
       .getRawOne();
 
