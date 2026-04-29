@@ -236,19 +236,29 @@ export class CaracteristicasSucursalService {
    * sin depender de carga de relaciones anidadas (que en TypeORM 0.3 requiere sintaxis objeto).
    */
   async findAplicablesBySucursal(sucursalId: number) {
-    const row = await this.sucursalRepo
-      .createQueryBuilder('s')
-      .innerJoin('s.negocio', 'n')
-      .select('s.id', 'sucursalId')
-      .addSelect('n.categoriaId',    'categoriaId')
-      .addSelect('n.subcategoriaId', 'subcategoriaId')
-      .addSelect('n.especialidadId', 'especialidadId')
-      .where('s.id = :sucursalId', { sucursalId })
-      .getRawOne();
+    // Raw SQL para leer directamente los FK del negocio sin depender
+    // del mapeo de propiedades del QueryBuilder de TypeORM.
+    const rows: Array<{
+      sucursalId: string;
+      categoriaId: string | null;
+      subcategoriaId: string | null;
+      especialidadId: string | null;
+    }> = await this.sucursalRepo.manager.query(
+      `SELECT s.id AS sucursalId,
+              n.categoria_id    AS categoriaId,
+              n.subcategoria_id AS subcategoriaId,
+              n.especialidad_id AS especialidadId
+       FROM sucursales_negocios s
+       INNER JOIN negocios n ON n.id = s.negocio_id
+       WHERE s.id = ?`,
+      [sucursalId],
+    );
 
-    if (!row) {
+    if (!rows.length) {
       throw new NotFoundException(`Sucursal no encontrada: id=${sucursalId}`);
     }
+
+    const row = rows[0];
 
     return this.findAplicables({
       categoriaId:    row.categoriaId    ? Number(row.categoriaId)    : undefined,
