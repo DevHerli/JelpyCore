@@ -27,6 +27,10 @@ export class CaracteristicasSucursalController {
     return this.service.findAll();
   }
 
+  /**
+   * Características filtradas por categoría/subcategoría (query params manuales).
+   * GET /caracteristicas-sucursal/aplicables?categoriaId=1&subcategoriaId=2
+   */
   @Get('aplicables')
   findAplicables(
     @Query('categoriaId') categoriaId?: string,
@@ -35,11 +39,23 @@ export class CaracteristicasSucursalController {
     @Query('tipoServicioId') tipoServicioId?: string,
   ) {
     return this.service.findAplicables({
-      categoriaId: categoriaId ? Number(categoriaId) : undefined,
+      categoriaId:    categoriaId    ? Number(categoriaId)    : undefined,
       subcategoriaId: subcategoriaId ? Number(subcategoriaId) : undefined,
       especialidadId: especialidadId ? Number(especialidadId) : undefined,
       tipoServicioId: tipoServicioId ? Number(tipoServicioId) : undefined,
     });
+  }
+
+  /**
+   * Características aplicables resueltas automáticamente desde el sucursalId.
+   * El front solo necesita el ID de la sucursal — el back resuelve la categoría del negocio.
+   * GET /caracteristicas-sucursal/aplicables/sucursal/42
+   */
+  @Get('aplicables/sucursal/:sucursalId')
+  findAplicablesBySucursal(
+    @Param('sucursalId', ParseIntPipe) sucursalId: number,
+  ) {
+    return this.service.findAplicablesBySucursal(sucursalId);
   }
 
   @Get('codigo/:codigo')

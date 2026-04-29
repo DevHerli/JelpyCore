@@ -225,7 +225,9 @@ export class SucursalesCaracteristicasService {
       return false;
     });
 
-    if (!aplica) {
+    // Solo rechazar si hay aplicabilidades configuradas y ninguna coincide.
+    // Array vacío = sin restricción de giro = aplica a todos.
+    if (aplicabilidades.length > 0 && !aplica) {
       throw new BadRequestException(
         'La característica no aplica al giro de esta sucursal',
       );

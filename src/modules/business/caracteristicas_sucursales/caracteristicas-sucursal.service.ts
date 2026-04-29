@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 
 import { CaracteristicaSucursal } from './entities/caracteristica-sucursal.entity';
 import { CaracteristicaAplicabilidad } from './entities/caracteristicas-aplicabilidad.entity';
+import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 import { CreateCaracteristicaDto } from './dtos/create-caracteristica.dto';
 import { UpdateCaracteristicaDto } from './dtos/update-caracteristica.dto';
 
@@ -19,6 +20,9 @@ export class CaracteristicasSucursalService {
 
     @InjectRepository(CaracteristicaAplicabilidad)
     private readonly aplicabilidadRepo: Repository<CaracteristicaAplicabilidad>,
+
+    @InjectRepository(SucursalNegocio)
+    private readonly sucursalRepo: Repository<SucursalNegocio>,
   ) {}
 
   async create(dto: CreateCaracteristicaDto) {
@@ -154,42 +158,102 @@ export class CaracteristicasSucursalService {
     return { message: 'Característica eliminada' };
   }
 
+  /**
+   * Devuelve características activas que aplican al giro indicado.
+   *
+   * Reglas:
+   *  - Sin aplicabilidades activas → sin restricción de giro → siempre incluida.
+   *  - Con aplicabilidades activas → se incluye si al menos una coincide con los
+   *    IDs enviados o tiene nivel = 'todos'.
+   *
+   * Implementación en dos pasos para evitar problemas de deduplicación de
+   * TypeORM getMany() cuando el WHERE referencia la tabla joined:
+   *  1. leftJoin + getRawMany + GROUP BY → IDs de características que aplican
+   *  2. Query limpio con IN (:...ids) → carga entidades con sus relaciones
+   */
   async findAplicables(params: {
     categoriaId?: number;
     subcategoriaId?: number;
     especialidadId?: number;
     tipoServicioId?: number;
   }) {
-    const {
-      categoriaId,
-      subcategoriaId,
-      especialidadId,
-      tipoServicioId,
-    } = params;
+    const { categoriaId, subcategoriaId, especialidadId, tipoServicioId } = params;
 
-    const qb = this.repo
+    // Condiciones de coincidencia (solo se agregan las que vienen definidas —
+    // evita comparar campo = NULL en MySQL, que evalúa a NULL y no a FALSE).
+    const matchConditions: string[] = ["a.nivel = 'todos'"];
+    const bindings: Record<string, number> = {};
+
+    if (categoriaId) {
+      matchConditions.push("(a.nivel = 'categoria' AND a.referencia_id = :categoriaId)");
+      bindings.categoriaId = categoriaId;
+    }
+    if (subcategoriaId) {
+      matchConditions.push("(a.nivel = 'subcategoria' AND a.referencia_id = :subcategoriaId)");
+      bindings.subcategoriaId = subcategoriaId;
+    }
+    if (especialidadId) {
+      matchConditions.push("(a.nivel = 'especialidad' AND a.referencia_id = :especialidadId)");
+      bindings.especialidadId = especialidadId;
+    }
+    if (tipoServicioId) {
+      matchConditions.push("(a.nivel = 'tipo_servicio' AND a.referencia_id = :tipoServicioId)");
+      bindings.tipoServicioId = tipoServicioId;
+    }
+
+    // Paso 1: Obtener IDs de características aplicables.
+    // leftJoin (sin Select) + GROUP BY → evita duplicados por múltiples aplicabilidades.
+    // a.id IS NULL → LEFT JOIN no encontró ninguna aplicabilidad activa → sin restricción.
+    const matchClause = matchConditions.join(' OR ');
+    const rows = await this.repo
       .createQueryBuilder('c')
-      .leftJoinAndSelect('c.aplicabilidades', 'a')
+      .leftJoin('c.aplicabilidades', 'a', 'a.activo = 1')
+      .select('c.id', 'id')
       .where('c.activo = 1')
-      .andWhere(
-        `
-        (
-          (a.nivel = 'todos' AND a.activo = 1)
-          OR (a.nivel = 'categoria' AND a.referenciaId = :categoriaId AND a.activo = 1)
-          OR (a.nivel = 'subcategoria' AND a.referenciaId = :subcategoriaId AND a.activo = 1)
-          OR (a.nivel = 'especialidad' AND a.referenciaId = :especialidadId AND a.activo = 1)
-          OR (a.nivel = 'tipo_servicio' AND a.referenciaId = :tipoServicioId AND a.activo = 1)
-        )
-        `,
-        {
-          categoriaId: categoriaId ?? null,
-          subcategoriaId: subcategoriaId ?? null,
-          especialidadId: especialidadId ?? null,
-          tipoServicioId: tipoServicioId ?? null,
-        },
-      )
-      .orderBy('c.nombre', 'ASC');
+      .andWhere(`(a.id IS NULL OR (${matchClause}))`, bindings)
+      .groupBy('c.id')
+      .getRawMany<{ id: string }>();
 
-    return qb.getMany();
+    if (!rows.length) return [];
+
+    const ids = rows.map((r) => Number(r.id));
+
+    // Paso 2: Cargar entidades completas con sus aplicabilidades.
+    return this.repo
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.aplicabilidades', 'apl')
+      .where('c.id IN (:...ids)', { ids })
+      .orderBy('c.categoriaVisual', 'ASC')
+      .addOrderBy('c.nombre', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Resuelve automáticamente la categoría/subcategoría del negocio de la sucursal
+   * y devuelve las características aplicables. El front solo necesita el sucursalId.
+   *
+   * Usa QueryBuilder con getRawOne() para leer los FK directamente de la tabla negocios
+   * sin depender de carga de relaciones anidadas (que en TypeORM 0.3 requiere sintaxis objeto).
+   */
+  async findAplicablesBySucursal(sucursalId: number) {
+    const row = await this.sucursalRepo
+      .createQueryBuilder('s')
+      .innerJoin('s.negocio', 'n')
+      .select('s.id', 'sucursalId')
+      .addSelect('n.categoria_id',    'categoriaId')
+      .addSelect('n.subcategoria_id', 'subcategoriaId')
+      .addSelect('n.especialidad_id', 'especialidadId')
+      .where('s.id = :sucursalId', { sucursalId })
+      .getRawOne();
+
+    if (!row) {
+      throw new NotFoundException(`Sucursal no encontrada: id=${sucursalId}`);
+    }
+
+    return this.findAplicables({
+      categoriaId:    row.categoriaId    ? Number(row.categoriaId)    : undefined,
+      subcategoriaId: row.subcategoriaId ? Number(row.subcategoriaId) : undefined,
+      especialidadId: row.especialidadId ? Number(row.especialidadId) : undefined,
+    });
   }
 }
