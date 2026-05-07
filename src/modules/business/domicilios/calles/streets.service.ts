@@ -206,7 +206,11 @@ export class StreetsService {
       creado_por: createStreetColonyDto.creado_por ?? null,
     });
 
-    return await this.streetColonyRepository.save(streetColony);
+    const saved = await this.streetColonyRepository.save(streetColony);
+
+    // Recargar con relaciones completas para devolver la cadena
+    // código_postal → colonia → calle en la respuesta
+    return this.findStreetColonyById(saved.id);
   }
 
   async findAllStreetColonies(filters?: {
@@ -217,7 +221,10 @@ export class StreetsService {
     const query = this.streetColonyRepository
       .createQueryBuilder('streetColony')
       .leftJoinAndSelect('streetColony.calle', 'calle')
-      .leftJoinAndSelect('streetColony.colonia', 'colonia');
+      .leftJoinAndSelect('streetColony.colonia', 'colonia')
+      // Cadena completa: calle → colonia → código postal → ciudad
+      .leftJoinAndSelect('colonia.codigo_postal', 'cp')
+      .leftJoinAndSelect('cp.ciudad', 'ciudad');
 
     if (filters?.calle_id) {
       query.andWhere('streetColony.calle_id = :calle_id', {
@@ -237,7 +244,9 @@ export class StreetsService {
       });
     }
 
-    query.orderBy('calle.nombre', 'ASC');
+    query.orderBy('cp.codigo_postal', 'ASC')
+         .addOrderBy('colonia.nombre', 'ASC')
+         .addOrderBy('calle.nombre', 'ASC');
 
     return await query.getMany();
   }
@@ -245,7 +254,15 @@ export class StreetsService {
   async findStreetColonyById(id: string): Promise<StreetColony> {
     const relation = await this.streetColonyRepository.findOne({
       where: { id: id as any },
-      relations: ['calle', 'colonia'],
+      // Cadena completa: calle + colonia + código postal + ciudad
+      relations: {
+        calle: true,
+        colonia: {
+          codigo_postal: {
+            ciudad: true,
+          },
+        },
+      },
     });
 
     if (!relation) {
@@ -257,23 +274,42 @@ export class StreetsService {
     return relation;
   }
 
+  // Dada una calle, devuelve todas las colonias (con su CP) a las que pertenece.
   async findColoniasByStreetId(calleId: string): Promise<StreetColony[]> {
     return await this.streetColonyRepository.find({
       where: {
         calle_id: calleId as any,
         activo: true,
       },
-      relations: ['calle', 'colonia'],
+      relations: {
+        calle: true,
+        colonia: {
+          codigo_postal: {
+            ciudad: true,
+          },
+        },
+      },
+      order: { colonia: { nombre: 'ASC' } },
     });
   }
 
+  // Dada una colonia, devuelve todas las calles que pertenecen a ella.
+  // Incluye el código postal de la colonia para mostrar la cadena completa.
   async findStreetsByColoniaId(coloniaId: string): Promise<StreetColony[]> {
     return await this.streetColonyRepository.find({
       where: {
         colonia_id: coloniaId as any,
         activo: true,
       },
-      relations: ['calle', 'colonia'],
+      relations: {
+        calle: true,
+        colonia: {
+          codigo_postal: {
+            ciudad: true,
+          },
+        },
+      },
+      order: { calle: { nombre: 'ASC' } },
     });
   }
 
