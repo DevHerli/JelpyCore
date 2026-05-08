@@ -11,6 +11,11 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+/** Parsea booleanos de FormData: "1","true",1,true → true | cualquier otro → false */
+const toBoolean = ({ value }: { value: any }): boolean =>
+  value === true || value === 1 || value === '1' || value === 'true';
 
 export type TipoPromocion =
   | 'Descuento'
@@ -83,6 +88,7 @@ export class CreatePromotionBusinessDto {
    * Si true -> se vincula a todas las sucursales del negocio.
    * Si false -> debes mandar sucursalIds.
    */
+  @Transform(toBoolean)
   @IsBoolean()
   aplicaTodasSucursales: boolean;
 
@@ -91,6 +97,7 @@ export class CreatePromotionBusinessDto {
   sucursalIds?: number[];
 
   @IsOptional()
+  @Transform(toBoolean)
   @IsBoolean()
   activa?: boolean;
 }
