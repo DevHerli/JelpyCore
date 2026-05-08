@@ -20,11 +20,11 @@ export class PromotionBusiness {
 
   @Column({
     type: 'enum',
-    enum: ['Descuento', '2x1', 'Regalo', 'Cortesía', 'Otro'],
+    enum: ['Descuento', '2x1', 'Promo', 'Gratis', 'Regalo', 'Cortesía', 'Otro'],
     default: 'Descuento',
     name: 'tipo_promocion',
   })
-  tipoPromocion: 'Descuento' | '2x1' | 'Regalo' | 'Cortesía' | 'Otro';
+  tipoPromocion: 'Descuento' | '2x1' | 'Promo' | 'Gratis' | 'Regalo' | 'Cortesía' | 'Otro';
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'valor_descuento' })
   valorDescuento?: number;

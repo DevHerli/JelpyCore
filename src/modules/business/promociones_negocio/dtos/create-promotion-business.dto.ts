@@ -2,7 +2,7 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
-  IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -12,8 +12,24 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-export type TipoPromocion = 'Descuento' | '2x1' | 'Regalo' | 'Cortesía' | 'Otro';
-const TIPOS: TipoPromocion[] = ['Descuento', '2x1', 'Regalo', 'Cortesía', 'Otro'];
+export type TipoPromocion =
+  | 'Descuento'
+  | '2x1'
+  | 'Promo'
+  | 'Gratis'
+  | 'Regalo'
+  | 'Cortesía'
+  | 'Otro';
+
+const TIPOS: TipoPromocion[] = [
+  'Descuento',
+  '2x1',
+  'Promo',
+  'Gratis',
+  'Regalo',
+  'Cortesía',
+  'Otro',
+];
 
 export class CreatePromotionBusinessDto {
   @IsInt()
@@ -29,7 +45,7 @@ export class CreatePromotionBusinessDto {
   @IsString()
   descripcion?: string;
 
-  @IsEnum(TIPOS)
+  @IsIn(TIPOS)
   tipoPromocion: TipoPromocion;
 
   @IsOptional()
