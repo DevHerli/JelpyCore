@@ -51,6 +51,7 @@ import { ColoniasModule } from './modules/business/domicilios/colonias/colonias.
 import { StreetsModule } from './modules/business/domicilios/calles/streets.module';
 import { JelpyAiModule } from './modules/jelpy-ai/jelpy-ai.module';
 import { EventosNegociosModule } from './modules/business/eventos_negocios/eventos-negocios.module';
+import { SupportModule } from './modules/support/support.module';
 
 @Module({
   imports: [
@@ -93,6 +94,7 @@ import { EventosNegociosModule } from './modules/business/eventos_negocios/event
     StreetsModule,
     JelpyAiModule,
     EventosNegociosModule,
+    SupportModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),
