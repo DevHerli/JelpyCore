@@ -52,6 +52,7 @@ import { StreetsModule } from './modules/business/domicilios/calles/streets.modu
 import { JelpyAiModule } from './modules/jelpy-ai/jelpy-ai.module';
 import { EventosNegociosModule } from './modules/business/eventos_negocios/eventos-negocios.module';
 import { SupportModule } from './modules/support/support.module';
+import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { SupportModule } from './modules/support/support.module';
     JelpyAiModule,
     EventosNegociosModule,
     SupportModule,
+    NotificacionesModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),

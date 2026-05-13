@@ -76,6 +76,7 @@ export class AuthService {
       apellidoPaterno: suscriptor.apellidoPaterno,
       registroCompleto: suscriptor.registroCompleto,
       tieneNegocios: suscriptor.tieneNegocios,
+      role: suscriptor.role ?? 'user',
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
@@ -402,6 +403,7 @@ export class AuthService {
       apellidoPaterno: suscriptor.apellidoPaterno,
       registroCompleto: suscriptor.registroCompleto,
       tieneNegocios: suscriptor.tieneNegocios,
+      role: suscriptor.role ?? 'user',
     };
 
     const newAccess = this.jwtService.sign(payload, { expiresIn: '15m' });

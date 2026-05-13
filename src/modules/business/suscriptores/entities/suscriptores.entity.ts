@@ -114,6 +114,14 @@ reseñas: SucursalReview[];
   @Column({ type: 'tinyint', width: 1, default: 0 })
   eliminado: boolean;
 
+  // Rol del usuario — controla acceso a funciones admin
+  @Column({
+    type: 'enum',
+    enum: ['user', 'admin', 'editor'],
+    default: 'user',
+  })
+  role: 'user' | 'admin' | 'editor';
+
   @OneToMany(() => LecturaEventoNegocio, (lectura) => lectura.suscriptor)
   lecturasEventosNegocios: LecturaEventoNegocio[];
 }
