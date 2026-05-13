@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { Notification }     from './entities/notification.entity';
-import { DeviceToken }      from './entities/device-token.entity';
-import { UserNotification } from './entities/user-notification.entity';
-import { FirebaseService }  from './firebase.service';
+import { Notification }       from './entities/notification.entity';
+import { DeviceToken }        from './entities/device-token.entity';
+import { UserNotification }   from './entities/user-notification.entity';
+import { OneSignalService }   from './onesignal.service';
 import { SendNotificationDto } from './dtos/send-notification.dto';
 
 const BATCH_INSERT = 1000; // filas por INSERT en user_notifications
@@ -24,7 +24,7 @@ export class AdminNotificationsService {
     @InjectRepository(UserNotification)
     private readonly userNotifRepo: Repository<UserNotification>,
 
-    private readonly firebaseService: FirebaseService,
+    private readonly oneSignalService: OneSignalService,
   ) {}
 
   // ─── Enviar notificación ──────────────────────────────────────────────────
@@ -52,46 +52,39 @@ export class AdminNotificationsService {
       }),
     );
 
-    // 2. Obtener tokens activos según el segmento
-    const { tokens, userIds } = await this.resolverDestinos(targetType, targetValue);
+    // 2. Resolver usuarios destino
+    const userIds = await this.resolverUserIds(targetType, targetValue);
 
-    if (!tokens.length) {
-      this.logger.warn(`Notificación ${notif.id}: sin dispositivos destino`);
-      return { message: 'Notificación creada, sin dispositivos activos', notification_id: notif.id, total_sent: 0 };
+    if (!userIds.length && targetType !== 'all') {
+      this.logger.warn(`Notificación ${notif.id}: sin usuarios destino`);
+      return { message: 'Notificación creada, sin usuarios destino', notification_id: notif.id, total_sent: 0 };
     }
 
-    // 3. Enviar por FCM
-    const { successCount, invalidTokens } = await this.firebaseService.sendMulticast(
-      tokens,
-      {
-        title:    dto.title,
-        body:     dto.message,
-        category: dto.category   ?? 'system',
-        priority: dto.priority   ?? 'medium',
-        ctaRoute: dto.cta_route  ?? '',
-        ctaUrl:   dto.cta_url    ?? '',
-        ctaLabel: dto.cta_label  ?? '',
-        imageUrl: dto.image_url  ?? '',
-      },
-    );
+    const pushPayload = {
+      title:    dto.title,
+      body:     dto.message,
+      category: dto.category  ?? 'system',
+      priority: dto.priority  ?? 'medium',
+      ctaRoute: dto.cta_route ?? '',
+      ctaUrl:   dto.cta_url   ?? '',
+      ctaLabel: dto.cta_label ?? '',
+      imageUrl: dto.image_url ?? '',
+    };
 
-    // 4. Marcar tokens inválidos como inactivos (async, no bloquea la respuesta)
-    if (invalidTokens.length) {
-      this.tokenRepo
-        .createQueryBuilder()
-        .update(DeviceToken)
-        .set({ isActive: false })
-        .where('token IN (:...tokens)', { tokens: invalidTokens })
-        .execute()
-        .catch((e) => this.logger.error('Error limpiando tokens inválidos:', e));
+    // 3. Enviar por OneSignal (REST API, sin SDK instalado)
+    let successCount: number;
+    if (targetType === 'all') {
+      successCount = await this.oneSignalService.sendToAll(pushPayload);
+    } else {
+      successCount = await this.oneSignalService.sendToUsers(userIds, pushPayload);
     }
 
-    // 5. Poblar user_notifications en lotes
+    // 4. Poblar user_notifications en lotes (bandeja de entrada)
     if (userIds.length) {
       await this.insertarUserNotifications(userIds, notif.id);
     }
 
-    // 6. Actualizar total_sent
+    // 5. Actualizar total_sent
     await this.notifRepo.update(notif.id, { totalSent: successCount });
 
     return {
@@ -212,31 +205,41 @@ export class AdminNotificationsService {
   // ─── Helpers privados ─────────────────────────────────────────────────────
 
   /**
-   * Resuelve los tokens FCM y userIds según el tipo de target.
+   * Resuelve los userIds destino según el tipo de segmento.
+   * OneSignal envía a "All" directamente — solo necesitamos los IDs
+   * para poblar user_notifications en BD.
    */
-  private async resolverDestinos(
+  private async resolverUserIds(
     targetType: string,
     targetValue: string | null,
-  ): Promise<{ tokens: string[]; userIds: number[] }> {
-    let qb = this.tokenRepo
-      .createQueryBuilder('dt')
-      .where('dt.is_active = 1');
-
-    if (targetType === 'segment' && targetValue) {
-      // Filtra por city_id del suscriptor
-      qb = qb
-        .innerJoin('suscriptores', 's', 's.id = dt.user_id')
-        .andWhere('s.ciudad_id = :cityId', { cityId: targetValue });
-    } else if (targetType === 'individual' && targetValue) {
-      qb = qb.andWhere('dt.user_id = :userId', { userId: targetValue });
+  ): Promise<number[]> {
+    if (targetType === 'all') {
+      // Para 'all', OneSignal lo maneja internamente.
+      // Obtenemos todos los user_ids con token activo para la BD.
+      const rows = await this.tokenRepo
+        .createQueryBuilder('dt')
+        .select('DISTINCT dt.user_id', 'userId')
+        .where('dt.is_active = 1')
+        .getRawMany();
+      return rows.map((r) => Number(r.userId));
     }
 
-    const rows = await qb.select(['dt.token AS token', 'dt.user_id AS userId']).getRawMany();
+    if (targetType === 'segment' && targetValue) {
+      const rows = await this.tokenRepo
+        .createQueryBuilder('dt')
+        .innerJoin('suscriptores', 's', 's.id = dt.user_id')
+        .select('DISTINCT dt.user_id', 'userId')
+        .where('dt.is_active = 1')
+        .andWhere('s.ciudad_id = :cityId', { cityId: targetValue })
+        .getRawMany();
+      return rows.map((r) => Number(r.userId));
+    }
 
-    return {
-      tokens:  rows.map((r) => r.token),
-      userIds: [...new Set(rows.map((r) => Number(r.userId)))],
-    };
+    if (targetType === 'individual' && targetValue) {
+      return [Number(targetValue)];
+    }
+
+    return [];
   }
 
   /**

@@ -40,7 +40,6 @@
     "class-validator": "^0.14.2",
     "cloudinary": "^2.8.0",
     "cron": "^3.5.0",
-    "firebase-admin": "^13.9.0",
     "helmet": "^7.2.0",
     "multer": "^2.0.2",
     "mysql2": "^3.15.2",
