@@ -31,7 +31,7 @@ export class AdminMessagesService {
   /**
    * Crea y distribuye mensajes a uno, varios o todos los suscriptores.
    */
-  async enviarMensaje(dto: SendMessageAdminDto, adminId: number) {
+  async enviarMensaje(dto: SendMessageAdminDto) {
     const targetType  = dto.target_type;
     const targetValue = dto.target_value ?? null;
 
@@ -49,7 +49,7 @@ export class AdminMessagesService {
     const subscriberIds = await this.resolverSubscriberIds(targetType, targetValue);
 
     if (!subscriberIds.length) {
-      this.logger.warn(`Admin ${adminId} envió mensaje sin destinatarios (${targetType}/${targetValue})`);
+      this.logger.warn(`[Jelpy System] Mensaje sin destinatarios (${targetType}/${targetValue})`);
       return {
         ok: true,
         message: 'No se encontraron suscriptores destino',
@@ -82,7 +82,7 @@ export class AdminMessagesService {
     }
 
     this.logger.log(
-      `Admin ${adminId} envió mensaje "${dto.title}" a ${totalCreados} suscriptores (${targetType})`,
+      `[Jelpy System] Mensaje "${dto.title}" enviado a ${totalCreados} suscriptores (${targetType})`,
     );
 
     return {

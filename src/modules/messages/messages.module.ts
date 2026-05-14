@@ -6,21 +6,21 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BusinessMessage } from './entities/business-message.entity';
 import { Suscriptor }      from '../business/suscriptores/entities/suscriptores.entity';
 
-import { MessagesService }          from './messages.service';
-import { AdminMessagesService }     from './admin-messages.service';
-import { MessagesController }       from './messages.controller';
-import { AdminMessagesController }  from './admin-messages.controller';
-import { MessagesJwtAuthGuard }     from './guards/jwt-auth.guard';
-import { MessagesAdminGuard }       from './guards/admin.guard';
+import { MessagesService }         from './messages.service';
+import { AdminMessagesService }    from './admin-messages.service';
+import { MessagesController }      from './messages.controller';
+import { AdminMessagesController } from './admin-messages.controller';
+import { MessagesJwtAuthGuard }    from './guards/jwt-auth.guard';
+import { ApiKeyGuard }             from './guards/api-key.guard';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       BusinessMessage,
-      Suscriptor,       // necesario para MessagesAdminGuard (verifica role en BD)
+      Suscriptor,   // necesario para AdminMessagesService (resolver segmentos por ciudad)
     ]),
 
-    // Mismo secret que AuthModule para verificar tokens existentes
+    // JWT para verificar tokens de suscriptores (app móvil)
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject:  [ConfigService],
@@ -30,23 +30,15 @@ import { MessagesAdminGuard }       from './guards/admin.guard';
     }),
   ],
   controllers: [
-    MessagesController,
-    AdminMessagesController,
+    MessagesController,       // app móvil  → protegido por JWT suscriptores
+    AdminMessagesController,  // Jelpy System → protegido por API Key
   ],
   providers: [
-    // Guards
-    MessagesJwtAuthGuard,
-    MessagesAdminGuard,
-
-    // Servicios
+    MessagesJwtAuthGuard,  // guard JWT para /messages/*
+    ApiKeyGuard,           // guard API Key para /admin/messages/*
     MessagesService,
     AdminMessagesService,
   ],
-  /**
-   * MessagesService exportado para que otros módulos (pagos, membresías, etc.)
-   * puedan inyectarlo y crear mensajes internos:
-   *   await this.messagesService.createMessage({ subscriberId, type, title, ... })
-   */
   exports: [MessagesService],
 })
 export class MessagesModule {}

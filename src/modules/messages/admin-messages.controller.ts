@@ -10,20 +10,20 @@ import {
   Patch,
   Post,
   Query,
-  Request,
   UseGuards,
 } from '@nestjs/common';
-import { AdminMessagesService }    from './admin-messages.service';
-import { MessagesAdminGuard }      from './guards/admin.guard';
-import { SendMessageAdminDto }     from './dtos/send-message-admin.dto';
-import { UpdateMessageAdminDto }   from './dtos/update-message-admin.dto';
+import { AdminMessagesService }  from './admin-messages.service';
+import { ApiKeyGuard }           from './guards/api-key.guard';
+import { SendMessageAdminDto }   from './dtos/send-message-admin.dto';
+import { UpdateMessageAdminDto } from './dtos/update-message-admin.dto';
 import { MessageType } from './entities/business-message.entity';
 
 /**
- * Todos los endpoints bajo /admin/messages requieren role = 'admin' en BD.
- * Si el token es válido pero el usuario no es admin → 403.
+ * Endpoints admin llamados exclusivamente desde Jelpy System (panel admin).
+ * Autenticación por API Key: header  X-API-Key: <JELPY_INTERNAL_API_KEY>
+ * No usa JWT de suscriptores — son dos sistemas independientes.
  */
-@UseGuards(MessagesAdminGuard)
+@UseGuards(ApiKeyGuard)
 @Controller('admin/messages')
 export class AdminMessagesController {
   constructor(private readonly adminService: AdminMessagesService) {}
@@ -48,11 +48,8 @@ export class AdminMessagesController {
    */
   @Post('send')
   @HttpCode(HttpStatus.CREATED)
-  enviarMensaje(
-    @Body() dto: SendMessageAdminDto,
-    @Request() req: any,
-  ) {
-    return this.adminService.enviarMensaje(dto, Number(req.user.sub));
+  enviarMensaje(@Body() dto: SendMessageAdminDto) {
+    return this.adminService.enviarMensaje(dto);
   }
 
   /**
