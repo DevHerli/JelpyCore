@@ -53,6 +53,7 @@ import { JelpyAiModule } from './modules/jelpy-ai/jelpy-ai.module';
 import { EventosNegociosModule } from './modules/business/eventos_negocios/eventos-negocios.module';
 import { SupportModule } from './modules/support/support.module';
 import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
+import { MessagesModule } from './modules/messages/messages.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { NotificacionesModule } from './modules/notificaciones/notificaciones.mo
     EventosNegociosModule,
     SupportModule,
     NotificacionesModule,
+    MessagesModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),
