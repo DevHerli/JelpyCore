@@ -72,26 +72,20 @@ export class NotificationsService {
   ) {
     const page    = Math.max(1, filters.page    ?? 1);
     const perPage = Math.min(50, filters.perPage ?? 20);
-    const offset  = (page - 1) * perPage;
+    const skip    = (page - 1) * perPage;
 
-    const qb = this.userNotifRepo
-      .createQueryBuilder('un')
-      .innerJoinAndSelect('un.notification', 'n')
-      .where('un.user_id = :userId', { userId });
+    // Construir where con propiedad camelCase (TypeORM 0.3)
+    const where: any = { userId };
+    if (filters.unreadOnly) where.isRead = false;
+    if (filters.category)   where.notification = { category: filters.category };
 
-    if (filters.unreadOnly) {
-      qb.andWhere('un.is_read = 0');
-    }
-
-    if (filters.category) {
-      qb.andWhere('n.category = :category', { category: filters.category });
-    }
-
-    const [items, total] = await qb
-      .orderBy('un.received_at', 'DESC')
-      .take(perPage)
-      .skip(offset)
-      .getManyAndCount();
+    const [items, total] = await this.userNotifRepo.findAndCount({
+      where,
+      relations: { notification: true },
+      order:     { receivedAt: 'DESC' },
+      take:      perPage,
+      skip,
+    });
 
     const unread = await this.userNotifRepo.count({
       where: { userId, isRead: false },
@@ -99,14 +93,14 @@ export class NotificationsService {
 
     const data = items.map((un) => ({
       id:          un.id,
-      title:       un.notification.title,
-      message:     un.notification.message,
-      category:    un.notification.category,
-      priority:    un.notification.priority,
-      image_url:   un.notification.imageUrl,
-      cta_label:   un.notification.ctaLabel,
-      cta_route:   un.notification.ctaRoute,
-      cta_url:     un.notification.ctaUrl,
+      title:       un.notification?.title       ?? '',
+      message:     un.notification?.message     ?? '',
+      category:    un.notification?.category    ?? 'system',
+      priority:    un.notification?.priority    ?? 'medium',
+      image_url:   un.notification?.imageUrl    ?? null,
+      cta_label:   un.notification?.ctaLabel    ?? null,
+      cta_route:   un.notification?.ctaRoute    ?? null,
+      cta_url:     un.notification?.ctaUrl      ?? null,
       is_read:     un.isRead,
       received_at: un.receivedAt,
     }));
