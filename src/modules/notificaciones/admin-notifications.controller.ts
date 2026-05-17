@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -8,14 +9,18 @@ import {
   ParseIntPipe,
   Post,
   Query,
-  Request,
   UseGuards,
 } from '@nestjs/common';
 import { AdminNotificationsService } from './admin-notifications.service';
-import { AdminGuard }                from './guards/admin.guard';
+import { ApiKeyGuard }               from '../messages/guards/api-key.guard';
 import { SendNotificationDto }       from './dtos/send-notification.dto';
 
-@UseGuards(AdminGuard)   // ← Verifica JWT + role = 'admin'. 403 si no cumple.
+/**
+ * Endpoints admin de notificaciones — llamados exclusivamente desde Jelpy System.
+ * Autenticación por API Key: header  X-API-Key: <JELPY_INTERNAL_API_KEY>
+ * Mismo mecanismo que /admin/messages/*.
+ */
+@UseGuards(ApiKeyGuard)
 @Controller('admin/notifications')
 export class AdminNotificationsController {
   constructor(private readonly adminService: AdminNotificationsService) {}
@@ -23,15 +28,16 @@ export class AdminNotificationsController {
   /**
    * Enviar notificación push.
    * POST /admin/notifications/send
-   * Requiere role = 'admin'.
+   *
+   * sent_by usa el ID de sistema (0) ya que la request viene de Jelpy System,
+   * no de un suscriptor individual.
    */
   @Post('send')
   @HttpCode(HttpStatus.CREATED)
-  enviarNotificacion(
-    @Body() dto: SendNotificationDto,
-    @Request() req: any,
-  ) {
-    return this.adminService.enviarNotificacion(dto, req.user.sub);
+  enviarNotificacion(@Body() dto: SendNotificationDto) {
+    // ID 0 = "Jelpy System" — no es un suscriptor real,
+    // pero evita el JOIN roto con suscriptores
+    return this.adminService.enviarNotificacion(dto, 0);
   }
 
   /**
@@ -63,5 +69,15 @@ export class AdminNotificationsController {
   @Get(':id')
   obtenerDetalle(@Param('id', ParseIntPipe) id: number) {
     return this.adminService.obtenerDetalle(id);
+  }
+
+  /**
+   * Eliminar una notificación del historial.
+   * DELETE /admin/notifications/:id
+   */
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  eliminar(@Param('id', ParseIntPipe) id: number) {
+    return this.adminService.eliminarNotificacion(id);
   }
 }

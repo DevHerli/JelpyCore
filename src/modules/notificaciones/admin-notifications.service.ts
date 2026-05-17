@@ -99,29 +99,13 @@ export class AdminNotificationsService {
   async listarNotificaciones(page = 1, perPage = 20) {
     const offset = (page - 1) * perPage;
 
-    const [rows, total] = await this.notifRepo
-      .createQueryBuilder('n')
-      .select([
-        'n.id',
-        'n.title',
-        'n.category',
-        'n.priority',
-        'n.target_type',
-        'n.total_sent',
-        'n.sent_at',
-        's.nombre',
-        's.apellido_paterno',
-      ])
-      .innerJoin('suscriptores', 's', 's.id = n.sent_by')
-      .orderBy('n.created_at', 'DESC')
-      .take(perPage)
-      .skip(offset)
-      .getManyAndCount();
+    // LEFT JOIN en lugar de INNER JOIN — sent_by = 0 (Jelpy System) no tiene
+    // registro en suscriptores, con INNER se pierde toda la fila.
+    const total = await this.notifRepo.count();
 
-    // getRawMany es más sencillo para proyecciones con JOIN a tablas sin entidad rel.
     const data = await this.notifRepo
       .createQueryBuilder('n')
-      .innerJoin('suscriptores', 's', 's.id = n.sent_by')
+      .leftJoin('suscriptores', 's', 's.id = n.sent_by')
       .select([
         'n.id           AS id',
         'n.title        AS title',
@@ -130,7 +114,7 @@ export class AdminNotificationsService {
         'n.target_type  AS target_type',
         'n.total_sent   AS total_sent',
         'n.sent_at      AS sent_at',
-        "CONCAT(s.nombre, ' ', s.apellido_paterno) AS sent_by_name",
+        "COALESCE(CONCAT(s.nombre, ' ', s.apellido_paterno), 'Jelpy System') AS sent_by_name",
       ])
       .orderBy('n.created_at', 'DESC')
       .take(perPage)
@@ -146,7 +130,7 @@ export class AdminNotificationsService {
   async obtenerDetalle(id: number) {
     const notif = await this.notifRepo
       .createQueryBuilder('n')
-      .innerJoin('suscriptores', 's', 's.id = n.sent_by')
+      .leftJoin('suscriptores', 's', 's.id = n.sent_by')
       .select([
         'n.id           AS id',
         'n.title        AS title',
@@ -162,7 +146,7 @@ export class AdminNotificationsService {
         'n.total_sent   AS total_sent',
         'n.sent_at      AS sent_at',
         'n.created_at   AS created_at',
-        "CONCAT(s.nombre, ' ', s.apellido_paterno) AS sent_by_name",
+        "COALESCE(CONCAT(s.nombre, ' ', s.apellido_paterno), 'Jelpy System') AS sent_by_name",
       ])
       .where('n.id = :id', { id })
       .getRawOne();
@@ -200,6 +184,13 @@ export class AdminNotificationsService {
       total_dispositivos_activos:    totalTokensActivos,
       por_categoria: resumen,
     };
+  }
+
+  async eliminarNotificacion(id: number) {
+    const notif = await this.notifRepo.findOne({ where: { id } });
+    if (!notif) throw new Error('Notificación no encontrada');
+    await this.notifRepo.delete(id);
+    return { ok: true };
   }
 
   // ─── Helpers privados ─────────────────────────────────────────────────────
