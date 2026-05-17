@@ -74,7 +74,8 @@ export class MessagesService {
     if (!msg) {
       throw new NotFoundException('Mensaje no encontrado');
     }
-    if (msg.subscriberId !== subscriberId) {
+    // BIGINT en MySQL llega como string desde TypeORM — comparar con Number()
+    if (Number(msg.subscriberId) !== Number(subscriberId)) {
       throw new ForbiddenException('No tienes acceso a este mensaje');
     }
 
@@ -85,7 +86,8 @@ export class MessagesService {
     const msg = await this.repo.findOne({ where: { id } });
 
     if (!msg) throw new NotFoundException('Mensaje no encontrado');
-    if (msg.subscriberId !== subscriberId) {
+    // BIGINT en MySQL llega como string desde TypeORM — comparar con Number()
+    if (Number(msg.subscriberId) !== Number(subscriberId)) {
       throw new ForbiddenException('No tienes acceso a este mensaje');
     }
 
