@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -22,7 +23,7 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   /**
-   * Registrar token FCM al iniciar sesión.
+   * Registrar token FCM / OneSignal al iniciar sesión.
    * POST /notifications/token
    */
   @Post('token')
@@ -34,9 +35,8 @@ export class NotificationsController {
   }
 
   /**
-   * Eliminar token FCM al cerrar sesión.
+   * Eliminar token al cerrar sesión.
    * DELETE /notifications/token
-   * Body: { "token": "fcm_token_xxx" }
    */
   @Delete('token')
   eliminarToken(
@@ -47,8 +47,9 @@ export class NotificationsController {
   }
 
   /**
-   * Conteo de notificaciones no leídas (badge de la campanita).
+   * Badge de no leídas.
    * GET /notifications/unread-count
+   * Response: { "count": N }
    * Debe ir ANTES de ":id" para no ser capturado como parámetro.
    */
   @Get('unread-count')
@@ -58,11 +59,19 @@ export class NotificationsController {
 
   /**
    * Marcar todas como leídas.
-   * PATCH /notifications/read-all
+   * POST /notifications/read-all   ← método que usa la app
+   * PATCH /notifications/read-all  ← alias por compatibilidad
+   * Response: { "ok": true, "updated": N }
    * Debe ir ANTES de ":id/read".
    */
+  @Post('read-all')
+  @HttpCode(200)
+  marcarTodasLeidasPost(@Request() req: any) {
+    return this.notificationsService.marcarTodasLeidas(req.user.sub);
+  }
+
   @Patch('read-all')
-  marcarTodasLeidas(@Request() req: any) {
+  marcarTodasLeidasPatch(@Request() req: any) {
     return this.notificationsService.marcarTodasLeidas(req.user.sub);
   }
 
@@ -85,10 +94,21 @@ export class NotificationsController {
 
   /**
    * Marcar una notificación como leída.
-   * PATCH /notifications/:id/read
+   * POST /notifications/:id/read   ← método que usa la app
+   * PATCH /notifications/:id/read  ← alias por compatibilidad
+   * Response: { "ok": true }
    */
+  @Post(':id/read')
+  @HttpCode(200)
+  marcarLeidaPost(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: any,
+  ) {
+    return this.notificationsService.marcarLeida(id, req.user.sub);
+  }
+
   @Patch(':id/read')
-  marcarLeida(
+  marcarLeidaPatch(
     @Param('id', ParseIntPipe) id: number,
     @Request() req: any,
   ) {

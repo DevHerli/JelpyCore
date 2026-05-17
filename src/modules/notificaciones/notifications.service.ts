@@ -117,16 +117,16 @@ export class NotificationsService {
     };
   }
 
-  async getUnreadCount(userId: number): Promise<{ unread: number }> {
-    const unread = await this.userNotifRepo.count({
+  async getUnreadCount(userId: number): Promise<{ count: number }> {
+    const count = await this.userNotifRepo.count({
       where: { userId, isRead: false },
     });
-    return { unread };
+    return { count };
   }
 
   // ─── Marcar como leída ────────────────────────────────────────────────────
 
-  async marcarLeida(userNotifId: number, userId: number): Promise<{ message: string }> {
+  async marcarLeida(userNotifId: number, userId: number): Promise<{ ok: boolean }> {
     const record = await this.userNotifRepo.findOne({
       where: { id: userNotifId, userId },
     });
@@ -135,23 +135,24 @@ export class NotificationsService {
       throw new NotFoundException('Notificación no encontrada');
     }
 
+    // Idempotente: si ya estaba leída, retorna ok sin tocar la BD
     if (!record.isRead) {
       record.isRead = true;
       record.readAt = new Date();
       await this.userNotifRepo.save(record);
     }
 
-    return { message: 'Notificación marcada como leída' };
+    return { ok: true };
   }
 
-  async marcarTodasLeidas(userId: number): Promise<{ message: string }> {
-    await this.userNotifRepo
+  async marcarTodasLeidas(userId: number): Promise<{ ok: boolean; updated: number }> {
+    const result = await this.userNotifRepo
       .createQueryBuilder()
       .update(UserNotification)
       .set({ isRead: true, readAt: new Date() })
       .where('user_id = :userId AND is_read = 0', { userId })
       .execute();
 
-    return { message: 'Todas las notificaciones marcadas como leídas' };
+    return { ok: true, updated: result.affected ?? 0 };
   }
 }
