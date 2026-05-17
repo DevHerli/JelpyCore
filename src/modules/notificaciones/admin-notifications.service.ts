@@ -7,6 +7,7 @@ import { DeviceToken }        from './entities/device-token.entity';
 import { UserNotification }   from './entities/user-notification.entity';
 import { OneSignalService }   from './onesignal.service';
 import { SendNotificationDto } from './dtos/send-notification.dto';
+import { Suscriptor }         from '../business/suscriptores/entities/suscriptores.entity';
 
 const BATCH_INSERT = 1000; // filas por INSERT en user_notifications
 
@@ -23,6 +24,9 @@ export class AdminNotificationsService {
 
     @InjectRepository(UserNotification)
     private readonly userNotifRepo: Repository<UserNotification>,
+
+    @InjectRepository(Suscriptor)
+    private readonly suscriptorRepo: Repository<Suscriptor>,
 
     private readonly oneSignalService: OneSignalService,
   ) {}
@@ -205,25 +209,26 @@ export class AdminNotificationsService {
     targetValue: string | null,
   ): Promise<number[]> {
     if (targetType === 'all') {
-      // Para 'all', OneSignal lo maneja internamente.
-      // Obtenemos todos los user_ids con token activo para la BD.
-      const rows = await this.tokenRepo
-        .createQueryBuilder('dt')
-        .select('DISTINCT dt.user_id', 'userId')
-        .where('dt.is_active = 1')
-        .getRawMany();
-      return rows.map((r) => Number(r.userId));
+      // Para el inbox: poblar user_notifications para TODOS los suscriptores.
+      // OneSignal maneja el push por separado con el segmento "All" —
+      // no depende de device_tokens para el inbox.
+      const rows = await this.suscriptorRepo
+        .createQueryBuilder('s')
+        .select('s.id', 'id')
+        .where('s.eliminado = 0')
+        .getRawMany<{ id: number }>();
+      return rows.map((r) => Number(r.id));
     }
 
     if (targetType === 'segment' && targetValue) {
-      const rows = await this.tokenRepo
-        .createQueryBuilder('dt')
-        .innerJoin('suscriptores', 's', 's.id = dt.user_id')
-        .select('DISTINCT dt.user_id', 'userId')
-        .where('dt.is_active = 1')
+      // Segmento por ciudad: todos los suscriptores de esa ciudad.
+      const rows = await this.suscriptorRepo
+        .createQueryBuilder('s')
+        .select('s.id', 'id')
+        .where('s.eliminado = 0')
         .andWhere('s.ciudad_id = :cityId', { cityId: targetValue })
-        .getRawMany();
-      return rows.map((r) => Number(r.userId));
+        .getRawMany<{ id: number }>();
+      return rows.map((r) => Number(r.id));
     }
 
     if (targetType === 'individual' && targetValue) {
