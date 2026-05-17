@@ -109,44 +109,128 @@ export class AdminMessagesService {
   }) {
     const skip = (opts.page - 1) * opts.perPage;
 
-    const qb = this.repo
-      .createQueryBuilder('m')
-      .orderBy('m.created_at', 'DESC')
-      .skip(skip)
-      .take(opts.perPage);
-
-    if (opts.type && opts.type !== 'all') {
-      qb.andWhere('m.type = :type', { type: opts.type });
-    }
+    // ── Vista por suscriptor ──────────────────────────────────────────────────
+    // Cuando se filtra por subscriber_id mostramos sus mensajes individuales.
     if (opts.subscriberId) {
-      qb.andWhere('m.subscriber_id = :sid', { sid: opts.subscriberId });
-    }
-    if (opts.onlyUnread) {
-      qb.andWhere('m.is_read = 0');
+      const qb = this.repo
+        .createQueryBuilder('m')
+        .where('m.subscriber_id = :sid', { sid: opts.subscriberId })
+        .orderBy('m.created_at', 'DESC')
+        .skip(skip)
+        .take(opts.perPage);
+
+      if (opts.type && opts.type !== 'all') {
+        qb.andWhere('m.type = :type', { type: opts.type });
+      }
+      if (opts.onlyUnread) {
+        qb.andWhere('m.is_read = 0');
+      }
+
+      const [items, total] = await qb.getManyAndCount();
+
+      return {
+        data: items.map((m) => this.mapRow(m)),
+        meta: this.buildMeta(opts.page, opts.perPage, total),
+      };
     }
 
-    const [items, total] = await qb.getManyAndCount();
+    // ── Vista agrupada para el panel admin ────────────────────────────────────
+    // Un envío a N suscriptores genera N filas idénticas en contenido.
+    // El admin ve UNA fila por envío con el total de destinatarios y cuántos leyeron.
+    // Agrupamos por (title, type, sender_name, created_at truncado a minuto)
+    // para identificar el mismo envío aunque haya milisegundos de diferencia.
+    const raw = await this.repo.manager.query<{
+      id:             number;
+      type:           string;
+      title:          string;
+      preview:        string;
+      sender_name:    string;
+      cta_label:      string | null;
+      cta_route:      string | null;
+      metadata:       string | null;
+      created_at:     string;
+      total_sent:     string;
+      total_read:     string;
+    }[]>(`
+      SELECT
+        MIN(id)                                           AS id,
+        type,
+        title,
+        preview,
+        sender_name,
+        cta_label,
+        cta_route,
+        metadata,
+        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:00')    AS created_at,
+        COUNT(*)                                          AS total_sent,
+        SUM(is_read)                                      AS total_read
+      FROM business_messages
+      ${opts.type && opts.type !== 'all' ? 'WHERE type = ?' : 'WHERE 1=1'}
+      GROUP BY type, title, sender_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:00')
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `, [
+      ...(opts.type && opts.type !== 'all' ? [opts.type] : []),
+      opts.perPage,
+      skip,
+    ]);
+
+    // Total de grupos (para paginación)
+    const countRaw = await this.repo.manager.query<[{ total: string }]>(`
+      SELECT COUNT(*) AS total FROM (
+        SELECT 1
+        FROM business_messages
+        ${opts.type && opts.type !== 'all' ? 'WHERE type = ?' : 'WHERE 1=1'}
+        GROUP BY type, title, sender_name, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:00')
+      ) t
+    `, opts.type && opts.type !== 'all' ? [opts.type] : []);
+
+    const total = Number(countRaw[0]?.total ?? 0);
 
     return {
-      data: items.map((m) => ({
-        id:            m.id,
-        subscriber_id: m.subscriberId,
-        type:          m.type,
-        title:         m.title,
-        preview:       m.preview,
-        sender_name:   m.senderName,
-        is_read:       Boolean(m.isRead),
-        cta_label:     m.ctaLabel  ?? null,
-        cta_route:     m.ctaRoute  ?? null,
-        metadata:      m.metadata  ?? null,
-        created_at:    m.createdAt,
+      data: raw.map((r) => ({
+        id:           r.id,
+        type:         r.type,
+        title:        r.title,
+        preview:      r.preview,
+        sender_name:  r.sender_name,
+        cta_label:    r.cta_label  ?? null,
+        cta_route:    r.cta_route  ?? null,
+        metadata:     r.metadata   ? JSON.parse(r.metadata) as unknown : null,
+        created_at:   r.created_at,
+        // Métricas del envío
+        total_sent:   Number(r.total_sent),
+        total_read:   Number(r.total_read),
+        read_rate:    Number(r.total_sent)
+          ? `${Math.round((Number(r.total_read) / Number(r.total_sent)) * 100)}%`
+          : '0%',
       })),
-      meta: {
-        current_page: opts.page,
-        per_page:     opts.perPage,
-        total,
-        last_page:    Math.ceil(total / opts.perPage) || 1,
-      },
+      meta: this.buildMeta(opts.page, opts.perPage, total),
+    };
+  }
+
+  private mapRow(m: BusinessMessage) {
+    return {
+      id:            m.id,
+      subscriber_id: m.subscriberId,
+      type:          m.type,
+      title:         m.title,
+      preview:       m.preview,
+      sender_name:   m.senderName,
+      is_read:       Boolean(m.isRead),
+      cta_label:     m.ctaLabel  ?? null,
+      cta_route:     m.ctaRoute  ?? null,
+      metadata:      m.metadata  ?? null,
+      created_at:    m.createdAt,
+    };
+  }
+
+  private buildMeta(page: number, perPage: number, total: number) {
+    return {
+      current_page: page,
+      per_page:     perPage,
+      total,
+      last_page:    Math.ceil(total / perPage) || 1,
     };
   }
 
@@ -268,6 +352,50 @@ export class AdminMessagesService {
         fecha: r.fecha,
         total: Number(r.total),
       })),
+    };
+  }
+
+  // ─── BÚSQUEDA DE SUSCRIPTORES (para el picker del panel) ─────────────────
+
+  /**
+   * Búsqueda typeahead de suscriptores para el formulario de mensajes.
+   * Filtra por nombre o correo electrónico, devuelve máx 20 resultados.
+   * Usado por Jelpy System para el picker de destinatario individual.
+   */
+  async buscarSuscriptores(opts: { search: string; page: number; perPage: number }) {
+    const qb = this.suscriptorRepo
+      .createQueryBuilder('s')
+      .select(['s.id', 's.nombre', 's.correoElectronico'])
+      .leftJoin('s.ciudad', 'ciudad')
+      .addSelect(['ciudad.nombre'])
+      .where('s.eliminado = 0')
+      .orderBy('s.nombre', 'ASC')
+      .skip((opts.page - 1) * opts.perPage)
+      .take(opts.perPage);
+
+    if (opts.search?.trim()) {
+      const term = `%${opts.search.trim()}%`;
+      qb.andWhere(
+        '(s.nombre LIKE :term OR s.correo_electronico LIKE :term)',
+        { term },
+      );
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+
+    return {
+      data: items.map((s) => ({
+        id:     s.id,
+        nombre: s.nombre,
+        correo: (s as any).correoElectronico ?? null,
+        ciudad: (s as any).ciudad?.nombre    ?? null,
+      })),
+      meta: {
+        current_page: opts.page,
+        per_page:     opts.perPage,
+        total,
+        last_page:    Math.ceil(total / opts.perPage) || 1,
+      },
     };
   }
 

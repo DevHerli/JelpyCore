@@ -63,6 +63,31 @@ export class AdminMessagesController {
   }
 
   /**
+   * GET /admin/messages/subscribers?search=juan&page=1&per_page=20
+   * Búsqueda typeahead de suscriptores para el picker del formulario.
+   * Filtra por nombre o correo electrónico.
+   * Debe ir ANTES de /:id para no ser capturado como parámetro.
+   *
+   * Response:
+   * {
+   *   data: [{ id, nombre, correo, ciudad }],
+   *   meta: { current_page, per_page, total, last_page }
+   * }
+   */
+  @Get('subscribers')
+  buscarSuscriptores(
+    @Query('search')   search  = '',
+    @Query('page')     page    = '1',
+    @Query('per_page') perPage = '20',
+  ) {
+    return this.adminService.buscarSuscriptores({
+      search,
+      page:    Math.max(1, Number(page)),
+      perPage: Math.min(50, Math.max(1, Number(perPage))),
+    });
+  }
+
+  /**
    * GET /admin/messages?page=1&per_page=20&type=system&subscriber_id=42&unread=true
    * Lista paginada de todos los mensajes enviados (todos los suscriptores).
    *
