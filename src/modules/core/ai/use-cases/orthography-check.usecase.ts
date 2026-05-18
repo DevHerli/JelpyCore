@@ -203,7 +203,51 @@ export class OrthographyCheckUseCase {
       .replace(/\bdir\b/gi, 'dirección')
       .replace(/\bdirecc\b/gi, 'dirección');
 
-    // ── 6. DOBLES ESPACIOS Y PUNTUACIÓN EXTRA ───────────────────────
+    // ── 6. COLOQUIALISMO MEXICANO EXTRA ─────────────────────────────
+    t = t
+      // Chesco = refresco
+      .replace(/\bchescos\b/gi, 'refrescos')
+      .replace(/\bchesco\b/gi, 'refresco')
+      // Cheve / Chela = cerveza
+      .replace(/\bchevas\b/gi, 'cervezas')
+      .replace(/\bcheva\b/gi, 'cerveza')
+      .replace(/\bchelas\b/gi, 'cervezas')
+      .replace(/\bchela\b/gi, 'cerveza')
+      .replace(/\bcheves\b/gi, 'cervezas')
+      .replace(/\bcheve\b/gi, 'cerveza')
+      // Garrafón → agua purificada
+      .replace(/\bgarrafones\b/gi, 'garrafones de agua')
+      .replace(/\bgarrafon\b/gi, 'garrafón')
+      // Tiendita / changarrito → abarrotes
+      .replace(/\btiendita\b/gi, 'tiendita')
+      .replace(/\bchangarrito\b/gi, 'changarrito')
+      // Lonche = lunch/torta
+      .replace(/\blonche\b/gi, 'torta')
+      // Mandado = compras
+      .replace(/\bmandar el mandado\b/gi, 'hacer el mandado')
+      // Guajolota = torta de tamal
+      .replace(/\bguajolota\b/gi, 'torta de tamal')
+      // Tehuacán = agua mineral
+      .replace(/\btehuacan\b/gi, 'agua mineral')
+      .replace(/\btehuacán\b/gi, 'agua mineral')
+      // Pozol → bebida regional
+      .replace(/\bpozol\b/gi, 'pozol')
+      // Comida callejera
+      .replace(/\bstreet food\b/gi, 'comida callejera')
+      // Ponche (de llanta) ya existe como llantera
+      .replace(/\bponche\b/gi, 'ponchadura')
+      .replace(/\bponchado\b/gi, 'llanta ponchada')
+      // Talachas / talacha = trabajo manual
+      .replace(/\btalachas\b/gi, 'servicios')
+      .replace(/\btalacha\b/gi, 'servicios')
+      // Chamba = trabajo/empleo
+      .replace(/\bchamba\b/gi, 'trabajo')
+      // Troca = camioneta/truck
+      .replace(/\btroca\b/gi, 'camioneta')
+      // Cacha / cachas = encontrar
+      .replace(/\bdonde cacho\b/gi, 'donde encuentro');
+
+    // ── 7. DOBLES ESPACIOS Y PUNTUACIÓN EXTRA ───────────────────────
     t = t.replace(/\s{2,}/g, ' ').trim();
 
     return t;
