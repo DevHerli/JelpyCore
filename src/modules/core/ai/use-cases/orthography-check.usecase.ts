@@ -13,6 +13,27 @@ export class OrthographyCheckUseCase {
 
     let t = texto.trim();
 
+    // ── 0. NORMALIZAR FRASES DE INTENCIÓN ───────────────────────────
+    // "quiero un X" / "necesito X" / "busco X" → queda solo la intención más el término
+    // No eliminamos la palabra, solo normalizamos variantes coloquiales
+    t = t
+      .replace(/\bquiero un\b/gi, 'quiero')
+      .replace(/\bquiero una\b/gi, 'quiero')
+      .replace(/\bquiero unos\b/gi, 'quiero')
+      .replace(/\bquiero unas\b/gi, 'quiero')
+      .replace(/\bnecesito un\b/gi, 'necesito')
+      .replace(/\bnecesito una\b/gi, 'necesito')
+      .replace(/\bbusco un\b/gi, 'busco')
+      .replace(/\bbusco una\b/gi, 'busco')
+      .replace(/\bdame un\b/gi, 'busco')
+      .replace(/\bdame una\b/gi, 'busco')
+      .replace(/\bdonde hay un\b/gi, 'donde hay')
+      .replace(/\bdonde hay una\b/gi, 'donde hay')
+      .replace(/\bdonde venden un\b/gi, 'donde venden')
+      .replace(/\bdonde venden una\b/gi, 'donde venden')
+      .replace(/\bdonde encuentro un\b/gi, 'donde encuentro')
+      .replace(/\bdonde encuentro una\b/gi, 'donde encuentro');
+
     // ── 1. ABREVIACIONES DE CHAT ────────────────────────────────────
     t = t
       .replace(/\bq\b/gi, 'que')

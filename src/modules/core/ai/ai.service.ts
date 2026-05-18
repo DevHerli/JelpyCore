@@ -536,11 +536,44 @@ export class AiService {
 
     // ¿Quisiste decir? — solo cuando 0 resultados
     if (items.length === 0) {
-      const textoParaCorreccion = textoCorregido.split(' ').find((w) => w.length >= 4) ?? textoCorregido;
-      const correccion = sugerirCorreccion(textoParaCorreccion);
-      if (correccion) {
-        friendly.quisisteDecir = correccion.sugerencia;
-        friendly.mensaje = `No encontré resultados para "${textoParaCorreccion}" 🤔 ¿Quisiste decir "${correccion.sugerencia}"? Escríbelo para buscarlo.`;
+      // Verbos de intención y stopwords que NUNCA son el término de búsqueda
+      const verbosIntento = new Set([
+        'quiero', 'queria', 'quería', 'quisiera', 'quisieras',
+        'busco', 'busca', 'buscar', 'buscas',
+        'necesito', 'necesita', 'necesitas',
+        'dame', 'dime', 'muestra', 'muestrame', 'muéstrame',
+        'donde', 'dónde', 'como', 'cómo', 'para', 'puedo', 'puedes',
+        'hay', 'tienen', 'tiene', 'existe', 'existen',
+        'quiero', 'poner', 'conocer', 'saber', 'encontrar',
+        'dame', 'ayuda', 'ayudame', 'ayúdame',
+        'cerca', 'cerquita', 'favor',
+      ]);
+
+      // Busca la primera palabra significativa (sustantivo, no verbo de intención)
+      const palabraSignificativa = textoCorregido
+        .split(' ')
+        .find((w) => w.length >= 4 && !verbosIntento.has(w.toLowerCase()))
+        ?? null;
+
+      // Solo sugiere corrección si:
+      // 1. Hay una palabra significativa
+      // 2. La sugerencia es diferente a lo que se buscó (no es ya correcta)
+      // 3. La palabra no está ya en el diccionario semántico
+      if (palabraSignificativa) {
+        const normFn = (s: string) =>
+          s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const palabraNorm = normFn(palabraSignificativa);
+        const yaEnDiccionario = JELPY_SEMANTIC_CATEGORIES.some((cat) =>
+          cat.aliases.some((alias) => normFn(alias) === palabraNorm),
+        );
+
+        if (!yaEnDiccionario) {
+          const correccion = sugerirCorreccion(palabraSignificativa);
+          if (correccion && normFn(correccion.sugerencia) !== palabraNorm) {
+            friendly.quisisteDecir = correccion.sugerencia;
+            friendly.mensaje = `No encontré "${palabraSignificativa}" 🤔 ¿Quisiste decir "${correccion.sugerencia}"? Escríbelo para buscarlo.`;
+          }
+        }
       }
     }
 
