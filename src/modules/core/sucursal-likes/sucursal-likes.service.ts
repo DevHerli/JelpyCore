@@ -69,6 +69,27 @@ import {
     }
   
     // ============================================================
+    // CONTAR LIKES EN BATCH (una sola query GROUP BY)
+    // ============================================================
+    async contarLikesBatch(sucursalIds: number[]): Promise<Map<number, number>> {
+      const result = new Map<number, number>();
+      if (!sucursalIds || sucursalIds.length === 0) return result;
+
+      const rows = await this.likeRepo
+        .createQueryBuilder('l')
+        .select('l.sucursalId', 'sucursalId')
+        .addSelect('COUNT(l.id)', 'total')
+        .where('l.sucursalId IN (:...ids)', { ids: sucursalIds })
+        .groupBy('l.sucursalId')
+        .getRawMany();
+
+      for (const row of rows) {
+        result.set(Number(row.sucursalId), Number(row.total));
+      }
+      return result;
+    }
+
+    // ============================================================
     // ¿USUARIO YA DIO LIKE?
     // ============================================================
     async usuarioHaDadoLike(usuarioId: number, sucursalId: number) {

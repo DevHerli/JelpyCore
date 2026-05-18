@@ -760,6 +760,26 @@ private async aplicarPreferenciasUsuario(
       }
 
       // ============================================================
+      // 5.2 FALLBACK SIN SUBCATEGORÍA (más amplio si hubo 0 resultados)
+      // ============================================================
+      if ((!resultados || resultados.items.length === 0) && filtros.subcategoriaId && filtros.categoriaId) {
+        const resultadosFallbackCat = await this.searchService.search({
+          q: filtros.q ?? textoNorm,
+          ciudad: filtros.ciudad,
+          categoriaId: filtros.categoriaId,
+          abiertoAhora: filtros.abiertoAhora ?? false,
+          promos: filtros.promos ?? false,
+          radioKm: 10,
+        });
+
+        if (resultadosFallbackCat?.items?.length > 0) {
+          resultados = resultadosFallbackCat;
+          filtros.esFallback = true;
+          filtros.fallbackReason = 'sin_subcategoria';
+        }
+      }
+
+      // ============================================================
       // 6. ORDENAR POR PREFERENCIAS
       // ============================================================
       resultados = this.ordenarResultadosPorPreferencias(resultados, prefs);

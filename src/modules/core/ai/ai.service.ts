@@ -8,6 +8,8 @@ import { ContextResolverUseCase } from './use-cases/context-resolver.usecase';
 import { JelpyAssistantService } from './jelpy-assistant/jelpy-assistant.service';
 import { AIResponseBuilder } from './utils/ai-response-builder';
 import { ChatResponses } from './utils/chat-responses';
+import { SearchCacheService } from './utils/search-cache.service';
+import { SugerenciasUtil } from './utils/suggestions.util';
 import { PublicidadChatService } from '../publicidad-chat/publicidad-chat.service';
 import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-preferencias.service';
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
@@ -42,6 +44,7 @@ export class AiService {
     private readonly historyUseCase: HistoryManagerUseCase,
     private readonly contextResolver: ContextResolverUseCase,
     private readonly conversationService: ConversationService,
+    private readonly searchCache: SearchCacheService,
 
     @Inject(forwardRef(() => JelpyAssistantService))
     private readonly jelpyAssistant: JelpyAssistantService,
@@ -361,35 +364,60 @@ export class AiService {
       };
     }
 
-    // ── 9. BÚSQUEDA REAL ─────────────────────────────────────────────
+    // ── 9. BÚSQUEDA REAL (con caché) ─────────────────────────────────
     await this.historyUseCase.saveQuery(usuarioId ?? 0, textoCorregido);
 
-    const interpretacion = await this.jelpyAssistant.interpretar(
-      textoParaProcesar,
-      contexto?.latitud,
-      contexto?.longitud,
-      contexto?.ciudad ?? sesion.ciudad,
-      usuarioId,
+    const ciudadBusqueda = contexto?.ciudad ?? sesion.ciudad ?? '';
+    const cacheKey = `${ciudadBusqueda}:${textoParaProcesar.toLowerCase().trim()}`;
+
+    // Intentar hit de caché antes de llamar al asistente completo
+    let interpretacion: any = this.searchCache.get<any>(
+      ciudadBusqueda, null, null,
     );
+    // Usamos la clave de texto como discriminador — caché simple por texto+ciudad
+    const cachedRaw = (this.searchCache as any).cache?.get(cacheKey);
+    if (cachedRaw && Date.now() < cachedRaw.expiresAt) {
+      interpretacion = cachedRaw.data;
+      this.logger.debug(`[Cache HIT] ${cacheKey}`);
+    } else {
+      interpretacion = await this.jelpyAssistant.interpretar(
+        textoParaProcesar,
+        contexto?.latitud,
+        contexto?.longitud,
+        ciudadBusqueda,
+        usuarioId,
+      );
+      // Guardar en caché solo si hay resultados
+      const itemsCount = interpretacion.resultados?.items?.length ?? 0;
+      if (itemsCount > 0) {
+        (this.searchCache as any).cache?.set(cacheKey, {
+          data: interpretacion,
+          expiresAt: Date.now() + 5 * 60 * 1000,   // 5 minutos
+        });
+        this.logger.debug(`[Cache SET] ${cacheKey} (${itemsCount} resultados)`);
+      }
+    }
 
     const items = Array.isArray(interpretacion.resultados)
       ? interpretacion.resultados
       : interpretacion.resultados?.items ?? [];
 
-    // ── 10. ORDENAR POR POPULARIDAD (likes) ──────────────────────────
+    // ── 10. LIKES EN BATCH (una sola query) ───────────────────────────
     try {
-      for (const item of items) {
-        const sucursalId = Number(
-          item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id,
-        );
-        if (sucursalId) {
-          const info = await this.likesService.contarLikesSucursal(sucursalId);
-          item.likes = info.totalLikes ?? 0;
+      const sucursalIds = items
+        .map((item) => Number(item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id))
+        .filter((id) => !isNaN(id) && id > 0);
+
+      if (sucursalIds.length > 0) {
+        const likesMap = await this.likesService.contarLikesBatch(sucursalIds);
+        for (const item of items) {
+          const sid = Number(item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id);
+          item.likes = likesMap.get(sid) ?? 0;
         }
+        items.sort((a, b) => (b.likes || 0) - (a.likes || 0));
       }
-      items.sort((a, b) => (b.likes || 0) - (a.likes || 0));
     } catch (err) {
-      this.logger.error('Error obteniendo likes', err);
+      this.logger.error('Error obteniendo likes en batch', err);
     }
 
     // ── 11. MÉTRICAS ─────────────────────────────────────────────────
@@ -408,8 +436,18 @@ export class AiService {
       items,
     );
 
-    // ── 13. LIKES POR ITEM ────────────────────────────────────────────
+    // ── 13. LIKES POR ITEM (batch en friendly.items) ──────────────────
     if (items.length > 0) {
+      // IDs para batch
+      const friendlyIds = (friendly.items ?? []).map((item: any) =>
+        Number(item.sucursalId || item.sucursal_id || item.sucursal?.id || item.id),
+      ).filter((id: number) => !isNaN(id) && id > 0);
+
+      let batchLikes = new Map<number, number>();
+      try {
+        batchLikes = await this.likesService.contarLikesBatch(friendlyIds);
+      } catch { /* ignorar */ }
+
       for (const item of friendly.items ?? []) {
         const sucursalId = Number(
           item.sucursalId || item.sucursal_id || item.sucursal?.id || item.id,
@@ -421,15 +459,11 @@ export class AiService {
           payload: { sucursalId, usuarioId: usuarioId ?? null },
         };
         if (usuarioId) {
-          const yaLike = await this.likesService.usuarioHaDadoLike(usuarioId, sucursalId);
-          item.liked = yaLike;
+          try {
+            item.liked = await this.likesService.usuarioHaDadoLike(usuarioId, sucursalId);
+          } catch { item.liked = false; }
         }
-        try {
-          const info = await this.likesService.contarLikesSucursal(sucursalId);
-          item.likesCount = info.totalLikes ?? 0;
-        } catch {
-          item.likesCount = 0;
-        }
+        item.likesCount = batchLikes.get(sucursalId) ?? 0;
       }
     }
 
@@ -479,6 +513,14 @@ export class AiService {
     // ── 16. APRENDIZAJE + RECOMENDACIÓN + UPSELL + CONTEXTO ──────────
     this.actualizarPreferenciasUsuario(usuarioId, interpretacion.filtros_detectados, items);
 
+    // Guardar preferencias en DB (fire & forget)
+    if (usuarioId && items.length > 0) {
+      const f = interpretacion.filtros_detectados || {};
+      this.usuarioPreferenciasService
+        .registrarPreferencia(usuarioId, f.categoriaId, f.subcategoriaId)
+        .catch(() => null);
+    }
+
     const recomendacion = this.generarRecomendacionProactiva(interpretacion.filtros_detectados, items);
     if (recomendacion) friendly.recomendacion = recomendacion;
 
@@ -487,6 +529,14 @@ export class AiService {
 
     const contextoMsg = this.generarMensajeContextual(interpretacion.filtros_detectados?.ciudad);
     if (contextoMsg) friendly.contexto = contextoMsg;
+
+    // Sugerencias contextuales inteligentes
+    const sugerencias = SugerenciasUtil.generar(
+      interpretacion.filtros_detectados ?? {},
+      items,
+      interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
+    );
+    if (sugerencias.length > 0) friendly.sugerencias = sugerencias;
 
     // ── 17. RETURN FINAL ──────────────────────────────────────────────
     return {

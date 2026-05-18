@@ -33,6 +33,7 @@ import { JelpyAiModule } from '../../jelpy-ai/jelpy-ai.module';
 import { ConversationModule } from '../conversation/conversation.module';
 
 import { ChatResponses } from './utils/chat-responses';
+import { SearchCacheService } from './utils/search-cache.service';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { ChatResponses } from './utils/chat-responses';
     ContextResolverUseCase,   // ← NUEVO
 
     ChatResponses,
+    SearchCacheService,
   ],
 
   exports: [
