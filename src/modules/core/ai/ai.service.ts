@@ -10,6 +10,9 @@ import { AIResponseBuilder } from './utils/ai-response-builder';
 import { ChatResponses } from './utils/chat-responses';
 import { SearchCacheService } from './utils/search-cache.service';
 import { SugerenciasUtil } from './utils/suggestions.util';
+import { sugerirCorreccion } from './utils/levenshtein.util';
+import { RateLimiterService } from './utils/rate-limiter.service';
+import { ZeroResultLoggerUseCase } from './use-cases/zero-result-logger.usecase';
 import { PublicidadChatService } from '../publicidad-chat/publicidad-chat.service';
 import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-preferencias.service';
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
@@ -45,6 +48,8 @@ export class AiService {
     private readonly contextResolver: ContextResolverUseCase,
     private readonly conversationService: ConversationService,
     private readonly searchCache: SearchCacheService,
+    private readonly rateLimiter: RateLimiterService,
+    private readonly zeroResultLogger: ZeroResultLoggerUseCase,
 
     @Inject(forwardRef(() => JelpyAssistantService))
     private readonly jelpyAssistant: JelpyAssistantService,
@@ -193,6 +198,22 @@ export class AiService {
     sessionId?: string,
   ) {
     this.logger.debug(`[Session: ${sessionId ?? 'nueva'}] Procesando: "${input}"`);
+
+    // ── 0. RATE LIMITING ─────────────────────────────────────────────
+    const claveRL = sessionId ?? contexto?.ip ?? 'anonymous';
+    if (!this.rateLimiter.verificar(claveRL)) {
+      const segundos = this.rateLimiter.tiempoRestante(claveRL);
+      return {
+        sessionId: sessionId ?? 'sin-sesion',
+        status: 'rate_limited',
+        mensajeOriginal: input,
+        mensajeCorregido: input,
+        respuesta: {
+          titulo: 'Demasiados mensajes 🐢',
+          mensaje: `Estás enviando muchos mensajes muy rápido. Espera ${segundos} segundo(s) e intenta de nuevo.`,
+        },
+      };
+    }
 
     // ── Limpieza de sesiones viejas (fire & forget) ──────────────────
     this.conversationService.limpiarSesionesViejas().catch(() => null);
@@ -402,22 +423,41 @@ export class AiService {
       ? interpretacion.resultados
       : interpretacion.resultados?.items ?? [];
 
-    // ── 10. LIKES EN BATCH (una sola query) ───────────────────────────
+    // ── 10. LIKES EN BATCH + RANKING COMPUESTO ────────────────────────
     try {
       const sucursalIds = items
         .map((item) => Number(item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id))
         .filter((id) => !isNaN(id) && id > 0);
 
+      let likesMap = new Map<number, number>();
       if (sucursalIds.length > 0) {
-        const likesMap = await this.likesService.contarLikesBatch(sucursalIds);
-        for (const item of items) {
-          const sid = Number(item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id);
-          item.likes = likesMap.get(sid) ?? 0;
-        }
-        items.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+        likesMap = await this.likesService.contarLikesBatch(sucursalIds);
       }
+
+      // Calcular score compuesto para cada item
+      for (const item of items) {
+        const sid = Number(item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id);
+        item.likes = likesMap.get(sid) ?? 0;
+
+        const tienePromo    = item.promo ? 1 : 0;
+        const estaAbierto   = String(item.abierto ?? '').toLowerCase().includes('abierto') ? 1 : 0;
+        const tieneFoto     = (item.logo_url || item.logo) ? 1 : 0;
+        const distanciaKm   = typeof item.distancia_km === 'number' ? item.distancia_km : 999;
+        const scoreDistancia = distanciaKm > 0 ? Math.max(0, 1 - distanciaKm / 50) : 0; // normalizado 0-1
+        const maxLikes      = 100; // techo de normalización
+        const scoreLikes    = Math.min(item.likes, maxLikes) / maxLikes;
+
+        item._score =
+          scoreLikes    * 0.40 +
+          tienePromo    * 0.25 +
+          estaAbierto   * 0.20 +
+          tieneFoto     * 0.10 +
+          scoreDistancia * 0.05;
+      }
+
+      items.sort((a, b) => (b._score ?? 0) - (a._score ?? 0));
     } catch (err) {
-      this.logger.error('Error obteniendo likes en batch', err);
+      this.logger.error('Error en ranking compuesto', err);
     }
 
     // ── 11. MÉTRICAS ─────────────────────────────────────────────────
@@ -435,6 +475,26 @@ export class AiService {
       interpretacion.filtros_detectados,
       items,
     );
+
+    // Log de búsquedas sin resultado (fire & forget)
+    if (items.length === 0) {
+      const f = interpretacion.filtros_detectados ?? {};
+      this.zeroResultLogger.execute(
+        textoCorregido,
+        f.ciudad ?? ciudadBusqueda ?? null,
+        { categoriaId: f.categoriaId, subcategoriaId: f.subcategoriaId, intent: aiIntent.intent },
+      ).catch(() => null);
+    }
+
+    // ¿Quisiste decir? — solo cuando 0 resultados
+    if (items.length === 0) {
+      const textoParaCorreccion = textoCorregido.split(' ').find((w) => w.length >= 4) ?? textoCorregido;
+      const correccion = sugerirCorreccion(textoParaCorreccion);
+      if (correccion) {
+        friendly.quisisteDecir = correccion.sugerencia;
+        friendly.mensaje = `No encontré resultados para "${textoParaCorreccion}" 🤔 ¿Quisiste decir "${correccion.sugerencia}"? Escríbelo para buscarlo.`;
+      }
+    }
 
     // ── 13. LIKES POR ITEM (batch en friendly.items) ──────────────────
     if (items.length > 0) {
@@ -531,8 +591,15 @@ export class AiService {
     if (contextoMsg) friendly.contexto = contextoMsg;
 
     // Sugerencias contextuales inteligentes
+    // Extrae hints de los propios ítems para que los patrones de categoría funcionen
+    const subcategoriaHint = items[0]?.subcategoria ?? '';
+    const categoriaHint    = items[0]?.categoria ?? '';
     const sugerencias = SugerenciasUtil.generar(
-      interpretacion.filtros_detectados ?? {},
+      {
+        ...(interpretacion.filtros_detectados ?? {}),
+        subcategoriaHint,
+        categoriaHint,
+      },
       items,
       interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
     );
@@ -553,6 +620,45 @@ export class AiService {
         esSeguimiento: resolucion.esSeguimiento,
       },
     };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // AUTOCOMPLETADO
+  // Alimentado por el diccionario semántico local — sin DB, instantáneo
+  // ─────────────────────────────────────────────────────────────────────
+  autocomplete(q: string, ciudad?: string): string[] {
+    if (!q || q.trim().length < 2) return [];
+
+    const { JELPY_SEMANTIC_CATEGORIES } = require('./jelpy-assistant/constants/jelpy-semantic-categories');
+
+    const normalizar = (s: string) =>
+      s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+    const qNorm = normalizar(q.trim());
+    const resultados = new Set<string>();
+
+    for (const categoria of JELPY_SEMANTIC_CATEGORIES) {
+      for (const alias of categoria.aliases) {
+        const aliasNorm = normalizar(alias);
+        if (aliasNorm.startsWith(qNorm) || aliasNorm.includes(qNorm)) {
+          // Preferir aliases cortos y de una sola palabra primero
+          resultados.add(alias);
+          if (resultados.size >= 10) break;
+        }
+      }
+      if (resultados.size >= 10) break;
+    }
+
+    // Ordenar: primero los que empiezan con la query, luego los que la contienen
+    return [...resultados]
+      .sort((a, b) => {
+        const aN = normalizar(a);
+        const bN = normalizar(b);
+        const aStarts = aN.startsWith(qNorm) ? 0 : 1;
+        const bStarts = bN.startsWith(qNorm) ? 0 : 1;
+        return aStarts - bStarts || a.length - b.length;
+      })
+      .slice(0, 6);
   }
 
   // ─────────────────────────────────────────────────────────────────────

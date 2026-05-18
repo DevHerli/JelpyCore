@@ -52,9 +52,16 @@ export class SugerenciasUtil {
       sugerencias.push(`¿Quieres ver los más populares en ${ciudadNombre}?`);
       sugerencias.push('¿Buscas alguno con servicio a domicilio?');
       sugerencias.push('¿Te gustaría ver sus promociones?');
+    } else if (sub.includes('dentist') || sub.includes('odontolog')) {
+      sugerencias.push(items.length === 1 ? '¿Quieres saber el horario de este dentista?' : '¿Quieres saber el horario de alguno de estos?');
+      sugerencias.push('¿También buscas ortodoncista o limpieza dental?');
     } else {
-      // Genérico
-      sugerencias.push('¿Quieres saber más sobre alguno de estos?');
+      // Genérico — singular vs plural
+      sugerencias.push(
+        items.length === 1
+          ? '¿Quieres saber más sobre este lugar?'
+          : '¿Quieres saber más sobre alguno de estos?',
+      );
       sugerencias.push(`¿Buscas algo diferente en ${ciudadNombre}?`);
     }
 

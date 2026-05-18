@@ -19,6 +19,8 @@ import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
 
 // Entidades
 import { UserQueryHistory } from '../metrics/estadistica-historico/entities/user-query-history.entity';
+import { ZeroResultQuery } from './zero-result/entities/zero-result-query.entity';
+import { ZeroResultLoggerUseCase } from './use-cases/zero-result-logger.usecase';
 
 // Módulos externos requeridos
 import { ReportesModeracionModule } from '../reports/reportes-moderacion/reportes-moderacion.module';
@@ -34,10 +36,11 @@ import { ConversationModule } from '../conversation/conversation.module';
 
 import { ChatResponses } from './utils/chat-responses';
 import { SearchCacheService } from './utils/search-cache.service';
+import { RateLimiterService } from './utils/rate-limiter.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserQueryHistory]),
+    TypeOrmModule.forFeature([UserQueryHistory, ZeroResultQuery]),
 
     // Conexión circular con Jelpy Assistant
     forwardRef(() => JelpyAssistantModule),
@@ -71,6 +74,8 @@ import { SearchCacheService } from './utils/search-cache.service';
 
     ChatResponses,
     SearchCacheService,
+    RateLimiterService,
+    ZeroResultLoggerUseCase,
   ],
 
   exports: [

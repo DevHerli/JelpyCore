@@ -30,6 +30,28 @@ const PALABRAS_SEGUIMIENTO = [
   'el mismo pero', 'la misma pero', 'igual pero',
   // Preguntas cortas de seguimiento
   'tiene', 'tienen', 'hay', 'ofrecen', 'manejan', 'hacen',
+  // Precio
+  'cuanto cuesta', 'cuánto cuesta', 'que precio', 'qué precio', 'cuanto cobran',
+  'cuánto cobran', 'cuanto vale', 'cuánto vale', 'su precio', 'los precios',
+  'es caro', 'es barato', 'precio', 'costo', 'cobran',
+  // Pago
+  'aceptan tarjeta', 'aceptan tarjetas', 'pagan con tarjeta', 'con tarjeta',
+  'efectivo', 'solo efectivo', 'formas de pago', 'metodos de pago', 'métodos de pago',
+  'transferencia', 'oxxo', 'mercado pago',
+  // Redes sociales
+  'su instagram', 'tienen instagram', 'su insta', 'su face', 'su facebook',
+  'su whatsapp', 'su pagina', 'su página', 'redes sociales', 'sus redes',
+  'en instagram', 'instagram de', 'facebook de',
+  // Estacionamiento / instalaciones
+  'estacionamiento', 'tienen estacionamiento', 'hay donde estacionar',
+  'hay parking', 'parking', 'accesible', 'para discapacitados',
+  'aire acondicionado', 'terraza', 'area de niños', 'área de niños',
+  // Menú / productos
+  'su menu', 'su menú', 'que venden', 'qué venden', 'que ofrecen', 'qué ofrecen',
+  'que tienen', 'qué tienen', 'su carta', 'la carta', 'sus platillos',
+  // Reservaciones
+  'aceptan reservaciones', 'se puede reservar', 'reservacion', 'reservación',
+  'hay que reservar',
 ];
 
 /**
@@ -261,6 +283,94 @@ export class ContextResolverUseCase {
       return {
         titulo: `${nombreLugar} no tiene promociones registradas en este momento`,
         mensaje: '¿Quieres que busque otros negocios similares que sí tengan promo? 💸',
+      };
+    }
+
+    if (
+      mensajeNorm.includes('cuanto cuesta') ||
+      mensajeNorm.includes('cuánto cuesta') ||
+      mensajeNorm.includes('que precio') ||
+      mensajeNorm.includes('qué precio') ||
+      mensajeNorm.includes('precio') ||
+      mensajeNorm.includes('cobran') ||
+      mensajeNorm.includes('costo')
+    ) {
+      return {
+        titulo: `Precios de ${nombreLugar}`,
+        mensaje: 'Para conocer los precios actualizados te recomiendo visitar su perfil en Jelpy o llamar directamente al negocio. Los precios pueden variar.',
+      };
+    }
+
+    if (
+      mensajeNorm.includes('tarjeta') ||
+      mensajeNorm.includes('efectivo') ||
+      mensajeNorm.includes('formas de pago') ||
+      mensajeNorm.includes('metodos de pago') ||
+      mensajeNorm.includes('transferencia') ||
+      mensajeNorm.includes('mercado pago')
+    ) {
+      return {
+        titulo: `Métodos de pago en ${nombreLugar}`,
+        mensaje: 'Para confirmar si aceptan tarjeta, efectivo o transferencia te recomiendo llamar directamente o revisar su perfil en Jelpy.',
+      };
+    }
+
+    if (
+      mensajeNorm.includes('instagram') ||
+      mensajeNorm.includes('insta') ||
+      mensajeNorm.includes('facebook') ||
+      mensajeNorm.includes('face') ||
+      mensajeNorm.includes('whatsapp') ||
+      mensajeNorm.includes('redes sociales') ||
+      mensajeNorm.includes('sus redes') ||
+      mensajeNorm.includes('pagina') ||
+      mensajeNorm.includes('página')
+    ) {
+      return {
+        titulo: `Redes sociales de ${nombreLugar}`,
+        mensaje: 'Puedes encontrar sus redes sociales y página web visitando su perfil dentro de Jelpy 📱',
+      };
+    }
+
+    if (
+      mensajeNorm.includes('estacionamiento') ||
+      mensajeNorm.includes('parking') ||
+      mensajeNorm.includes('donde estacionar') ||
+      mensajeNorm.includes('accesible') ||
+      mensajeNorm.includes('terraza') ||
+      mensajeNorm.includes('area de ninos') ||
+      mensajeNorm.includes('aire acondicionado')
+    ) {
+      return {
+        titulo: `Instalaciones de ${nombreLugar}`,
+        mensaje: 'Para conocer las instalaciones disponibles (estacionamiento, terraza, área de niños, etc.) te recomiendo visitar su perfil en Jelpy o llamar directamente.',
+      };
+    }
+
+    if (
+      mensajeNorm.includes('menu') ||
+      mensajeNorm.includes('menú') ||
+      mensajeNorm.includes('que venden') ||
+      mensajeNorm.includes('que ofrecen') ||
+      mensajeNorm.includes('que tienen') ||
+      mensajeNorm.includes('su carta') ||
+      mensajeNorm.includes('platillos')
+    ) {
+      return {
+        titulo: `Menú de ${nombreLugar}`,
+        mensaje: 'Puedes ver el menú completo y los productos disponibles en el perfil de Jelpy de este negocio 🍽️',
+      };
+    }
+
+    if (
+      mensajeNorm.includes('reservacion') ||
+      mensajeNorm.includes('reservación') ||
+      mensajeNorm.includes('reservar') ||
+      mensajeNorm.includes('hay que reservar')
+    ) {
+      return {
+        titulo: `Reservaciones en ${nombreLugar}`,
+        mensaje: 'Para hacer una reservación o saber si es necesaria, te recomiendo llamar directamente al negocio 📞',
       };
     }
 

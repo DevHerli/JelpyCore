@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Param, Body, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, Query, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { TrackMetricsUseCase } from '../ai/use-cases/track-metrics.usecase';
 import { ConversationService } from '../conversation/conversation.service';
@@ -146,6 +146,22 @@ export class AiController {
       exito: true,
       mensaje: 'Sesión cerrada correctamente',
     };
+  }
+
+  /**
+   * Autocompletado de búsqueda — instantáneo, sin DB.
+   * GET /ai/autocomplete?q=tac&ciudad=Culiacán
+   */
+  @Get('autocomplete')
+  autocomplete(
+    @Query('q') q: string,
+    @Query('ciudad') ciudad?: string,
+  ) {
+    if (!q || q.trim().length < 2) {
+      return { exito: true, sugerencias: [] };
+    }
+    const sugerencias = this.aiService.autocomplete(q, ciudad);
+    return { exito: true, sugerencias };
   }
 
   /**
