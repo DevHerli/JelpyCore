@@ -13,6 +13,7 @@ import { SugerenciasUtil } from './utils/suggestions.util';
 import { sugerirCorreccion } from './utils/levenshtein.util';
 import { RateLimiterService } from './utils/rate-limiter.service';
 import { ZeroResultLoggerUseCase } from './use-cases/zero-result-logger.usecase';
+import { JELPY_SEMANTIC_CATEGORIES } from './jelpy-assistant/constants/jelpy-semantic-categories';
 import { PublicidadChatService } from '../publicidad-chat/publicidad-chat.service';
 import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-preferencias.service';
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
@@ -360,8 +361,55 @@ export class AiService {
       };
     }
 
+    // ── 7.5. ANÁLISIS DE SENTIMIENTO ────────────────────────────────
+    const textoNormSentimiento = textoCorregido.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const esFrustrado = [
+      'ya me dijiste', 'siempre lo mismo', 'nunca encuentras', 'no sirve',
+      'que malo', 'pesimo', 'pésimo', 'no funciona', 'inutel', 'no me ayudas',
+      'no encuentras nada', 'no encuentras', 'no funciona', 'mentira',
+      'que inutil', 'que asco', 'horrible', 'no sirves',
+    ].some((p) => textoNormSentimiento.includes(p));
+
+    // ── 7.6. OVERRIDE CHAT → BÚSQUEDA SI HAY TÉRMINO SEMÁNTICO ──────
+    // FastAPI clasifica como "chat" términos que sí tienen negocios locales
+    // (ej: "sanatorio", "nosocomio", "estética", etc.)
+    if (aiIntent.intent === 'chat' && !esFrustrado) {
+      const normFn = (s: string) =>
+        s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const textoNormCheck = normFn(textoCorregido);
+      const tieneTerminoSemantico = JELPY_SEMANTIC_CATEGORIES.some((cat) =>
+        cat.aliases.some((alias) => textoNormCheck.includes(normFn(alias))),
+      );
+      if (tieneTerminoSemantico) {
+        this.logger.debug(
+          `[Override] FastAPI dijo "chat" pero hay término semántico → forzando búsqueda`,
+        );
+        aiIntent.intent = 'buscar_negocios';
+      }
+    }
+
     // ── 8. INTENT CHAT (respuestas conversacionales) ─────────────────
     if (aiIntent.intent === 'chat') {
+      // Usuario frustrado → tono más empático
+      if (esFrustrado) {
+        await this.conversationService.guardarTurnoAsistente(
+          idSesionActiva,
+          'Entiendo tu frustración, lo siento 😔',
+          { intent: 'chat_empatico' },
+        );
+        return {
+          sessionId: idSesionActiva,
+          status: 'chat',
+          mensajeOriginal: input,
+          mensajeCorregido: textoCorregido,
+          respuesta: {
+            titulo: 'Lo siento',
+            mensaje: 'Entiendo que no encontraste lo que buscabas 😔 Cuéntame qué necesitas con otras palabras y hago mi mejor esfuerzo para ayudarte.',
+            sugerencias: ['Intenta con otra palabra', '¿Qué ciudad buscas?'],
+          },
+        };
+      }
       // Contamos turnos previos para que ChatResponses sepa si ya hubo conversación
       const historialPrevio = await this.conversationService.obtenerHistorial(idSesionActiva);
       const respuestaChat = ChatResponses.responder(textoCorregido, {
@@ -604,6 +652,13 @@ export class AiService {
       interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
     );
     if (sugerencias.length > 0) friendly.sugerencias = sugerencias;
+
+    // Nota horaria nocturna (10pm – 6am)
+    const horaActual = new Date().getHours();
+    if ((horaActual >= 22 || horaActual < 6) && items.length > 0) {
+      const horaFmt = horaActual === 0 ? '12am' : horaActual < 12 ? `${horaActual}am` : horaActual === 12 ? '12pm' : `${horaActual - 12}pm`;
+      friendly.notaHorario = `Son las ${horaFmt} 🌙 — verifica que el lugar esté abierto antes de ir.`;
+    }
 
     // ── 17. RETURN FINAL ──────────────────────────────────────────────
     return {

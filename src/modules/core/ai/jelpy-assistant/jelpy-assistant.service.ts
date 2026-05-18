@@ -820,6 +820,24 @@ private async aplicarPreferenciasUsuario(
       }
 
       // ============================================================
+      // 7.2 FALLBACK POR NOMBRE DE NEGOCIO (texto libre sin filtros)
+      // Captura búsquedas tipo "Tacos El Güero", "Farmacia Benavides", etc.
+      // ============================================================
+      if (!resultados || resultados.items.length === 0) {
+        const resultadosNombre = await this.searchService.search({
+          q: texto,   // texto ORIGINAL sin normalizar ni filtrar
+          ciudad: filtros.ciudad,
+          radioKm: 10,
+        });
+
+        if (resultadosNombre?.items?.length > 0) {
+          resultados = resultadosNombre;
+          filtros.esFallback = true;
+          filtros.fallbackReason = 'por_nombre_negocio';
+        }
+      }
+
+      // ============================================================
       // 8. NORMALIZAR PROMOS
       // ============================================================
       if (resultados.items?.length > 0) {

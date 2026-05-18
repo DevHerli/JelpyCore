@@ -45,11 +45,30 @@ export class ConversationService {
       }
     }
 
+    // Buscar sesión previa del mismo usuario para heredar contexto (ciudad)
+    let ciudadHeredada = ciudad;
+    if (usuarioId && !ciudadHeredada) {
+      try {
+        const sesionPrevia = await this.sessionRepo.findOne({
+          where: { usuarioId, activa: true },
+          order: { actualizadoEn: 'DESC' },
+        });
+        if (sesionPrevia) {
+          ciudadHeredada = sesionPrevia.ciudad ?? ciudad;
+          this.logger.debug(
+            `[Sesión] Heredando ciudad "${ciudadHeredada}" del usuario ${usuarioId}`,
+          );
+        }
+      } catch {
+        // No interrumpir flujo si falla
+      }
+    }
+
     // Crear nueva sesión
     const nueva = this.sessionRepo.create({
       id: sessionId || uuidv4(),
       usuarioId,
-      ciudad,
+      ciudad: ciudadHeredada,
       activa: true,
       creadoEn: new Date(),
       actualizadoEn: new Date(),
