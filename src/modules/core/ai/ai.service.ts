@@ -509,12 +509,22 @@ export class AiService {
     }
 
     // ── 11. MÉTRICAS ─────────────────────────────────────────────────
+    // Registrar búsqueda por sucursal Y por negocio (dedup negocios para no inflar el contador)
+    const negociosContabilizados = new Set<number>();
     for (const item of items) {
       const sucursalId = Number(
         item.sucursal_id || item.id_sucursal || item.sucursalId || item.sucursal?.id,
       );
       if (sucursalId) {
         await this.trackMetricsUseCase.execute('busqueda', 'sucursal', sucursalId);
+      }
+
+      const negocioId = Number(
+        item.negocio_id || item.negocioId || item.negocio?.id,
+      );
+      if (negocioId && !negociosContabilizados.has(negocioId)) {
+        negociosContabilizados.add(negocioId);
+        await this.trackMetricsUseCase.execute('busqueda', 'negocio', negocioId);
       }
     }
 

@@ -203,12 +203,12 @@ export class EstadisticasService {
    */
   async getKpisSucursal(sucursalId: number) {
     const res = await this.connection.query(
-      `SELECT 
-         COALESCE(vistas, 0) as vistas, 
-         COALESCE(clics, 0) as clics, 
-         COALESCE(busquedas, 0) as busquedas 
-       FROM estadisticas_sucursales 
-       WHERE sucursal_id = ? 
+      `SELECT
+         COALESCE(vistas, 0) as vistas,
+         COALESCE(clics, 0) as clics,
+         COALESCE(busquedas, 0) as busquedas
+       FROM estadisticas_sucursales
+       WHERE sucursal_id = ?
        LIMIT 1`,
       [sucursalId],
     );
@@ -216,5 +216,119 @@ export class EstadisticasService {
     // Si no hay registros aún, devolvemos ceros
     return res[0] || { vistas: 0, clics: 0, busquedas: 0 };
   }
-  
+
+  /**
+   * Métricas globales de un negocio — usado en la sección business/global-metrics/:id
+   * Agrega: info del negocio, estadísticas por sucursal, likes, promociones, tendencia mensual
+   */
+  async getGlobalMetricsNegocio(negocioId: number) {
+    // 1. Info básica del negocio
+    const negocioInfo = await this.connection.query(
+      `SELECT
+         n.id,
+         n.nombre_negocio,
+         n.logo_url,
+         n.descripcion,
+         n.activo,
+         c.nombre AS categoria,
+         ci.nombre AS ciudad
+       FROM negocios n
+       LEFT JOIN categorias c ON c.id = n.categoria_id
+       LEFT JOIN ciudades ci ON ci.id = n.ciudad_id
+       WHERE n.id = ? AND n.eliminado = 0
+       LIMIT 1`,
+      [negocioId],
+    );
+
+    if (!negocioInfo.length) {
+      return { error: 'Negocio no encontrado', negocioId };
+    }
+
+    // 2. Estadísticas globales a nivel negocio
+    const statsNegocio = await this.connection.query(
+      `SELECT
+         COALESCE(vistas, 0)    AS vistas,
+         COALESCE(clics, 0)     AS clics,
+         COALESCE(busquedas, 0) AS busquedas
+       FROM estadisticas_negocios
+       WHERE negocio_id = ?
+       LIMIT 1`,
+      [negocioId],
+    );
+
+    // 3. Estadísticas por sucursal + likes + promociones activas
+    const sucursalesStats = await this.connection.query(
+      `SELECT
+         s.id                                           AS sucursalId,
+         s.nombre_sucursal                              AS nombre,
+         s.activo,
+         COALESCE(es.vistas, 0)                         AS vistas,
+         COALESCE(es.clics, 0)                          AS clics,
+         COALESCE(es.busquedas, 0)                      AS busquedas,
+         COALESCE(lk.total_likes, 0)                    AS likes,
+         COALESCE(pr.total_promociones, 0)              AS promocionesActivas
+       FROM sucursales_negocios s
+       LEFT JOIN estadisticas_sucursales es
+              ON es.sucursal_id = s.id
+       LEFT JOIN (
+           SELECT sucursal_id, COUNT(id) AS total_likes
+           FROM sucursal_likes
+           GROUP BY sucursal_id
+       ) lk ON lk.sucursal_id = s.id
+       LEFT JOIN (
+           SELECT sucursal_id, COUNT(id) AS total_promociones
+           FROM promociones_sucursales
+           WHERE eliminado = 0 AND activa = 1
+           GROUP BY sucursal_id
+       ) pr ON pr.sucursal_id = s.id
+       WHERE s.negocio_id = ? AND s.eliminado = 0
+       ORDER BY busquedas DESC`,
+      [negocioId],
+    );
+
+    // 4. Totales consolidados
+    const totales = sucursalesStats.reduce(
+      (acc: any, s: any) => {
+        acc.totalVistas     += Number(s.vistas);
+        acc.totalClics      += Number(s.clics);
+        acc.totalBusquedas  += Number(s.busquedas);
+        acc.totalLikes      += Number(s.likes);
+        acc.totalPromociones += Number(s.promocionesActivas);
+        return acc;
+      },
+      { totalVistas: 0, totalClics: 0, totalBusquedas: 0, totalLikes: 0, totalPromociones: 0 },
+    );
+
+    // 5. Tendencia mensual de búsquedas (últimos 6 meses) por sucursales del negocio
+    const tendenciaMensual = await this.connection.query(
+      `SELECT
+         DATE_FORMAT(esh.fecha, '%Y-%m') AS mes,
+         SUM(COALESCE(esh.busquedas, 0)) AS busquedas,
+         SUM(COALESCE(esh.vistas, 0))    AS vistas
+       FROM estadisticas_sucursales_historico esh
+       INNER JOIN sucursales_negocios s ON s.id = esh.sucursal_id
+       WHERE s.negocio_id = ?
+         AND esh.fecha >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+       GROUP BY mes
+       ORDER BY mes ASC`,
+      [negocioId],
+    ).catch(() => []); // Si la tabla no existe en este entorno, retorna vacío
+
+    // 6. Sucursal estrella (la más buscada)
+    const sucursalEstrella = sucursalesStats.length > 0 ? sucursalesStats[0] : null;
+
+    return {
+      fechaGeneracion: new Date(),
+      negocio: negocioInfo[0],
+      statsNegocio: statsNegocio[0] || { vistas: 0, clics: 0, busquedas: 0 },
+      totales: {
+        sucursales: sucursalesStats.length,
+        ...totales,
+      },
+      sucursalEstrella,
+      sucursales: sucursalesStats,
+      tendenciaMensual,
+    };
+  }
+
 }

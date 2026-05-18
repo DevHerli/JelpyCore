@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { EstadisticasService } from './estadisticas.service';
 
 @Controller('estadisticas')
@@ -45,6 +45,16 @@ export class EstadisticasController {
     });
   }
 
-
+  /**
+   * GET /estadisticas/negocio/:id/global-metrics
+   * Métricas globales de un negocio: búsquedas, vistas, clics, likes,
+   * promociones activas, desglose por sucursal y tendencia mensual.
+   *
+   * Usado por: sección business/global-metrics/:id en la app Jelpy
+   */
+  @Get('negocio/:id/global-metrics')
+  getGlobalMetricsNegocio(@Param('id', ParseIntPipe) id: number) {
+    return this.estadisticasService.getGlobalMetricsNegocio(id);
+  }
 
 }
