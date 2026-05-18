@@ -14,30 +14,34 @@ import { ProfanityCheckUseCase } from './use-cases/profanity-check.usecase';
 import { SanitizerUseCase } from './use-cases/sanitizer.usecase';
 import { TrackMetricsUseCase } from './use-cases/track-metrics.usecase';
 import { HistoryManagerUseCase } from './use-cases/history-manager.usecase';
+import { ContextResolverUseCase } from './use-cases/context-resolver.usecase';
+import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
 
-// Entidades utilizadas
+// Entidades
 import { UserQueryHistory } from '../metrics/estadistica-historico/entities/user-query-history.entity';
 
-// Módulos externos requeridos por los use cases
+// Módulos externos requeridos
 import { ReportesModeracionModule } from '../reports/reportes-moderacion/reportes-moderacion.module';
 import { EstadisticasModule } from '../metrics/estadisticas/estadisticas.module';
 import { EstadisticaHistoricoModule } from '../metrics/estadistica-historico/estadistica-historico.module';
-import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
-import { ChatResponses } from './utils/chat-responses';
 import { PublicidadChatModule } from '../publicidad-chat/publicidad-chat.module';
 import { UsuarioPreferenciasModule } from '../preferencias-usuarios/usuario-preferencias.module';
 import { SucursalLikesModule } from '../sucursal-likes/sucursal-likes.module';
 import { JelpyAiModule } from '../../jelpy-ai/jelpy-ai.module';
 
+// ← NUEVO: módulo de sesiones de conversación
+import { ConversationModule } from '../conversation/conversation.module';
+
+import { ChatResponses } from './utils/chat-responses';
+
 @Module({
   imports: [
-    // Repositorios TypeORM necesarios para los casos de uso
     TypeOrmModule.forFeature([UserQueryHistory]),
 
     // Conexión circular con Jelpy Assistant
     forwardRef(() => JelpyAssistantModule),
 
-    // Módulos externos (para reportes y estadísticas)
+    // Módulos de soporte
     ReportesModeracionModule,
     EstadisticasModule,
     EstadisticaHistoricoModule,
@@ -45,6 +49,9 @@ import { JelpyAiModule } from '../../jelpy-ai/jelpy-ai.module';
     UsuarioPreferenciasModule,
     SucursalLikesModule,
     JelpyAiModule,
+
+    // ← Memoria conversacional
+    ConversationModule,
   ],
 
   controllers: [AiController],
@@ -52,24 +59,26 @@ import { JelpyAiModule } from '../../jelpy-ai/jelpy-ai.module';
   providers: [
     AiService,
 
-    // Casos de uso independientes
+    // Casos de uso
     OrthographyCheckUseCase,
     ProfanityCheckUseCase,
     SanitizerUseCase,
     TrackMetricsUseCase,
     HistoryManagerUseCase,
     IntentDetectorUseCase,
-    ChatResponses, 
+    ContextResolverUseCase,   // ← NUEVO
+
+    ChatResponses,
   ],
 
   exports: [
-    // Exportar todo lo que otros módulos podrían necesitar
     AiService,
     OrthographyCheckUseCase,
     ProfanityCheckUseCase,
     SanitizerUseCase,
     TrackMetricsUseCase,
     HistoryManagerUseCase,
+    ContextResolverUseCase,   // ← NUEVO
   ],
 })
 export class AiModule {}

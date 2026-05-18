@@ -1,6 +1,7 @@
-import { Controller, Post, Body, Logger, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { TrackMetricsUseCase } from '../ai/use-cases/track-metrics.usecase';
+import { ConversationService } from '../conversation/conversation.service';
 
 @Controller('ai')
 export class AiController {
@@ -9,17 +10,35 @@ export class AiController {
   constructor(
     private readonly aiService: AiService,
     private readonly metricsUseCase: TrackMetricsUseCase,
+    private readonly conversationService: ConversationService,
   ) {}
 
   /**
-   * Endpoint principal para procesar mensajes
+   * Endpoint principal para procesar mensajes con memoria de sesión.
+   *
+   * El frontend debe enviar un `sessionId` (UUID) que se genera al abrir el chat
+   * y se mantiene mientras dure la conversación. Esto permite que Jelpy recuerde
+   * el contexto de mensajes anteriores dentro de la misma sesión.
+   *
+   * Body esperado:
+   * {
+   *   mensaje: string,
+   *   sessionId?: string,   ← UUID de la sesión (frontend lo genera)
+   *   usuarioId?: number,
+   *   contexto?: {
+   *     latitud?: number,
+   *     longitud?: number,
+   *     ciudad?: string,
+   *     ip?: string,
+   *     userAgent?: string
+   *   }
+   * }
    */
   @Post('process')
   async procesarMensaje(
     @Body('mensaje') mensaje: string,
+    @Body('sessionId') sessionId?: string,
     @Body('usuarioId') usuarioId?: number,
-
-    // AGREGADO: contexto opcional para lat/lng/ciudad
     @Body('contexto') contexto?: {
       latitud?: number;
       longitud?: number;
@@ -32,22 +51,19 @@ export class AiController {
       throw new BadRequestException('El campo "mensaje" es obligatorio');
     }
 
-    this.logger.log(`Mensaje recibido: ${mensaje}`);
+    this.logger.log(`[Session: ${sessionId ?? 'sin sesión'}] Mensaje: "${mensaje}"`);
 
-    // Pasamos también el contexto al AiService (sin romper nada tuyo)
     const resultado = await this.aiService.processUserMessage(
       mensaje,
       usuarioId,
       contexto,
+      sessionId,
     );
 
     const respuesta: any = resultado?.respuesta ?? {};
     const items: any[] = Array.isArray(respuesta.items) ? respuesta.items : [];
 
-    /**
-     * Registrar métricas SOLO si hay sucursales válidas
-     * ESTO LO RESPETO EXACTAMENTE COMO LO TENÍAS
-     */
+    // Registrar métricas de búsqueda si hay resultados
     if (items.length > 0) {
       try {
         for (const item of items) {
@@ -69,14 +85,71 @@ export class AiController {
 
     return {
       exito: true,
+      sessionId: resultado.sessionId,   // ← devolvemos el sessionId al frontend
       data: resultado,
     };
   }
 
+  /**
+   * Historial de conversación de una sesión.
+   * El frontend puede llamarlo al abrir el chat para mostrar mensajes previos.
+   *
+   * GET /ai/historial/:sessionId
+   */
+  @Get('historial/:sessionId')
+  async obtenerHistorial(@Param('sessionId') sessionId: string) {
+    if (!sessionId) {
+      throw new BadRequestException('El sessionId es obligatorio');
+    }
 
+    const sesion = await this.conversationService.obtenerContextoSesion(sessionId);
+
+    if (!sesion) {
+      throw new NotFoundException('Sesión no encontrada o expirada');
+    }
+
+    const turnos = await this.conversationService.obtenerHistorial(sessionId);
+
+    // Invertimos para que vengan en orden cronológico (más viejo primero)
+    const historial = turnos.reverse().map((t) => ({
+      id: t.id,
+      rol: t.rol,
+      mensaje: t.mensaje,
+      intent: t.intent,
+      fecha: t.creadoEn,
+    }));
+
+    return {
+      exito: true,
+      sessionId,
+      ciudad: sesion.ciudad,
+      ultimoIntent: sesion.ultimoIntent,
+      totalTurnos: historial.length,
+      historial,
+    };
+  }
 
   /**
-   * Solo interpretar (sin pipeline completo)
+   * Cierra explícitamente una sesión (ej: al cerrar la app o hacer logout).
+   *
+   * DELETE /ai/sesion/:sessionId
+   */
+  @Delete('sesion/:sessionId')
+  async cerrarSesion(@Param('sessionId') sessionId: string) {
+    if (!sessionId) {
+      throw new BadRequestException('El sessionId es obligatorio');
+    }
+
+    await this.conversationService.cerrarSesion(sessionId);
+
+    return {
+      exito: true,
+      mensaje: 'Sesión cerrada correctamente',
+    };
+  }
+
+  /**
+   * Solo interpretar (sin pipeline completo, sin sesión)
    */
   @Post('interpret')
   async interpretarQuery(@Body('query') query: string) {

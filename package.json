@@ -51,7 +51,8 @@
     "stripe": "^19.3.0",
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.10.4",
-    "typeorm": "^0.3.27"
+    "typeorm": "^0.3.27",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
@@ -64,6 +65,7 @@
     "@types/nodemailer": "^6.4.14",
     "@types/stripe": "^8.0.416",
     "@types/supertest": "^6.0.2",
+    "@types/uuid": "^10.0.0",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.2",
     "eslint-plugin-prettier": "^5.5.4",
