@@ -217,14 +217,21 @@ export class StreetsService {
     calle_id?: string;
     colonia_id?: string;
     activo?: string;
+    page?: number;
+    perPage?: number;
   }): Promise<StreetColony[]> {
+    const page    = Math.max(1, filters?.page    ?? 1);
+    const perPage = Math.min(1000, Math.max(1, filters?.perPage ?? 200));
+
     const query = this.streetColonyRepository
       .createQueryBuilder('streetColony')
-      .leftJoinAndSelect('streetColony.calle', 'calle')
-      .leftJoinAndSelect('streetColony.colonia', 'colonia')
-      // Cadena completa: calle → colonia → código postal → ciudad
+      .leftJoinAndSelect('streetColony.calle',   'calle')
+      .leftJoinAndSelect('streetColony.colonia',  'colonia')
+      // Cadena completa: colonia → código postal → ciudad
       .leftJoinAndSelect('colonia.codigo_postal', 'cp')
-      .leftJoinAndSelect('cp.ciudad', 'ciudad');
+      .leftJoinAndSelect('cp.ciudad',             'ciudad')
+      // Solo registros no eliminados (soft-delete)
+      .where('streetColony.eliminado_por IS NULL');
 
     if (filters?.calle_id) {
       query.andWhere('streetColony.calle_id = :calle_id', {
@@ -238,15 +245,19 @@ export class StreetsService {
       });
     }
 
-    if (filters?.activo !== undefined) {
-      query.andWhere('streetColony.activo = :activo', {
-        activo: Number(filters.activo),
-      });
+    // activo='1' → true, activo='0' → false, omitido → sin filtro
+    if (filters?.activo === '1') {
+      query.andWhere('streetColony.activo = 1');
+    } else if (filters?.activo === '0') {
+      query.andWhere('streetColony.activo = 0');
     }
 
-    query.orderBy('cp.codigo_postal', 'ASC')
-         .addOrderBy('colonia.nombre', 'ASC')
-         .addOrderBy('calle.nombre', 'ASC');
+    query
+      .orderBy('cp.codigo_postal', 'ASC')
+      .addOrderBy('colonia.nombre', 'ASC')
+      .addOrderBy('calle.nombre',   'ASC')
+      .skip((page - 1) * perPage)
+      .take(perPage);
 
     return await query.getMany();
   }

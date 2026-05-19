@@ -36,46 +36,28 @@ export class StreetsController {
     return this.streetsService.findAll({ nombre, tipo_vialidad, activo });
   }
 
-  /** Obtener una calle por ID */
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.streetsService.findOne(id);
-  }
-
-  /** Actualizar datos de una calle */
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateStreetDto: UpdateStreetDto) {
-    return this.streetsService.update(id, updateStreetDto);
-  }
-
-  /** Borrado lógico de una calle (activo = false) */
-  @Delete(':id')
-  remove(
-    @Param('id') id: string,
-    @Query('eliminado_por') eliminado_por?: string,
-  ) {
-    return this.streetsService.remove(id, eliminado_por);
-  }
-
   // ─── ASIGNACIÓN CALLE ↔ COLONIA ────────────────────────────────────────────
   //
   //   Flujo: código postal → colonia → calle
   //
-  //   1. Crear asignación:   POST   /streets/street-colonies
-  //   2. Listar todas:       GET    /streets/street-colonies
-  //   3. Ver una:            GET    /streets/street-colonies/:id
-  //   4. Calles de colonia:  GET    /streets/colony/:coloniaId/streets
-  //   5. Colonias de calle:  GET    /streets/:calleId/colonies
-  //   6. Actualizar:         PATCH  /streets/street-colonies/:id
-  //   7. Desactivar:         DELETE /streets/street-colonies/:id
+  //   IMPORTANTE: todas las rutas con prefijo literal ("street-colonies",
+  //   "colony") deben declararse ANTES que las rutas con parámetro dinámico
+  //   (":id", ":calleId") para que NestJS no las capture como parámetros.
   //
-  // IMPORTANTE: las rutas con prefijo literal "street-colonies/" y "colony/"
-  // deben registrarse ANTES que ":id" (1 segmento) para evitar ambigüedades.
+  //   Orden correcto:
+  //     POST   street-colonies
+  //     GET    street-colonies            ← este
+  //     GET    street-colonies/:id
+  //     GET    colony/:coloniaId/streets
+  //     GET    :id                        ← parámetros al final
+  //     GET    :calleId/colonies
+  //     PATCH  :id
+  //     PATCH  street-colonies/:id
+  //     DELETE :id
+  //     DELETE street-colonies/:id
 
   /**
    * Asignar una calle a una colonia.
-   * Devuelve la relación completa: calle + colonia + código postal.
-   *
    * Body: { calle_id, colonia_id, activo?, creado_por? }
    */
   @Post('street-colonies')
@@ -85,25 +67,31 @@ export class StreetsController {
 
   /**
    * Listar todas las asignaciones calle-colonia.
-   * Filtros opcionales: calle_id, colonia_id, activo
-   * Respuesta ordenada por: código_postal → colonia → calle
+   * Filtros opcionales: calle_id, colonia_id, activo ('1'|'0')
+   * Paginación: page (default 1), per_page (default 200, máx recomendado 1000)
+   * Solo devuelve registros no eliminados (eliminado_por IS NULL).
+   * Ordenados por: código_postal ASC → colonia.nombre ASC → calle.nombre ASC
    */
   @Get('street-colonies')
   findAllStreetColonies(
-    @Query('calle_id') calle_id?: string,
+    @Query('calle_id')   calle_id?: string,
     @Query('colonia_id') colonia_id?: string,
-    @Query('activo') activo?: string,
+    @Query('activo')     activo?: string,
+    @Query('page')       page = '1',
+    @Query('per_page')   perPage = '200',
   ) {
     return this.streetsService.findAllStreetColonies({
       calle_id,
       colonia_id,
       activo,
+      page:    Math.max(1, Number(page)    || 1),
+      perPage: Math.min(1000, Math.max(1, Number(perPage) || 200)),
     });
   }
 
   /**
    * Ver una asignación calle-colonia por su ID.
-   * Incluye: calle + colonia + código postal de la colonia.
+   * Incluye: calle + colonia + código postal + ciudad.
    */
   @Get('street-colonies/:id')
   findStreetColonyById(@Param('id') id: string) {
@@ -112,7 +100,6 @@ export class StreetsController {
 
   /**
    * Calles que pertenecen a una colonia específica.
-   * Incluye el código postal de la colonia.
    * GET /streets/colony/:coloniaId/streets
    */
   @Get('colony/:coloniaId/streets')
@@ -120,14 +107,25 @@ export class StreetsController {
     return this.streetsService.findStreetsByColoniaId(coloniaId);
   }
 
+  /** Obtener una calle por ID */
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.streetsService.findOne(id);
+  }
+
   /**
    * Colonias a las que pertenece una calle (una calle puede estar en varias colonias).
-   * Incluye el código postal de cada colonia.
    * GET /streets/:calleId/colonies
    */
   @Get(':calleId/colonies')
   findColoniasByStreetId(@Param('calleId') calleId: string) {
     return this.streetsService.findColoniasByStreetId(calleId);
+  }
+
+  /** Actualizar datos de una calle */
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateStreetDto: UpdateStreetDto) {
+    return this.streetsService.update(id, updateStreetDto);
   }
 
   /**
@@ -140,6 +138,15 @@ export class StreetsController {
     @Body() updateStreetColonyDto: UpdateStreetColonyDto,
   ) {
     return this.streetsService.updateStreetColony(id, updateStreetColonyDto);
+  }
+
+  /** Borrado lógico de una calle (activo = false) */
+  @Delete(':id')
+  remove(
+    @Param('id') id: string,
+    @Query('eliminado_por') eliminado_por?: string,
+  ) {
+    return this.streetsService.remove(id, eliminado_por);
   }
 
   /**
