@@ -191,7 +191,7 @@ export class SugerenciasUtil {
       ];
     }
 
-    if (sub.includes('mariscos')) {
+    if (sub.includes('mariscos') || sub.includes('ceviche') || sub.includes('aguachile') || sub.includes('coctel de camaron') || sub.includes('tostada de mariscos')) {
       return [
         '¿Quieres ver solo los que tienen ceviche?',
         '¿También te gustaría ver restaurantes con aguachile?',
@@ -199,6 +199,8 @@ export class SugerenciasUtil {
         '¿Quieres ver cuáles están abiertos ahora?',
         '¿Te interesan los que tienen coctel de camarón?',
         '¿Buscas mariscos con estacionamiento?',
+        '¿Quieres ver taquería de mariscos?',
+        '¿Buscas el más cercano a ti?',
       ];
     }
 

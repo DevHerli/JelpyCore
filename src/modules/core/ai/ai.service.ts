@@ -675,9 +675,16 @@ export class AiService {
     // Carga el historial de la sesión para extraer todas las sugerencias
     // ya mostradas en turnos anteriores y evitar repetirlas.
     const historialParaSugerencias = await this.conversationService.obtenerHistorial(idSesionActiva);
-    const sugerenciasYaMostradas: string[] = historialParaSugerencias
+    const sugerenciasDeHistorial: string[] = historialParaSugerencias
       .filter((t) => t.rol === 'assistant' && Array.isArray((t.metadata as any)?.sugerencias))
       .flatMap((t) => (t.metadata as any).sugerencias as string[]);
+
+    // Si el usuario TOCÓ una sugerencia (su mensaje coincide exactamente con
+    // alguna sugerencia del pool), también la excluimos para evitar que reaparezca
+    // aunque el historial de sesión esté vacío (sessionId perdido, app recargada…).
+    const sugerenciasYaMostradas = Array.from(
+      new Set([...sugerenciasDeHistorial, input, textoCorregido]),
+    );
 
     // Extrae hints de los propios ítems para que los patrones de categoría funcionen
     const subcategoriaHint = items[0]?.subcategoria ?? '';
