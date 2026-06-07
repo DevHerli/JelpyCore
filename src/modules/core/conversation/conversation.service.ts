@@ -106,6 +106,7 @@ export class ConversationService {
       totalResultados?: number;
       filtros?: any;
       intent?: string;
+      sugerencias?: string[];  // sugerencias mostradas al usuario en este turno
     },
   ): Promise<void> {
     await this.turnRepo.save(

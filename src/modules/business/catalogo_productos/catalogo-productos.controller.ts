@@ -11,6 +11,7 @@ import {
   Delete
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { CatalogoProductosService } from './catalogo-productos.service';
 import { CreateCategoriaDto, CreateItemNegocioDto, UpdateItemSucursalDto } from './dtos/create-update-catalogo.dto';
 import { v2 as cloudinary } from 'cloudinary';
@@ -32,7 +33,7 @@ export class CatalogoProductosController {
 
   // ================= ITEMS (PRODUCTOS/SERVICIOS) =================
   @Post('items')
-  @UseInterceptors(FileInterceptor('imagen'))
+  @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async crearItem(@Body() body: any, @UploadedFile() file: Express.Multer.File) {
     let imagenUrl = null;
 
@@ -70,7 +71,7 @@ export class CatalogoProductosController {
   }
 
   @Put('items/:id')
-  @UseInterceptors(FileInterceptor('imagen'))
+  @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async editarItem(
     @Param('id') id: number,
     @Body() body: any,

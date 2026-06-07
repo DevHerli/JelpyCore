@@ -13,69 +13,42 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
-import * as dotenv from 'dotenv';
+import { memoryStorage } from 'multer';
 import { Express } from 'express';
 
+import { CloudinaryService } from '../../../common/cloudinary/cloudinary.service';
 import { PromocionesSucursalesService } from './promociones-sucursales.service';
 import { CreatePromocionSucursalDto } from './dto/create-promocion-sucursal.dto';
 import { UpdatePromocionSucursalDto } from './dto/update-promocion-sucursal.dto';
 
-dotenv.config();
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
-  api_key: process.env.CLOUDINARY_API_KEY || '',
-  api_secret: process.env.CLOUDINARY_API_SECRET || '',
-  secure: true,
-});
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
 
 @Controller('promociones-sucursales')
 export class PromocionesSucursalesController {
-  constructor(private readonly promoService: PromocionesSucursalesService) {}
+  constructor(
+    private readonly promoService: PromocionesSucursalesService,
+    private readonly cloudinary: CloudinaryService,
+  ) {}
 
   // =========================================================
   // CREATE
   // =========================================================
   @Post()
-  @UseInterceptors(FileInterceptor('imagen'))
+  @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async crear(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreatePromocionSucursalDto,
   ) {
     if (file) {
-      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-
-      if (!allowed.includes(file.mimetype)) {
-        throw new BadRequestException(
-          'Formato de imagen no permitido. Usa JPG, PNG o WEBP.',
-        );
-      }
-
-      const max = 5 * 1024 * 1024;
-
-      if (file.size > max) {
-        throw new BadRequestException('La imagen excede 5MB.');
-      }
-
-      const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            folder: 'jelpy/promociones',
-            resource_type: 'image',
-          },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result as UploadApiResponse);
-          },
-        );
-
-        stream.end(file.buffer);
+      this.validateImageFile(file);
+      const upload = await this.cloudinary.uploadBuffer(file.buffer, {
+        folder: 'jelpy/promociones',
+        resource_type: 'image',
       });
-
       dto.imagenUrl = upload.secure_url;
     } else {
-      dto.imagenUrl = dto.imagenUrl || null;
+      dto.imagenUrl = dto.imagenUrl ?? null;
     }
 
     return this.promoService.crear(dto);
@@ -89,25 +62,16 @@ export class PromocionesSucursalesController {
     return this.promoService.listar();
   }
 
-  // =========================================================
-  // GET POR NEGOCIO
-  // =========================================================
   @Get('negocio/:negocioId')
   listarPorNegocio(@Param('negocioId', ParseIntPipe) negocioId: number) {
     return this.promoService.listarPorNegocio(negocioId);
   }
 
-  // =========================================================
-  // GET POR SUCURSAL
-  // =========================================================
   @Get('sucursal/:sucursalId')
   listarPorSucursal(@Param('sucursalId', ParseIntPipe) sucursalId: number) {
     return this.promoService.listarPorSucursal(sucursalId);
   }
 
-  // =========================================================
-  // ACTIVAS
-  // =========================================================
   @Get('activas')
   listarPromocionesActivas(@Query('ciudadId') ciudadId?: number) {
     return this.promoService.listarPromocionesActivas(
@@ -115,9 +79,6 @@ export class PromocionesSucursalesController {
     );
   }
 
-  // =========================================================
-  // ACTIVAS FILTRADAS
-  // =========================================================
   @Get('activas/filtradas')
   listarPromocionesActivasFiltradas(
     @Query('ciudadId') ciudadId?: number,
@@ -131,9 +92,6 @@ export class PromocionesSucursalesController {
     );
   }
 
-  // =========================================================
-  // PRÓXIMAS
-  // =========================================================
   @Get('proximas')
   listarPromocionesProximas(
     @Query('ciudadId') ciudadId?: number,
@@ -147,9 +105,6 @@ export class PromocionesSucursalesController {
     );
   }
 
-  // =========================================================
-  // FINALIZADAS
-  // =========================================================
   @Get('finalizadas')
   listarPromocionesFinalizadas(
     @Query('ciudadId') ciudadId?: number,
@@ -163,35 +118,26 @@ export class PromocionesSucursalesController {
     );
   }
 
-  // =========================================================
-  // RESUMEN
-  // =========================================================
   @Get('resumen')
   obtenerResumen() {
     return this.promoService.obtenerResumenPromociones();
   }
 
-  // =========================================================
-  // ESTADÍSTICAS
-  // =========================================================
   @Get('estadisticas')
   obtenerEstadisticas() {
     return this.promoService.obtenerEstadisticasPromociones();
   }
 
   // =========================================================
-  // REGISTRAR VISTA
+  // REGISTRAR VISTA / CLIC
   // =========================================================
   @Post(':id/vista')
-  async registrarVista(@Param('id', ParseIntPipe) id: number) {
+  registrarVista(@Param('id', ParseIntPipe) id: number) {
     return this.promoService.registrarVista(id);
   }
 
-  // =========================================================
-  // REGISTRAR CLIC
-  // =========================================================
   @Post(':id/clic')
-  async registrarClic(@Param('id', ParseIntPipe) id: number) {
+  registrarClic(@Param('id', ParseIntPipe) id: number) {
     return this.promoService.registrarClic(id);
   }
 
@@ -199,48 +145,25 @@ export class PromocionesSucursalesController {
   // UPDATE
   // =========================================================
   @Patch(':id')
-  @UseInterceptors(FileInterceptor('imagen'))
+  @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async actualizar(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UpdatePromocionSucursalDto,
   ) {
     if (file) {
-      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-
-      if (!allowed.includes(file.mimetype)) {
-        throw new BadRequestException(
-          'Formato de imagen no permitido. Usa JPG, PNG o WEBP.',
-        );
-      }
-
-      const max = 5 * 1024 * 1024;
-
-      if (file.size > max) {
-        throw new BadRequestException('La imagen excede 5MB.');
-      }
+      this.validateImageFile(file);
 
       const actual = await this.promoService.obtenerPorId(id);
-      const oldUrl = actual?.imagenUrl;
+      if (actual?.imagenUrl) {
+        await this.cloudinary.destroy(actual.imagenUrl);
+      }
 
-      const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            folder: 'jelpy/promociones',
-            resource_type: 'image',
-          },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result as UploadApiResponse);
-          },
-        );
-
-        stream.end(file.buffer);
+      const upload = await this.cloudinary.uploadBuffer(file.buffer, {
+        folder: 'jelpy/promociones',
+        resource_type: 'image',
       });
-
       dto.imagenUrl = upload.secure_url;
-
-      await this.tryDeleteCloudinaryPromo(oldUrl);
     }
 
     return this.promoService.actualizar(id, dto);
@@ -254,26 +177,14 @@ export class PromocionesSucursalesController {
     return this.promoService.eliminar(id);
   }
 
-  // =========================================================
-  // CLOUDINARY DELETE
-  // =========================================================
-  private async tryDeleteCloudinaryPromo(url?: string | null) {
-    if (!url) return;
+  // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-    if (!url.includes('res.cloudinary.com')) return;
-
-    try {
-      const match = url.match(/\/jelpy\/promociones\/([^/.]+)/);
-      const publicId = match ? `jelpy/promociones/${match[1]}` : null;
-
-      if (!publicId) return;
-
-      await cloudinary.uploader.destroy(publicId);
-    } catch (err: any) {
-      console.warn(
-        'No se pudo eliminar la imagen anterior de promo:',
-        err?.message,
-      );
+  private validateImageFile(file: Express.Multer.File) {
+    if (!ALLOWED_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('Formato de imagen no permitido. Usa JPG, PNG o WEBP.');
+    }
+    if (file.size > MAX_SIZE) {
+      throw new BadRequestException('La imagen excede 5 MB.');
     }
   }
 }

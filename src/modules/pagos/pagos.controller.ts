@@ -8,9 +8,11 @@ import {
   Req,
   Res,
   Headers as NestHeaders,
+  UseGuards,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 import { StripeService } from './stripe/stripe.service';
 import { PagosService } from './pagos.service';
@@ -22,9 +24,10 @@ export class PagosController {
     private readonly pagosService: PagosService,
   ) {}
 
-  // ✅ LISTAR PAGOS (para Ionic)
+  // ✅ LISTAR PAGOS (para Ionic) — requiere JWT
   // GET /pagos?negocioId=6&suscriptorId=8&limit=50
   @Get()
+  @UseGuards(JwtAuthGuard)
   async listPagos(
     @Query('negocioId') negocioId?: string,
     @Query('suscriptorId') suscriptorId?: string,

@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
+import { GuardsModule } from './common/guards/guards.module';
+import { CloudinaryModule } from './common/cloudinary/cloudinary.module';
 
 import { TaxonomiaModule } from './modules/core/taxonomia/taxonomia.module';
 import { VistaCompletaModule } from './modules/core/vista-completa/vista.module';
@@ -100,10 +103,38 @@ import { MessagesModule } from './modules/messages/messages.module';
     NotificacionesModule,
     MessagesModule,
 
+    // Guards globales (JwtAuthGuard + ApiKeyGuard disponibles en toda la app)
+    GuardsModule,
+
+    // Cloudinary global (CloudinaryService disponible en toda la app)
+    CloudinaryModule,
+
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([Suscriptor, CodigoOtp]),
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: (config: Record<string, unknown>) => {
+        const required = [
+          'DB_HOST',
+          'DB_USER',
+          'DB_PASS',
+          'DB_NAME',
+          'JWT_SECRET',
+          'STRIPE_SECRET_KEY',
+          'CLOUDINARY_CLOUD_NAME',
+          'CLOUDINARY_API_KEY',
+          'CLOUDINARY_API_SECRET',
+        ];
+        const missing = required.filter(key => !config[key]);
+        if (missing.length > 0) {
+          throw new Error(
+            `\n\n❌ Variables de entorno requeridas no definidas:\n   ${missing.join('\n   ')}\n\nCrea un archivo .env con estas variables antes de iniciar el servidor.\n`,
+          );
+        }
+        return config;
+      },
+    }),
     ThrottlerModule.forRoot([{ ttl: 60, limit: 120 }]),
 
     TypeOrmModule.forRootAsync({
@@ -128,6 +159,10 @@ import { MessagesModule } from './modules/messages/messages.module';
     HealthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Rate limiting global — aplica ThrottlerModule.forRoot() a todos los endpoints
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

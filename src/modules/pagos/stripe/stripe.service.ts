@@ -1,17 +1,23 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 
 @Injectable()
 export class StripeService {
   private readonly stripe: Stripe;
 
-  constructor() {
-    // Usa la versión que tu SDK (types) soporta actualmente
-    // (evita el error TS2322)
-    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  constructor(private readonly config: ConfigService) {
+    const key = config.get<string>('STRIPE_SECRET_KEY');
+
+    if (!key) {
+      throw new Error(
+        'STRIPE_SECRET_KEY no está definida en las variables de entorno. ' +
+        'El servidor no puede arrancar sin esta clave.',
+      );
+    }
+
+    this.stripe = new Stripe(key, {
       apiVersion: '2025-10-29.clover',
-      // opcional: si usas TS/ESM a veces ayuda, pero no es obligatorio
-      // typescript: true, // (no existe en StripeConfig; no lo pongas)
     });
   }
 
@@ -21,7 +27,7 @@ export class StripeService {
    * app.use('/pagos/webhook/stripe', bodyParser.raw({ type: 'application/json' }));
    */
   constructEvent(rawBody: Buffer, signature: string): Stripe.Event {
-    const secret = process.env.STRIPE_WEBHOOK_SECRET as string;
+    const secret = this.config.get<string>('STRIPE_WEBHOOK_SECRET');
 
     if (!secret) {
       throw new Error('STRIPE_WEBHOOK_SECRET is missing in environment variables.');

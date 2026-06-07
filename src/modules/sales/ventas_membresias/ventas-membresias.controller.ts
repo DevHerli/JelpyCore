@@ -1,8 +1,10 @@
-import { Controller, Post, Body, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiKeyGuard } from '../../../common/guards/api-key.guard';
 import { VentasMembresiasService } from './ventas-membresias.service';
 import { CreateVentaMembresiaDto } from './dto/create-venta-membresia.dto';
 
 @Controller('ventas/membresias')
+@UseGuards(ApiKeyGuard)
 export class VentasMembresiasController {
   constructor(private readonly ventasService: VentasMembresiasService) {}
 

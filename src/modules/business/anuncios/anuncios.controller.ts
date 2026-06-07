@@ -13,6 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import {
   ParseFilePipe,
   FileTypeValidator,
@@ -40,7 +41,7 @@ export class AnunciosController {
   }
 
   @Post('upload/:negocioId')
-@UseInterceptors(FileInterceptor('imagen'))
+@UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
 async uploadImagenAnuncio(
   @Param('negocioId', ParseIntPipe) negocioId: number,
   @UploadedFile(

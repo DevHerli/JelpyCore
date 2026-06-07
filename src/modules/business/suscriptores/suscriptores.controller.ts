@@ -8,7 +8,9 @@ import {
   Post,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { SuscriptoresService } from './suscriptores.service';
 import { CreateSuscriptorDto } from './dto/create-suscriptor.dto';
 import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
@@ -47,6 +49,7 @@ export class SuscriptoresController {
    *   ACTUALIZAR DESDE EL PANEL
    *  =============================== */
   @Put(':id')
+  @UseGuards(JwtAuthGuard)
   actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateSuscriptorDto,
@@ -59,6 +62,7 @@ export class SuscriptoresController {
    *   No se usa en la app, pero lo dejamos
    *  ================================================= */
   @Put(':id/completar')
+  @UseGuards(JwtAuthGuard)
   completar(@Param('id', ParseIntPipe) id: number) {
     return this.suscriptoresService.completarRegistro(id);
   }
@@ -71,6 +75,7 @@ export class SuscriptoresController {
    *   - sexo, fechaNacimiento, contraseña
    *  ========================================================= */
   @Put(':id/completar-perfil')
+  @UseGuards(JwtAuthGuard)
   completarPerfil(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CompletarPerfilDto,
@@ -82,6 +87,7 @@ export class SuscriptoresController {
    *   ELIMINAR SUSCRIPTOR
    *  =============================== */
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   eliminar(@Param('id', ParseIntPipe) id: number) {
     return this.suscriptoresService.eliminar(id);
   }

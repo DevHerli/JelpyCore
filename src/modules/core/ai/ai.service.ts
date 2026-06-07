@@ -651,16 +651,6 @@ export class AiService {
       textoCorregido,
     );
 
-    await this.conversationService.guardarTurnoAsistente(
-      idSesionActiva,
-      friendly.mensaje || `Encontré ${items.length} resultado(s).`,
-      {
-        intent: aiIntent.intent,
-        totalResultados: items.length,
-        filtros: interpretacion.filtros_detectados,
-      },
-    );
-
     // ── 16. APRENDIZAJE + RECOMENDACIÓN + UPSELL + CONTEXTO ──────────
     this.actualizarPreferenciasUsuario(usuarioId, interpretacion.filtros_detectados, items);
 
@@ -681,7 +671,14 @@ export class AiService {
     const contextoMsg = this.generarMensajeContextual(interpretacion.filtros_detectados?.ciudad);
     if (contextoMsg) friendly.contexto = contextoMsg;
 
-    // Sugerencias contextuales inteligentes
+    // ── 16.5. SUGERENCIAS SIN REPETICIÓN ─────────────────────────────
+    // Carga el historial de la sesión para extraer todas las sugerencias
+    // ya mostradas en turnos anteriores y evitar repetirlas.
+    const historialParaSugerencias = await this.conversationService.obtenerHistorial(idSesionActiva);
+    const sugerenciasYaMostradas: string[] = historialParaSugerencias
+      .filter((t) => t.rol === 'assistant' && Array.isArray((t.metadata as any)?.sugerencias))
+      .flatMap((t) => (t.metadata as any).sugerencias as string[]);
+
     // Extrae hints de los propios ítems para que los patrones de categoría funcionen
     const subcategoriaHint = items[0]?.subcategoria ?? '';
     const categoriaHint    = items[0]?.categoria ?? '';
@@ -693,8 +690,23 @@ export class AiService {
       },
       items,
       interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
+      sugerenciasYaMostradas,   // ← evita repetir lo ya mostrado
     );
     if (sugerencias.length > 0) friendly.sugerencias = sugerencias;
+
+    // ── 16.6. GUARDAR TURNO ASISTENTE (con sugerencias en metadata) ───
+    // Se guarda DESPUÉS de generar sugerencias para que éstas queden
+    // registradas en metadata y puedan filtrarse en el próximo turno.
+    await this.conversationService.guardarTurnoAsistente(
+      idSesionActiva,
+      friendly.mensaje || `Encontré ${items.length} resultado(s).`,
+      {
+        intent: aiIntent.intent,
+        totalResultados: items.length,
+        filtros: interpretacion.filtros_detectados,
+        sugerencias,   // ← se persiste para deduplicar en turnos futuros
+      },
+    );
 
     // Nota horaria nocturna (10pm – 6am)
     const horaActual = new Date().getHours();

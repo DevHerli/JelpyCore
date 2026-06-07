@@ -16,6 +16,7 @@ import {
   MaxFileSizeValidator,
 } from '@nestjs/common';
 import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 import { SucursalesNegociosService } from './sucursales-negocios.service';
 import { CreateSucursalNegocioDto } from './dto/create-sucursal-negocio.dto';
@@ -33,7 +34,7 @@ export class SucursalesNegociosController {
   ) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('imagen'))
+  @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async crear(
     @Body() body: any,
     @UploadedFile() file: Express.Multer.File,
@@ -88,7 +89,7 @@ export class SucursalesNegociosController {
   }
 
   @Post(':id/galeria')
-  @UseInterceptors(FilesInterceptor('fotos', 10))
+  @UseInterceptors(FilesInterceptor('fotos', 10, { storage: memoryStorage() }))
   async subirGaleria(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFiles(
@@ -153,7 +154,7 @@ export class SucursalesNegociosController {
   }
 
   @Put(':id')
-  @UseInterceptors(FileInterceptor('imagen'))
+  @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateSucursalNegocioDto,
