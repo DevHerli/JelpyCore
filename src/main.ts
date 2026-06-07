@@ -38,9 +38,10 @@ async function bootstrap() {
   // ─── CORS ────────────────────────────────────────────────────────────────────
   // Define ALLOWED_ORIGINS en el .env como lista separada por comas:
   //   ALLOWED_ORIGINS=https://app.jelpy.com,https://admin.jelpy.com
-  // En desarrollo se permite localhost por defecto.
+  // En desarrollo se permiten todos los orígenes localhost/127.0.0.1 por defecto.
   const allowedOrigins = (
-    process.env.ALLOWED_ORIGINS ?? 'http://localhost:4200,http://localhost:3000'
+    process.env.ALLOWED_ORIGINS ??
+      'http://localhost:4200,http://localhost:3000,http://localhost:8100,http://localhost:8101'
   )
     .split(',')
     .map((o) => o.trim())
@@ -48,8 +49,25 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Permite peticiones sin origin (apps móviles, Postman, server-to-server)
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Permite peticiones sin origin (apps móviles nativas, Postman, server-to-server)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      // En desarrollo permitir cualquier localhost / 127.0.0.1 sin importar el puerto
+      const isLocalhost =
+        origin.startsWith('http://localhost:') ||
+        origin.startsWith('http://127.0.0.1:') ||
+        origin === 'http://localhost' ||
+        origin === 'http://127.0.0.1';
+
+      if (!isProd && isLocalhost) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error(`CORS: origen no permitido → ${origin}`));
@@ -57,6 +75,7 @@ async function bootstrap() {
     },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type, Accept, Authorization',
+    credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204,
   });
