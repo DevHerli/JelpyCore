@@ -19,6 +19,7 @@ import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-pre
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
 import { JelpyAiService } from '../../jelpy-ai/jelpy-ai.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { CaracteristicasSucursalService } from '../../business/caracteristicas_sucursales/caracteristicas-sucursal.service';
 
 @Injectable()
 export class AiService {
@@ -59,6 +60,7 @@ export class AiService {
     private readonly publicidadChatService: PublicidadChatService,
     private readonly usuarioPreferenciasService: UsuarioPreferenciasService,
     private readonly likesService: SucursalLikesService,
+    private readonly caracteristicasSucursalService: CaracteristicasSucursalService,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────
@@ -688,18 +690,39 @@ if (cachedRaw && Date.now() < cachedRaw.expiresAt) {
     );
 
     // Extrae hints de los propios ítems para que los patrones de categoría funcionen
-    const subcategoriaHint = items[0]?.subcategoria ?? '';
-    const categoriaHint    = items[0]?.categoria ?? '';
-    const sugerencias = SugerenciasUtil.generar(
-      {
-        ...(interpretacion.filtros_detectados ?? {}),
-        subcategoriaHint,
-        categoriaHint,
-      },
-      items,
-      interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
-      sugerenciasYaMostradas,   // ← evita repetir lo ya mostrado
+const subcategoriaHint = items[0]?.subcategoria ?? '';
+const categoriaHint = items[0]?.categoria ?? '';
+
+const filtrosDetectados = interpretacion.filtros_detectados ?? {};
+
+let caracteristicaAliases: string[] = [];
+
+if (filtrosDetectados.caracteristica) {
+  try {
+    caracteristicaAliases =
+      await this.caracteristicasSucursalService.obtenerAliasesPorCaracteristicaNombre(
+        filtrosDetectados.caracteristica,
+      );
+  } catch (error) {
+    this.logger.warn(
+      `No se pudieron obtener aliases para característica: ${filtrosDetectados.caracteristica}`,
     );
+    caracteristicaAliases = [];
+  }
+}
+
+const sugerencias = SugerenciasUtil.generar(
+  {
+    ...(interpretacion.filtros_detectados ?? {}),
+    subcategoriaHint,
+    categoriaHint,
+    caracteristicaAliases:
+      interpretacion.filtros_detectados?.caracteristicaAliases ?? [],
+  },
+  items,
+  interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
+  sugerenciasYaMostradas,
+);
     if (sugerencias.length > 0) friendly.sugerencias = sugerencias;
 
     // ── 16.6. GUARDAR TURNO ASISTENTE (con sugerencias en metadata) ───

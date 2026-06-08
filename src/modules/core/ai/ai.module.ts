@@ -37,6 +37,7 @@ import { ConversationModule } from '../conversation/conversation.module';
 import { ChatResponses } from './utils/chat-responses';
 import { SearchCacheService } from './utils/search-cache.service';
 import { RateLimiterService } from './utils/rate-limiter.service';
+import { CaracteristicasSucursalModule } from '../../business/caracteristicas_sucursales/caracteristicas-sucursal.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { RateLimiterService } from './utils/rate-limiter.service';
 
     // Conexión circular con Jelpy Assistant
     forwardRef(() => JelpyAssistantModule),
+    forwardRef(() => CaracteristicasSucursalModule),
 
     // Módulos de soporte
     ReportesModeracionModule,

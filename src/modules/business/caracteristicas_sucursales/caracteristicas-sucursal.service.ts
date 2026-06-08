@@ -11,6 +11,7 @@ import { CaracteristicaAplicabilidad } from './entities/caracteristicas-aplicabi
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 import { CreateCaracteristicaDto } from './dtos/create-caracteristica.dto';
 import { UpdateCaracteristicaDto } from './dtos/update-caracteristica.dto';
+import { CaracteristicaAlias } from './entities/caracteristica-alias.entity';
 
 @Injectable()
 export class CaracteristicasSucursalService {
@@ -23,6 +24,9 @@ export class CaracteristicasSucursalService {
 
     @InjectRepository(SucursalNegocio)
     private readonly sucursalRepo: Repository<SucursalNegocio>,
+
+    @InjectRepository(CaracteristicaAlias)
+    private readonly aliasRepo: Repository<CaracteristicaAlias>,
   ) {}
 
 async create(dto: CreateCaracteristicaDto) {
@@ -274,4 +278,27 @@ async create(dto: CreateCaracteristicaDto) {
       especialidadId: row.especialidadId ? Number(row.especialidadId) : undefined,
     });
   }
+
+  async obtenerAliasesPorCaracteristicaNombre(nombre: string): Promise<string[]> {
+  if (!nombre) return [];
+
+  const caracteristica = await this.repo.findOne({
+    where: { nombre },
+  });
+
+  if (!caracteristica) return [];
+
+  const aliases = await this.aliasRepo.find({
+    where: {
+      caracteristicaId: caracteristica.id,
+      activo: true,
+    },
+  });
+
+  return [
+    caracteristica.nombre,
+    caracteristica.codigo,
+    ...aliases.map((a) => a.alias),
+  ].filter(Boolean);
+}
 }

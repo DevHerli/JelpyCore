@@ -29,6 +29,7 @@ type CaracteristicaDetectada = {
   codigo: string;
   aliasDetectado: string;
   aliasNormalizado: string;
+  aliases: string[];
 };
 
 @Injectable()
@@ -315,6 +316,18 @@ export class JelpyAssistantService {
       }),
     ]);
 
+    const aliasesPorCaracteristica = new Map<number, string[]>();
+
+for (const a of aliases) {
+  const caracteristicaId = Number(a.caracteristicaId);
+
+  if (!aliasesPorCaracteristica.has(caracteristicaId)) {
+    aliasesPorCaracteristica.set(caracteristicaId, []);
+  }
+
+  aliasesPorCaracteristica.get(caracteristicaId)!.push(a.alias);
+}
+
     const candidatos: CaracteristicaDetectada[] = [];
 
     for (const c of caracteristicas) {
@@ -324,6 +337,7 @@ export class JelpyAssistantService {
         codigo: c.codigo,
         aliasDetectado: c.nombre,
         aliasNormalizado: this.normalizar(c.nombre),
+        aliases: aliasesPorCaracteristica.get(Number(c.id)) ?? [],
       });
 
       candidatos.push({
@@ -332,6 +346,7 @@ export class JelpyAssistantService {
         codigo: c.codigo,
         aliasDetectado: c.codigo,
         aliasNormalizado: this.normalizar(c.codigo),
+        aliases: aliasesPorCaracteristica.get(Number(c.id)) ?? [],
       });
     }
 
@@ -341,12 +356,13 @@ export class JelpyAssistantService {
       if (!caracteristica?.activo) continue;
 
       candidatos.push({
-        id: Number(caracteristica.id),
-        nombre: caracteristica.nombre,
-        codigo: caracteristica.codigo,
-        aliasDetectado: a.alias,
-        aliasNormalizado: this.normalizar(a.alias),
-      });
+  id: Number(caracteristica.id),
+  nombre: caracteristica.nombre,
+  codigo: caracteristica.codigo,
+  aliasDetectado: a.alias,
+  aliasNormalizado: this.normalizar(a.alias),
+  aliases: aliasesPorCaracteristica.get(Number(caracteristica.id)) ?? [],
+});
     }
 
     candidatos.sort(
@@ -526,6 +542,7 @@ export class JelpyAssistantService {
 
     if (caracteristicaBD) {
       filtros.caracteristica = caracteristicaBD.nombre;
+      filtros.caracteristicaAliases = caracteristicaBD.aliases ?? [];
 
       const qSinCaracteristica = this.limpiarTextoSinCaracteristica(
         textoOriginal || ai.normalized_text || '',
@@ -802,7 +819,7 @@ export class JelpyAssistantService {
       };
     } catch (error) {
       console.warn(
-        '⚠️ FastAPI no respondió correctamente, usando fallback local.',
+        'FastAPI no respondió correctamente, usando fallback local.',
         error?.message || error,
       );
 
@@ -835,6 +852,7 @@ export class JelpyAssistantService {
 
     if (caracteristicaBD) {
       filtros.caracteristica = caracteristicaBD.nombre;
+      filtros.caracteristicaAliases = caracteristicaBD.aliases ?? [];
 
       const qSinCaracteristica = this.limpiarTextoSinCaracteristica(
         texto,

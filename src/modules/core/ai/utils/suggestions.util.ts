@@ -19,35 +19,116 @@ export class SugerenciasUtil {
    * @param ciudad      Ciudad activa de la sesión
    * @param yaUsadas    Sugerencias ya mostradas en turnos anteriores
    */
-  static generar(
-    filtros: {
-      categoriaId?: number | null;
-      subcategoriaId?: number | null;
-      categoriaHint?: string;
-      subcategoriaHint?: string;
-    },
-    items: any[],
-    ciudad: string,
-    yaUsadas: string[] = [],
-  ): string[] {
-    if (!items || items.length === 0) return [];
+static generar(
+  filtros: {
+    categoriaId?: number | null;
+    subcategoriaId?: number | null;
+    categoriaHint?: string;
+    subcategoriaHint?: string;
+    caracteristica?: string | null;
 
-    const cat = (filtros.categoriaHint || '').toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const sub = (filtros.subcategoriaHint || '').toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const ciudadNombre = ciudad || 'tu ciudad';
+    // NUEVO: aliases dinámicos de la característica detectada
+    caracteristicaAliases?: string[];
+  },
+  items: any[],
+  ciudad: string,
+  yaUsadas: string[] = [],
+): string[] {
+  if (!items || items.length === 0) return [];
 
-    const pool = this.obtenerPool(sub, cat, ciudadNombre, items);
-    const nuevas = pool.filter((s) => !yaUsadas.includes(s));
+  const cat = this.normalizar(filtros.categoriaHint || '');
+  const sub = this.normalizar(filtros.subcategoriaHint || '');
+  const ciudadNombre = ciudad || 'tu ciudad';
 
-    if (nuevas.length >= 2) return nuevas.slice(0, 2);
+  const pool = this.obtenerPool(sub, cat, ciudadNombre, items);
 
-    const profundas = this.sugerenciasProfundas(ciudadNombre, items)
-      .filter((s) => !yaUsadas.includes(s));
+  const poolFiltrado = this.filtrarSugerenciasPorCaracteristica(
+    pool,
+    filtros.caracteristica,
+    filtros.caracteristicaAliases ?? [],
+  );
 
-    return [...nuevas, ...profundas].slice(0, 2);
+  const nuevas = poolFiltrado.filter((s) => !yaUsadas.includes(s));
+
+  if (nuevas.length >= 2) return nuevas.slice(0, 2);
+
+  const profundas = this.sugerenciasProfundas(ciudadNombre, items);
+
+  const profundasFiltradas = this.filtrarSugerenciasPorCaracteristica(
+    profundas,
+    filtros.caracteristica,
+    filtros.caracteristicaAliases ?? [],
+  ).filter((s) => !yaUsadas.includes(s));
+
+  return [...nuevas, ...profundasFiltradas].slice(0, 2);
+}
+
+private static normalizar(texto: string): string {
+  return (texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[¿?¡!.,;:()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+private static obtenerTokensClave(textos: string[]): string[] {
+  const stopwords = new Set([
+    'con', 'sin', 'para', 'por', 'los', 'las', 'una', 'uno', 'unos', 'unas',
+    'que', 'cual', 'cuales', 'tiene', 'tienen', 'servicio', 'buscas',
+    'quieres', 'ver', 'solo', 'hay',
+  ]);
+
+  const tokens = new Set<string>();
+
+  for (const texto of textos) {
+    const normalizado = this.normalizar(texto);
+
+    normalizado
+      .split(' ')
+      .map((p) => p.trim())
+      .filter((p) => p.length >= 4)
+      .filter((p) => !stopwords.has(p))
+      .forEach((p) => {
+        tokens.add(p);
+
+        // Singular/plural básico
+        if (p.endsWith('s')) {
+          tokens.add(p.slice(0, -1));
+        } else {
+          tokens.add(`${p}s`);
+        }
+      });
   }
+
+  return [...tokens];
+}
+
+private static filtrarSugerenciasPorCaracteristica(
+  pool: string[],
+  caracteristica?: string | null,
+  aliases: string[] = [],
+): string[] {
+  const textosBase = [
+    caracteristica || '',
+    ...aliases,
+  ].filter(Boolean);
+
+  const tokensBloqueados = this.obtenerTokensClave(textosBase);
+
+  if (tokensBloqueados.length === 0) {
+    return pool;
+  }
+
+  return pool.filter((sugerencia) => {
+    const sugerenciaNorm = this.normalizar(sugerencia);
+
+    return !tokensBloqueados.some((token) =>
+      sugerenciaNorm.includes(token),
+    );
+  });
+}
 
   // ─────────────────────────────────────────────────────────────────────────────
   // POOLS POR CATEGORÍA
