@@ -16,6 +16,8 @@ import { KeywordTaxonomia } from '../../taxonomia/entities/keyword-taxonomia.ent
 import { UsuarioPreferenciasModule } from '../../preferencias-usuarios/usuario-preferencias.module';
 import { JelpyAiModule } from '../../../jelpy-ai/jelpy-ai.module';
 import { ItemNegocio } from '../../../business/catalogo_productos/entities/item-negocio.entity';
+import { CaracteristicaAlias } from '../../../business/caracteristicas_sucursales/entities/caracteristica-alias.entity';
+import { CaracteristicaSucursal } from '../../../business/caracteristicas_sucursales/entities/caracteristica-sucursal.entity';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { ItemNegocio } from '../../../business/catalogo_productos/entities/item-
       Especialidad,
       KeywordTaxonomia,
       ItemNegocio,
+      CaracteristicaAlias,
+      CaracteristicaSucursal,
 
     ]),
 
