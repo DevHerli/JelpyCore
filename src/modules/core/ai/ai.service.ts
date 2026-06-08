@@ -440,32 +440,33 @@ export class AiService {
     const cacheKey = `${ciudadBusqueda}:${textoParaProcesar.toLowerCase().trim()}`;
 
     // Intentar hit de caché antes de llamar al asistente completo
-    let interpretacion: any = this.searchCache.get<any>(
-      ciudadBusqueda, null, null,
-    );
-    // Usamos la clave de texto como discriminador — caché simple por texto+ciudad
-    const cachedRaw = (this.searchCache as any).cache?.get(cacheKey);
-    if (cachedRaw && Date.now() < cachedRaw.expiresAt) {
-      interpretacion = cachedRaw.data;
-      this.logger.debug(`[Cache HIT] ${cacheKey}`);
-    } else {
-      interpretacion = await this.jelpyAssistant.interpretar(
-        textoParaProcesar,
-        contexto?.latitud,
-        contexto?.longitud,
-        ciudadBusqueda,
-        usuarioId,
-      );
-      // Guardar en caché solo si hay resultados
-      const itemsCount = interpretacion.resultados?.items?.length ?? 0;
-      if (itemsCount > 0) {
-        (this.searchCache as any).cache?.set(cacheKey, {
-          data: interpretacion,
-          expiresAt: Date.now() + 5 * 60 * 1000,   // 5 minutos
-        });
-        this.logger.debug(`[Cache SET] ${cacheKey} (${itemsCount} resultados)`);
-      }
-    }
+let interpretacion: any = null;
+
+const cachedRaw = null;
+
+if (cachedRaw && Date.now() < cachedRaw.expiresAt) {
+  interpretacion = cachedRaw.data;
+  this.logger.debug(`[Cache HIT] ${cacheKey}`);
+} else {
+  interpretacion = await this.jelpyAssistant.interpretar(
+    textoParaProcesar,
+    contexto?.latitud,
+    contexto?.longitud,
+    ciudadBusqueda,
+    usuarioId,
+  );
+
+  const itemsCount = interpretacion.resultados?.items?.length ?? 0;
+
+  if (itemsCount > 0) {
+    (this.searchCache as any).cache?.set(cacheKey, {
+      data: interpretacion,
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+
+    this.logger.debug(`[Cache SET] ${cacheKey} (${itemsCount} resultados)`);
+  }
+}
 
     const items = Array.isArray(interpretacion.resultados)
       ? interpretacion.resultados

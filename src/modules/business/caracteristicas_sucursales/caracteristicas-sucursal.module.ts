@@ -13,6 +13,8 @@ import { SucursalesCaracteristicasService } from './sucursales-caracteristicas.s
 import { CaracteristicasSucursalController } from './caracteristicas-sucursal.controller';
 import { SucursalesCaracteristicasController } from './sucursales-caracteristicas.controller';
 import { CaracteristicaAlias } from './entities/caracteristica-alias.entity';
+import { CaracteristicasAliasesController } from './caracteristicas-aliases.controller';
+import { CaracteristicasAliasesService } from './caracteristicas-aliases.service';
 
 @Module({
   imports: [
@@ -27,14 +29,17 @@ import { CaracteristicaAlias } from './entities/caracteristica-alias.entity';
   controllers: [
     CaracteristicasSucursalController,
     SucursalesCaracteristicasController,
+    CaracteristicasAliasesController,
   ],
   providers: [
     CaracteristicasSucursalService,
     SucursalesCaracteristicasService,
+    CaracteristicasAliasesService,
   ],
   exports: [
     CaracteristicasSucursalService,
     SucursalesCaracteristicasService,
+    CaracteristicasAliasesService,
     TypeOrmModule,
   ],
 })

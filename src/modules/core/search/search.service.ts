@@ -41,6 +41,14 @@ export class SearchService {
     'descuento', 'descuentos',
   ];
 
+  private sqlNormalize(column: string): string {
+    return `
+      REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+        LOWER(COALESCE(${column}, '')),
+        'á','a'),'é','e'),'í','i'),'ó','o'),'ú','u')
+    `;
+  }
+
   private generateMisspellings(word: string): string[] {
     const variantes = new Set<string>();
     const w = word.toLowerCase();
@@ -52,7 +60,6 @@ export class SearchService {
     variantes.add(w.replace(/c/g, 's'));
     variantes.add(w.replace(/sh/g, 'ch'));
     variantes.add(w.replace(/ch/g, 'sh'));
-
     variantes.add(w.replace(/[aeiouáéíóú]/g, ''));
 
     if (w.length > 3) {
@@ -96,7 +103,6 @@ export class SearchService {
     return { dia: mapDias[wd] || 'lunes', time: `${hour}:${minute}:00` };
   }
 
-  /** Genera mensaje estilo Google Maps */
   private formatMensajeHorario(apertura: string, cierre: string, tz: string) {
     if (!apertura || !cierre) return null;
 
@@ -139,19 +145,19 @@ export class SearchService {
       ? normalizeBasic(params.caracteristica)
       : '';
 
-    // Quitamos la característica del texto libre para que no contamine
-    // el bloque OR general cuando ya va filtrada aparte como AND.
     const qNormLimpio =
       caracteristicaNorm && qNorm
         ? qNorm.replace(caracteristicaNorm, '').replace(/\s+/g, ' ').trim()
         : qNorm;
 
     const tieneTaxonomia =
-      !!params.categoriaId || !!params.subcategoriaId || !!params.especialidadId;
+      !!params.categoriaId ||
+      !!params.subcategoriaId ||
+      !!params.especialidadId;
 
-if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
-  return { items: [], info: { reason: 'empty_query' } };
-}
+    if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
+      return { items: [], info: { reason: 'empty_query' } };
+    }
 
     if (qRaw && containsProfanity(qRaw)) {
       return { items: [], info: { blocked: true, reason: 'profanity' } };
@@ -226,12 +232,13 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
       });
     }
 
-    // FILTRO OBLIGATORIO POR CARACTERÍSTICA
-    // Esto hace que solo salgan sucursales que realmente tengan esa característica.
     if (params.caracteristica) {
-      qb.andWhere('v.caracteristicas_keywords LIKE :caracteristica', {
-        caracteristica: `%${caracteristicaNorm}%`,
-      });
+      qb.andWhere(
+        `${this.sqlNormalize('v.caracteristicas_keywords')} LIKE :caracteristica`,
+        {
+          caracteristica: `%${caracteristicaNorm}%`,
+        },
+      );
     }
 
     const esBusquedaGenericaDePromos =
@@ -248,10 +255,6 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
           'descuentos',
         ].includes(qNormLimpio));
 
-    // Solo aplicar filtro textual si NO hay taxonomía.
-    // Si ya viene categoria/subcategoria/especialidad, dejamos que la taxonomía mande.
-    // Pero si ya viene params.caracteristica, evitamos volver a usar
-    // caracteristicas_keywords dentro del OR porque ya está filtrada arriba con AND.
     if (!tieneTaxonomia && qNormLimpio && !esBusquedaGenericaDePromos) {
       const tokensConVariantes = new Set<string>();
 
@@ -276,9 +279,10 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
               .orWhere('v.items_keywords LIKE :t', { t: `%${qNormLimpio}%` });
 
             if (!params.caracteristica) {
-              b.orWhere('v.caracteristicas_keywords LIKE :t', {
-                t: `%${qNormLimpio}%`,
-              });
+              b.orWhere(
+                `${this.sqlNormalize('v.caracteristicas_keywords')} LIKE :t`,
+                { t: `%${qNormLimpio}%` },
+              );
             }
           }),
         );
@@ -301,7 +305,9 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
                     .orWhere(`v.items_keywords LIKE :${p}`);
 
                   if (!params.caracteristica) {
-                    b2.orWhere(`v.caracteristicas_keywords LIKE :${p}`);
+                    b2.orWhere(
+                      `${this.sqlNormalize('v.caracteristicas_keywords')} LIKE :${p}`,
+                    );
                   }
                 }),
                 { [p]: `%${token}%` },
@@ -327,10 +333,7 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
             AND :now BETWEEN hs.hora_apertura AND hs.hora_cierre
         )
       `,
-        {
-          dia,
-          now: time,
-        },
+        { dia, now: time },
       );
     }
 
@@ -444,6 +447,7 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
     });
 
     const mapa = new Map<string, any>();
+
     for (const item of items) {
       const key = `${item.negocio_id}-${item.sucursal_id}`;
       if (!mapa.has(key)) mapa.set(key, item);
@@ -462,6 +466,7 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
         urgencias: !!params.urgencias,
         domicilio: !!params.domicilio,
         promos: !!params.promos,
+        caracteristica: params.caracteristica || null,
       },
     };
   }
@@ -615,6 +620,7 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
     lat?: number;
     lng?: number;
     radioKm?: number;
+    caracteristica?: string;
   }) {
     const qRaw = (params.q || '').slice(0, 140);
     const qNorm = normalizeBasic(qRaw);
@@ -625,6 +631,7 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
         info: {
           reason: 'empty_query',
           source: 'items_negocio',
+          caracteristica: params.caracteristica || null,
         },
       };
     }
@@ -654,13 +661,24 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
       qb.andWhere('v.ciudad = :ciudad', { ciudad: params.ciudad });
     }
 
+    if (params.caracteristica) {
+      const caracteristicaNorm = normalizeBasic(params.caracteristica);
+
+      qb.andWhere(
+        `${this.sqlNormalize('v.caracteristicas_keywords')} LIKE :caracteristica`,
+        {
+          caracteristica: `%${caracteristicaNorm}%`,
+        },
+      );
+    }
+
     if (tokens.length === 0) {
       qb.andWhere(
         new Brackets((b) => {
-          b.where('LOWER(it.nombre) LIKE :q', { q: `%${qNorm}%` })
-            .orWhere('LOWER(COALESCE(it.descripcion, "")) LIKE :q', {
-              q: `%${qNorm}%`,
-            });
+          b.where('LOWER(it.nombre) LIKE :q', { q: `%${qNorm}%` }).orWhere(
+            'LOWER(COALESCE(it.descripcion, "")) LIKE :q',
+            { q: `%${qNorm}%` },
+          );
         }),
       );
     } else {
@@ -670,8 +688,9 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
             const p = `itk${idx}`;
             b.orWhere(
               new Brackets((b2) => {
-                b2.where(`LOWER(it.nombre) LIKE :${p}`)
-                  .orWhere(`LOWER(COALESCE(it.descripcion, "")) LIKE :${p}`);
+                b2.where(`LOWER(it.nombre) LIKE :${p}`).orWhere(
+                  `LOWER(COALESCE(it.descripcion, "")) LIKE :${p}`,
+                );
               }),
               { [p]: `%${token}%` },
             );
@@ -783,6 +802,7 @@ if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
         source: 'items_negocio',
         count: itemsUnicos.length,
         ciudad: params.ciudad || null,
+        caracteristica: params.caracteristica || null,
       },
     };
   }

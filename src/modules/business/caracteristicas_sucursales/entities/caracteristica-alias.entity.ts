@@ -1,14 +1,17 @@
 import {
-  Column,
-  CreateDateColumn,
   Entity,
-  JoinColumn,
-  ManyToOne,
   PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
+  Index,
 } from 'typeorm';
 import { CaracteristicaSucursal } from './caracteristica-sucursal.entity';
 
 @Entity('caracteristicas_aliases')
+@Index('idx_caracteristica_alias_caracteristica', ['caracteristicaId'])
+@Index('idx_caracteristica_alias_alias', ['alias'])
 export class CaracteristicaAlias {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
@@ -16,9 +19,7 @@ export class CaracteristicaAlias {
   @Column({ name: 'caracteristica_id', type: 'bigint', unsigned: true })
   caracteristicaId: number;
 
-  @ManyToOne(() => CaracteristicaSucursal, (c) => c.aliases, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(() => CaracteristicaSucursal, { createForeignKeyConstraints: false })
   @JoinColumn({ name: 'caracteristica_id' })
   caracteristica: CaracteristicaSucursal;
 

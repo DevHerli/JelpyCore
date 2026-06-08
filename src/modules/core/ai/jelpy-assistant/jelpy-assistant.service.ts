@@ -68,6 +68,7 @@ export class JelpyAssistantService {
   stopwords = [
     'en', 'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
     'a', 'para', 'por', 'con', 'que', 'mi', 'mí', 'me', 'donde', 'hay', 'busca',
+    'buscas', 'buscar', 'quiero', 'quieres', 'quieras', 'necesito',
     'cerca', 'cerquita', 'abierto', 'ahora', 'ahorita', 'promo', 'promos',
     'oferta', 'descuento',
   ];
@@ -203,7 +204,7 @@ export class JelpyAssistantService {
 
     const conteo: Record<number, number> = {};
 
-    for (const item of results.items) {
+    for (const item of results.items ?? []) {
       if (item.subcategoria_id) {
         conteo[item.subcategoria_id] =
           (conteo[item.subcategoria_id] || 0) + 1;
@@ -390,6 +391,37 @@ export class JelpyAssistantService {
       .filter((x) => !this.stopwords.includes(x))
       .join(' ')
       .trim();
+  }
+
+  private resolveQueryForSearch(filtros: any, textoNorm: string): string | undefined {
+    if (filtros.caracteristica && !filtros.q) {
+      return undefined;
+    }
+
+    return filtros.q ?? textoNorm;
+  }
+
+  private hasResults(resultados: any): boolean {
+    return Array.isArray(resultados?.items) && resultados.items.length > 0;
+  }
+
+  private normalizarPromosEnResultados(resultados: any) {
+    if (!Array.isArray(resultados?.items) || resultados.items.length === 0) {
+      return resultados;
+    }
+
+    resultados.items = resultados.items.map((item) => ({
+      ...item,
+      promo: item.promo
+        ? {
+            titulo: item.promo.titulo,
+            desde: item.promo.desde,
+            hasta: item.promo.hasta,
+          }
+        : null,
+    }));
+
+    return resultados;
   }
 
   private async mapearFastApiAFiltros(
@@ -607,7 +639,9 @@ export class JelpyAssistantService {
   }
 
   private ordenarResultadosPorPreferencias(resultados: any, prefs: any[] | null) {
-    if (!prefs || !resultados?.items?.length) return resultados;
+    if (!prefs || !Array.isArray(resultados?.items) || resultados.items.length === 0) {
+      return resultados;
+    }
 
     resultados.items = resultados.items.map((item) => {
       const coincideCat = prefs.some((p) => p.categoriaId === item.categoria_id);
@@ -655,8 +689,10 @@ export class JelpyAssistantService {
 
       prefs = await this.aplicarPreferenciasUsuario(filtros, usuarioId);
 
+      const queryBusqueda = this.resolveQueryForSearch(filtros, textoNorm);
+
       let resultados: any = await this.searchService.search({
-        q: filtros.q ?? textoNorm,
+        q: queryBusqueda,
         ciudad: filtros.ciudad,
         categoriaId: filtros.categoriaId,
         subcategoriaId: filtros.subcategoriaId,
@@ -669,28 +705,29 @@ export class JelpyAssistantService {
         radioKm: 10,
       });
 
-      if (!resultados || resultados.items.length === 0) {
+      if (!this.hasResults(resultados) && !filtros.caracteristica) {
         const resultadosItems = await this.searchService.searchByItems({
-          q: filtros.q ?? textoNorm,
+          q: queryBusqueda,
           ciudad: filtros.ciudad,
+          caracteristica: filtros.caracteristica,
           lat: filtros.lat,
           lng: filtros.lng,
           radioKm: 10,
         });
 
-        if (resultadosItems?.items?.length > 0) {
+        if (this.hasResults(resultadosItems)) {
           resultados = resultadosItems;
           filtros.intent = 'buscar_items_negocio';
         }
       }
 
       if (
-        (!resultados || resultados.items.length === 0) &&
+        !this.hasResults(resultados) &&
         filtros.subcategoriaId &&
         filtros.categoriaId
       ) {
         const resultadosFallbackCat = await this.searchService.search({
-          q: filtros.q ?? textoNorm,
+          q: queryBusqueda,
           ciudad: filtros.ciudad,
           categoriaId: filtros.categoriaId,
           caracteristica: filtros.caracteristica,
@@ -699,7 +736,7 @@ export class JelpyAssistantService {
           radioKm: 10,
         });
 
-        if (resultadosFallbackCat?.items?.length > 0) {
+        if (this.hasResults(resultadosFallbackCat)) {
           resultados = resultadosFallbackCat;
           filtros.esFallback = true;
           filtros.fallbackReason = 'sin_subcategoria';
@@ -708,9 +745,9 @@ export class JelpyAssistantService {
 
       resultados = this.ordenarResultadosPorPreferencias(resultados, prefs);
 
-      if (!resultados || resultados.items.length === 0) {
+      if (!this.hasResults(resultados)) {
         resultados = await this.searchService.search({
-          q: textoNorm,
+          q: queryBusqueda,
           ciudad: filtros.ciudad,
           categoriaId: filtros.categoriaId,
           subcategoriaId: filtros.subcategoriaId,
@@ -721,51 +758,41 @@ export class JelpyAssistantService {
           radioKm: 10,
         });
 
-        if (!resultados || resultados.items.length === 0) {
+        if (!this.hasResults(resultados) && !filtros.caracteristica) {
           const resultadosItems = await this.searchService.searchByItems({
-            q: textoNorm,
+            q: queryBusqueda,
             ciudad: filtros.ciudad,
+            caracteristica: filtros.caracteristica,
             lat: filtros.lat,
             lng: filtros.lng,
             radioKm: 10,
           });
 
-          if (resultadosItems?.items?.length > 0) {
+          if (this.hasResults(resultadosItems)) {
             resultados = resultadosItems;
             filtros.intent = 'buscar_items_negocio';
           }
         }
       }
 
-      if (!resultados || resultados.items.length === 0) {
+      if (!this.hasResults(resultados)) {
         const resultadosNombre = await this.searchService.search({
-          q: texto,
+          q: filtros.caracteristica ? queryBusqueda : texto,
           ciudad: filtros.ciudad,
           caracteristica: filtros.caracteristica,
           radioKm: 10,
         });
 
-        if (resultadosNombre?.items?.length > 0) {
+        if (this.hasResults(resultadosNombre)) {
           resultados = resultadosNombre;
           filtros.esFallback = true;
           filtros.fallbackReason = 'por_nombre_negocio';
         }
       }
 
-      if (resultados.items?.length > 0) {
-        resultados.items = resultados.items.map((item) => ({
-          ...item,
-          promo: item.promo
-            ? {
-                titulo: item.promo.titulo,
-                desde: item.promo.desde,
-                hasta: item.promo.hasta,
-              }
-            : null,
-        }));
-      }
+      resultados = this.normalizarPromosEnResultados(resultados);
 
-      if (resultados.items.length > 0) {
+      if (this.hasResults(resultados)) {
         await this.aprenderKeyword(textoNorm, resultados);
       }
 
@@ -993,8 +1020,10 @@ export class JelpyAssistantService {
       }
     }
 
+    const queryBusqueda = this.resolveQueryForSearch(filtros, textoNorm);
+
     let resultados: any = await this.searchService.search({
-      q: filtros.q ?? textoNorm,
+      q: queryBusqueda,
       ciudad: filtros.ciudad,
       categoriaId: filtros.categoriaId,
       subcategoriaId: filtros.subcategoriaId,
@@ -1007,16 +1036,17 @@ export class JelpyAssistantService {
       radioKm: 10,
     });
 
-    if (!resultados || resultados.items.length === 0) {
+    if (!this.hasResults(resultados) && !filtros.caracteristica) {
       const resultadosItems = await this.searchService.searchByItems({
-        q: filtros.q ?? textoNorm,
+        q: queryBusqueda,
         ciudad: filtros.ciudad,
+        caracteristica: filtros.caracteristica,
         lat: filtros.lat,
         lng: filtros.lng,
         radioKm: 10,
       });
 
-      if (resultadosItems?.items?.length > 0) {
+      if (this.hasResults(resultadosItems)) {
         resultados = resultadosItems;
         filtros.intent = 'buscar_items_negocio';
       }
@@ -1024,9 +1054,9 @@ export class JelpyAssistantService {
 
     resultados = this.ordenarResultadosPorPreferencias(resultados, prefs);
 
-    if (!resultados || resultados.items.length === 0) {
+    if (!this.hasResults(resultados)) {
       resultados = await this.searchService.search({
-        q: textoNorm,
+        q: queryBusqueda,
         ciudad: filtros.ciudad,
         categoriaId: filtros.categoriaId,
         subcategoriaId: filtros.subcategoriaId,
@@ -1037,40 +1067,30 @@ export class JelpyAssistantService {
         radioKm: 10,
       });
 
-      if (!resultados || resultados.items.length === 0) {
+      if (!this.hasResults(resultados) && !filtros.caracteristica) {
         const resultadosItems = await this.searchService.searchByItems({
-          q: textoNorm,
+          q: queryBusqueda,
           ciudad: filtros.ciudad,
+          caracteristica: filtros.caracteristica,
           lat: filtros.lat,
           lng: filtros.lng,
           radioKm: 10,
         });
 
-        if (resultadosItems?.items?.length > 0) {
+        if (this.hasResults(resultadosItems)) {
           resultados = resultadosItems;
           filtros.intent = 'buscar_items_negocio';
         }
       }
     }
 
-    if (resultados.items?.length > 0) {
-      resultados.items = resultados.items.map((item) => ({
-        ...item,
-        promo: item.promo
-          ? {
-              titulo: item.promo.titulo,
-              desde: item.promo.desde,
-              hasta: item.promo.hasta,
-            }
-          : null,
-      }));
-    }
+    resultados = this.normalizarPromosEnResultados(resultados);
 
-    if (!keywordElegida && resultados.items.length > 0) {
+    if (!keywordElegida && this.hasResults(resultados)) {
       await this.aprenderKeyword(textoNorm, resultados);
     }
 
-    if (keywordElegida && resultados.items.length > 0) {
+    if (keywordElegida && this.hasResults(resultados)) {
       await this.reforzarKeyword(textoNorm, keywordElegida);
     }
 
