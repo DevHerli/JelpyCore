@@ -149,9 +149,9 @@ export class SearchService {
     const tieneTaxonomia =
       !!params.categoriaId || !!params.subcategoriaId || !!params.especialidadId;
 
-    if (!qRaw && !params.promos && !tieneTaxonomia) {
-      return { items: [], info: { reason: 'empty_query' } };
-    }
+if (!qRaw && !params.promos && !tieneTaxonomia && !params.caracteristica) {
+  return { items: [], info: { reason: 'empty_query' } };
+}
 
     if (qRaw && containsProfanity(qRaw)) {
       return { items: [], info: { blocked: true, reason: 'profanity' } };

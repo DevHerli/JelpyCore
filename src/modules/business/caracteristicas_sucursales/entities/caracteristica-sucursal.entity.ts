@@ -7,6 +7,7 @@ import {
 } from 'typeorm';
 import { SucursalCaracteristica } from './sucursal-caracteristica.entity';
 import { CaracteristicaAplicabilidad } from './caracteristicas-aplicabilidad.entity';
+import { CaracteristicaAlias } from './caracteristica-alias.entity';
 
 @Entity('caracteristicas_sucursal')
 export class CaracteristicaSucursal {
@@ -47,4 +48,11 @@ export class CaracteristicaSucursal {
     { cascade: true },
   )
   aplicabilidades: CaracteristicaAplicabilidad[];
+
+  @OneToMany(
+  () => CaracteristicaAlias,
+  (alias) => alias.caracteristica,
+  { cascade: true },
+)
+aliases: CaracteristicaAlias[];
 }

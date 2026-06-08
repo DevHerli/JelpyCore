@@ -12,6 +12,7 @@ import { SucursalesCaracteristicasService } from './sucursales-caracteristicas.s
 
 import { CaracteristicasSucursalController } from './caracteristicas-sucursal.controller';
 import { SucursalesCaracteristicasController } from './sucursales-caracteristicas.controller';
+import { CaracteristicaAlias } from './entities/caracteristica-alias.entity';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { SucursalesCaracteristicasController } from './sucursales-caracteristica
       CaracteristicaAplicabilidad,
       SucursalCaracteristica,
       SucursalNegocio,
+      CaracteristicaAlias,
     ]),
   ],
   controllers: [
