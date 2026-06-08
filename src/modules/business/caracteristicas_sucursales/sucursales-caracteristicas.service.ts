@@ -11,6 +11,15 @@ import { CaracteristicaSucursal } from './entities/caracteristica-sucursal.entit
 import { AssignCaracteristicaDto } from './dtos/assign-caracteristica.dto';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 
+interface SucursalGiroContext {
+  sucursalId: number;
+  negocioId: number;
+  categoriaId: number | null;
+  subcategoriaId: number | null;
+  especialidadId: number | null;
+  tipoServicioId: number | null;
+}
+
 @Injectable()
 export class SucursalesCaracteristicasService {
   constructor(
@@ -37,6 +46,8 @@ export class SucursalesCaracteristicasService {
       throw new NotFoundException('Sucursal no encontrada');
     }
 
+    const contexto = await this.getSucursalGiroContext(sucursal_id);
+
     const caracteristica = await this.caracteristicaRepo.findOne({
       where: { id: dto.caracteristica_id, activo: true },
       relations: ['aplicabilidades'],
@@ -46,7 +57,7 @@ export class SucursalesCaracteristicasService {
       throw new NotFoundException('Característica no encontrada');
     }
 
-    this.validarAplicabilidad(sucursal, caracteristica);
+    this.validarAplicabilidad(contexto, caracteristica);
 
     const existe = await this.repo.findOne({
       where: {
@@ -57,7 +68,7 @@ export class SucursalesCaracteristicasService {
     });
 
     if (existe) {
-      existe.valor = dto.valor;
+      existe.valor = dto.valor ?? true;
       await this.repo.save(existe);
 
       return this.repo.findOne({
@@ -69,7 +80,7 @@ export class SucursalesCaracteristicasService {
     const nuevo = this.repo.create({
       sucursal,
       caracteristica,
-      valor: dto.valor,
+      valor: dto.valor ?? true,
     });
 
     const guardado = await this.repo.save(nuevo);
@@ -114,12 +125,14 @@ export class SucursalesCaracteristicasService {
   async update(id: number, dto: AssignCaracteristicaDto) {
     const existente = await this.repo.findOne({
       where: { id },
-      relations: ['sucursal', 'sucursal.negocio', 'caracteristica'],
+      relations: ['sucursal', 'caracteristica'],
     });
 
     if (!existente) {
       throw new NotFoundException('Asignación de característica no encontrada');
     }
+
+    const contexto = await this.getSucursalGiroContext(existente.sucursal.id);
 
     const caracteristica = await this.caracteristicaRepo.findOne({
       where: { id: dto.caracteristica_id, activo: true },
@@ -130,7 +143,7 @@ export class SucursalesCaracteristicasService {
       throw new NotFoundException('Característica no encontrada');
     }
 
-    this.validarAplicabilidad(existente.sucursal, caracteristica);
+    this.validarAplicabilidad(contexto, caracteristica);
 
     const duplicado = await this.repo.findOne({
       where: {
@@ -140,14 +153,14 @@ export class SucursalesCaracteristicasService {
       relations: ['sucursal', 'caracteristica'],
     });
 
-    if (duplicado && duplicado.id !== id) {
+    if (duplicado && Number(duplicado.id) !== Number(id)) {
       throw new BadRequestException(
         'La sucursal ya tiene asignada esa característica',
       );
     }
 
     existente.caracteristica = caracteristica;
-    existente.valor = dto.valor;
+    existente.valor = dto.valor ?? true;
 
     await this.repo.save(existente);
 
@@ -173,61 +186,92 @@ export class SucursalesCaracteristicasService {
     };
   }
 
+  private async getSucursalGiroContext(
+    sucursalId: number,
+  ): Promise<SucursalGiroContext> {
+    const rows: Array<{
+      sucursalId: string;
+      negocioId: string;
+      categoriaId: string | null;
+      subcategoriaId: string | null;
+      especialidadId: string | null;
+      tipoServicioId: string | null;
+    }> = await this.sucursalRepo.manager.query(
+      `
+      SELECT 
+        s.id AS sucursalId,
+        n.id AS negocioId,
+        n.categoria_id AS categoriaId,
+        n.subcategoria_id AS subcategoriaId,
+        n.especialidad_id AS especialidadId,
+        NULL AS tipoServicioId
+      FROM sucursales_negocios s
+      INNER JOIN negocios n ON n.id = s.negocio_id
+      WHERE s.id = ?
+        AND s.eliminado = 0
+      LIMIT 1
+      `,
+      [sucursalId],
+    );
+
+    if (!rows.length) {
+      throw new NotFoundException('Sucursal no encontrada');
+    }
+
+    const row = rows[0];
+
+    return {
+      sucursalId: Number(row.sucursalId),
+      negocioId: Number(row.negocioId),
+      categoriaId: row.categoriaId ? Number(row.categoriaId) : null,
+      subcategoriaId: row.subcategoriaId ? Number(row.subcategoriaId) : null,
+      especialidadId: row.especialidadId ? Number(row.especialidadId) : null,
+      tipoServicioId: row.tipoServicioId ? Number(row.tipoServicioId) : null,
+    };
+  }
+
   private validarAplicabilidad(
-    sucursal: SucursalNegocio,
+    contexto: SucursalGiroContext,
     caracteristica: CaracteristicaSucursal,
   ) {
-    const negocio = (sucursal as any).negocio;
+    const aplicabilidadesActivas = (caracteristica.aplicabilidades ?? []).filter(
+      (a: any) => a.activo,
+    );
 
-    const categoriaId = negocio?.categoriaId ?? negocio?.categoria_id ?? null;
-    const subcategoriaId =
-      negocio?.subcategoriaId ?? negocio?.subcategoria_id ?? null;
-    const especialidadId =
-      negocio?.especialidadId ?? negocio?.especialidad_id ?? null;
-    const tipoServicioId =
-      negocio?.tipoServicioId ?? negocio?.tipo_servicio_id ?? null;
+    if (aplicabilidadesActivas.length === 0) {
+      return;
+    }
 
-    const aplicabilidades = caracteristica.aplicabilidades ?? [];
+    const aplica = aplicabilidadesActivas.some((a: any) => {
+      const referenciaId =
+        a.referenciaId !== null && a.referenciaId !== undefined
+          ? Number(a.referenciaId)
+          : null;
 
-    const aplica = aplicabilidades.some((a: any) => {
-      if (!a.activo) return false;
-
-      if (a.nivel === 'todos') return true;
-
-      if (
-        a.nivel === 'categoria' &&
-        Number(a.referenciaId) === Number(categoriaId)
-      ) {
+      if (a.nivel === 'todos') {
         return true;
       }
 
-      if (
-        a.nivel === 'subcategoria' &&
-        Number(a.referenciaId) === Number(subcategoriaId)
-      ) {
-        return true;
+      if (a.nivel === 'categoria') {
+        return referenciaId === Number(contexto.categoriaId);
       }
 
-      if (
-        a.nivel === 'especialidad' &&
-        Number(a.referenciaId) === Number(especialidadId)
-      ) {
-        return true;
+      if (a.nivel === 'subcategoria') {
+        return referenciaId === Number(contexto.subcategoriaId);
       }
 
-      if (
-        a.nivel === 'tipo_servicio' &&
-        Number(a.referenciaId) === Number(tipoServicioId)
-      ) {
-        return true;
+      if (a.nivel === 'especialidad') {
+        return referenciaId === Number(contexto.especialidadId);
+      }
+
+      if (a.nivel === 'tipo_servicio') {
+        return referenciaId === Number(contexto.tipoServicioId);
       }
 
       return false;
     });
 
-    // Solo rechazar si hay aplicabilidades configuradas y ninguna coincide.
-    // Array vacío = sin restricción de giro = aplica a todos.
-    if (aplicabilidades.length > 0 && !aplica) {
+    if (!aplica) {
       throw new BadRequestException(
         'La característica no aplica al giro de esta sucursal',
       );

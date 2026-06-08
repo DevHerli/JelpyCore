@@ -25,44 +25,52 @@ export class CaracteristicasSucursalService {
     private readonly sucursalRepo: Repository<SucursalNegocio>,
   ) {}
 
-  async create(dto: CreateCaracteristicaDto) {
-    const existe = await this.repo.findOne({
-      where: { codigo: dto.codigo },
-    });
+async create(dto: CreateCaracteristicaDto) {
+  const existe = await this.repo.findOne({
+    where: { codigo: dto.codigo },
+  });
 
-    if (existe) {
-      throw new BadRequestException(
-        'Ya existe una característica con ese código',
-      );
-    }
-
-    const { aplicabilidades = [], ...caracteristicaData } = dto;
-
-    const nueva = this.repo.create({
-      ...caracteristicaData,
-      activo: caracteristicaData.activo ?? true,
-    });
-
-    const guardada = await this.repo.save(nueva);
-
-    if (aplicabilidades.length > 0) {
-      const nuevasAplicabilidades = aplicabilidades.map((a) =>
-        this.aplicabilidadRepo.create({
-          caracteristicaId: guardada.id,
-          nivel: a.nivel,
-          referenciaId: a.nivel === 'todos' ? null : (a.referenciaId ?? null),
-          activo: true,
-        }),
-      );
-
-      await this.aplicabilidadRepo.save(nuevasAplicabilidades);
-    }
-
-    return this.repo.findOne({
-      where: { id: guardada.id },
-      relations: ['aplicabilidades'],
-    });
+  if (existe) {
+    throw new BadRequestException(
+      'Ya existe una característica con ese código',
+    );
   }
+
+  const { aplicabilidades = [], ...caracteristicaData } = dto;
+
+  const nueva = this.repo.create({
+    ...caracteristicaData,
+    activo: caracteristicaData.activo ?? true,
+  });
+
+  const guardada = await this.repo.save(nueva);
+
+  const aplicabilidadesFinales =
+    aplicabilidades.length > 0
+      ? aplicabilidades
+      : [
+          {
+            nivel: 'todos' as const,
+            referenciaId: null,
+          },
+        ];
+
+  const nuevasAplicabilidades = aplicabilidadesFinales.map((a) =>
+    this.aplicabilidadRepo.create({
+      caracteristicaId: guardada.id,
+      nivel: a.nivel,
+      referenciaId: a.nivel === 'todos' ? null : (a.referenciaId ?? null),
+      activo: true,
+    }),
+  );
+
+  await this.aplicabilidadRepo.save(nuevasAplicabilidades);
+
+  return this.repo.findOne({
+    where: { id: guardada.id },
+    relations: ['aplicabilidades'],
+  });
+}
 
   findAll() {
     return this.repo.find({
