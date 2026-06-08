@@ -51,4 +51,9 @@ export class CreateCaracteristicaDto {
   @ValidateNested({ each: true })
   @Type(() => AplicabilidadDto)
   aplicabilidades?: AplicabilidadDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  aliases?: string[];
 }

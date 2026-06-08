@@ -29,73 +29,88 @@ export class CaracteristicasSucursalService {
     private readonly aliasRepo: Repository<CaracteristicaAlias>,
   ) {}
 
-async create(dto: CreateCaracteristicaDto) {
-  const existe = await this.repo.findOne({
-    where: { codigo: dto.codigo },
-  });
+  async create(dto: CreateCaracteristicaDto) {
+    const existe = await this.repo.findOne({
+      where: { codigo: dto.codigo },
+    });
 
-  if (existe) {
-    throw new BadRequestException(
-      'Ya existe una característica con ese código',
+    if (existe) {
+      throw new BadRequestException('Ya existe una característica con ese código');
+    }
+
+    const { aplicabilidades = [], aliases = [], ...caracteristicaData } = dto;
+
+    const nueva = this.repo.create({
+      ...caracteristicaData,
+      activo: caracteristicaData.activo ?? true,
+    });
+
+    const guardada = await this.repo.save(nueva);
+
+    const aplicabilidadesFinales =
+      aplicabilidades.length > 0
+        ? aplicabilidades
+        : [
+            {
+              nivel: 'todos' as const,
+              referenciaId: null,
+            },
+          ];
+
+    const nuevasAplicabilidades = aplicabilidadesFinales.map((a) =>
+      this.aplicabilidadRepo.create({
+        caracteristicaId: guardada.id,
+        nivel: a.nivel,
+        referenciaId: a.nivel === 'todos' ? null : a.referenciaId ?? null,
+        activo: true,
+      }),
     );
+
+    await this.aplicabilidadRepo.save(nuevasAplicabilidades);
+
+    const aliasesSafe = aliases ?? [];
+
+    if (aliasesSafe.length > 0) {
+      const aliasesUnicos = [
+        ...new Set(
+          aliasesSafe
+            .map((a) => a.trim())
+            .filter((a) => a.length > 0),
+        ),
+      ];
+
+      const nuevosAliases = aliasesUnicos.map((alias) =>
+        this.aliasRepo.create({
+          caracteristicaId: guardada.id,
+          alias,
+          activo: true,
+        }),
+      );
+
+      await this.aliasRepo.save(nuevosAliases);
+    }
+
+    return this.findOne(Number(guardada.id));
   }
-
-  const { aplicabilidades = [], ...caracteristicaData } = dto;
-
-  const nueva = this.repo.create({
-    ...caracteristicaData,
-    activo: caracteristicaData.activo ?? true,
-  });
-
-  const guardada = await this.repo.save(nueva);
-
-  const aplicabilidadesFinales =
-    aplicabilidades.length > 0
-      ? aplicabilidades
-      : [
-          {
-            nivel: 'todos' as const,
-            referenciaId: null,
-          },
-        ];
-
-  const nuevasAplicabilidades = aplicabilidadesFinales.map((a) =>
-    this.aplicabilidadRepo.create({
-      caracteristicaId: guardada.id,
-      nivel: a.nivel,
-      referenciaId: a.nivel === 'todos' ? null : (a.referenciaId ?? null),
-      activo: true,
-    }),
-  );
-
-  await this.aplicabilidadRepo.save(nuevasAplicabilidades);
-
-  return this.repo.findOne({
-    where: { id: guardada.id },
-    relations: ['aplicabilidades'],
-  });
-}
 
   findAll() {
     return this.repo.find({
-      relations: ['aplicabilidades'],
-      order: {
-        id: 'DESC',
-      },
+      relations: ['aplicabilidades', 'aliases'],
+      order: { id: 'DESC' },
     });
   }
 
   findByCodigo(codigo: string) {
     return this.repo.findOne({
       where: { codigo },
-      relations: ['aplicabilidades'],
+      relations: ['aplicabilidades', 'aliases'],
     });
   }
 
   async findOne(id: number) {
     const existente = await this.repo.findOne({
       where: { id },
-      relations: ['aplicabilidades'],
+      relations: ['aplicabilidades', 'aliases'],
     });
 
     if (!existente) {
@@ -108,7 +123,7 @@ async create(dto: CreateCaracteristicaDto) {
   async update(id: number, dto: UpdateCaracteristicaDto) {
     const existente = await this.repo.findOne({
       where: { id },
-      relations: ['aplicabilidades'],
+      relations: ['aplicabilidades', 'aliases'],
     });
 
     if (!existente) {
@@ -121,18 +136,16 @@ async create(dto: CreateCaracteristicaDto) {
       });
 
       if (codigoDuplicado) {
-        throw new BadRequestException(
-          'Ya existe una característica con ese código',
-        );
+        throw new BadRequestException('Ya existe una característica con ese código');
       }
     }
 
-    const { aplicabilidades, ...caracteristicaData } = dto;
+    const { aplicabilidades, aliases, ...caracteristicaData } = dto;
 
     Object.assign(existente, caracteristicaData);
     await this.repo.save(existente);
 
-    if (aplicabilidades) {
+    if (aplicabilidades !== undefined) {
       await this.aplicabilidadRepo.delete({ caracteristicaId: id });
 
       if (aplicabilidades.length > 0) {
@@ -140,7 +153,7 @@ async create(dto: CreateCaracteristicaDto) {
           this.aplicabilidadRepo.create({
             caracteristicaId: id,
             nivel: a.nivel,
-            referenciaId: a.nivel === 'todos' ? null : (a.referenciaId ?? null),
+            referenciaId: a.nivel === 'todos' ? null : a.referenciaId ?? null,
             activo: true,
           }),
         );
@@ -149,10 +162,33 @@ async create(dto: CreateCaracteristicaDto) {
       }
     }
 
-    return this.repo.findOne({
-      where: { id },
-      relations: ['aplicabilidades'],
-    });
+    if (aliases !== undefined) {
+      await this.aliasRepo.delete({ caracteristicaId: id });
+
+      const aliasesSafe = aliases ?? [];
+
+      if (aliasesSafe.length > 0) {
+        const aliasesUnicos = [
+          ...new Set(
+            aliasesSafe
+              .map((a) => a.trim())
+              .filter((a) => a.length > 0),
+          ),
+        ];
+
+        const nuevosAliases = aliasesUnicos.map((alias) =>
+          this.aliasRepo.create({
+            caracteristicaId: id,
+            alias,
+            activo: true,
+          }),
+        );
+
+        await this.aliasRepo.save(nuevosAliases);
+      }
+    }
+
+    return this.findOne(id);
   }
 
   async remove(id: number) {
@@ -164,59 +200,55 @@ async create(dto: CreateCaracteristicaDto) {
       throw new NotFoundException('Característica no encontrada');
     }
 
+    await this.aliasRepo.delete({ caracteristicaId: id });
     await this.aplicabilidadRepo.delete({ caracteristicaId: id });
     await this.repo.delete(id);
 
     return { message: 'Característica eliminada' };
   }
 
-  /**
-   * Devuelve características activas que aplican al giro indicado.
-   *
-   * Reglas:
-   *  - Sin aplicabilidades activas → sin restricción de giro → siempre incluida.
-   *  - Con aplicabilidades activas → se incluye si al menos una coincide con los
-   *    IDs enviados o tiene nivel = 'todos'.
-   *
-   * Implementación en dos pasos para evitar problemas de deduplicación de
-   * TypeORM getMany() cuando el WHERE referencia la tabla joined:
-   *  1. leftJoin + getRawMany + GROUP BY → IDs de características que aplican
-   *  2. Query limpio con IN (:...ids) → carga entidades con sus relaciones
-   */
   async findAplicables(params: {
     categoriaId?: number;
     subcategoriaId?: number;
     especialidadId?: number;
     tipoServicioId?: number;
   }) {
-    const { categoriaId, subcategoriaId, especialidadId, tipoServicioId } = params;
+    const { categoriaId, subcategoriaId, especialidadId, tipoServicioId } =
+      params;
 
-    // Condiciones de coincidencia (solo se agregan las que vienen definidas —
-    // evita comparar campo = NULL en MySQL, que evalúa a NULL y no a FALSE).
     const matchConditions: string[] = ["a.nivel = 'todos'"];
     const bindings: Record<string, number> = {};
 
     if (categoriaId) {
-      matchConditions.push("(a.nivel = 'categoria' AND a.referencia_id = :categoriaId)");
+      matchConditions.push(
+        "(a.nivel = 'categoria' AND a.referencia_id = :categoriaId)",
+      );
       bindings.categoriaId = categoriaId;
     }
+
     if (subcategoriaId) {
-      matchConditions.push("(a.nivel = 'subcategoria' AND a.referencia_id = :subcategoriaId)");
+      matchConditions.push(
+        "(a.nivel = 'subcategoria' AND a.referencia_id = :subcategoriaId)",
+      );
       bindings.subcategoriaId = subcategoriaId;
     }
+
     if (especialidadId) {
-      matchConditions.push("(a.nivel = 'especialidad' AND a.referencia_id = :especialidadId)");
+      matchConditions.push(
+        "(a.nivel = 'especialidad' AND a.referencia_id = :especialidadId)",
+      );
       bindings.especialidadId = especialidadId;
     }
+
     if (tipoServicioId) {
-      matchConditions.push("(a.nivel = 'tipo_servicio' AND a.referencia_id = :tipoServicioId)");
+      matchConditions.push(
+        "(a.nivel = 'tipo_servicio' AND a.referencia_id = :tipoServicioId)",
+      );
       bindings.tipoServicioId = tipoServicioId;
     }
 
-    // Paso 1: Obtener IDs de características aplicables.
-    // leftJoin (sin Select) + GROUP BY → evita duplicados por múltiples aplicabilidades.
-    // a.id IS NULL → LEFT JOIN no encontró ninguna aplicabilidad activa → sin restricción.
     const matchClause = matchConditions.join(' OR ');
+
     const rows = await this.repo
       .createQueryBuilder('c')
       .leftJoin('c.aplicabilidades', 'a', 'a.activo = 1')
@@ -230,39 +262,33 @@ async create(dto: CreateCaracteristicaDto) {
 
     const ids = rows.map((r) => Number(r.id));
 
-    // Paso 2: Cargar entidades completas con sus aplicabilidades.
     return this.repo
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.aplicabilidades', 'apl')
+      .leftJoinAndSelect('c.aliases', 'alias')
       .where('c.id IN (:...ids)', { ids })
       .orderBy('c.categoriaVisual', 'ASC')
       .addOrderBy('c.nombre', 'ASC')
       .getMany();
   }
 
-  /**
-   * Resuelve automáticamente la categoría/subcategoría del negocio de la sucursal
-   * y devuelve las características aplicables. El front solo necesita el sucursalId.
-   *
-   * Usa QueryBuilder con getRawOne() para leer los FK directamente de la tabla negocios
-   * sin depender de carga de relaciones anidadas (que en TypeORM 0.3 requiere sintaxis objeto).
-   */
   async findAplicablesBySucursal(sucursalId: number) {
-    // Raw SQL para leer directamente los FK del negocio sin depender
-    // del mapeo de propiedades del QueryBuilder de TypeORM.
     const rows: Array<{
       sucursalId: string;
       categoriaId: string | null;
       subcategoriaId: string | null;
       especialidadId: string | null;
     }> = await this.sucursalRepo.manager.query(
-      `SELECT s.id AS sucursalId,
-              n.categoria_id    AS categoriaId,
-              n.subcategoria_id AS subcategoriaId,
-              n.especialidad_id AS especialidadId
-       FROM sucursales_negocios s
-       INNER JOIN negocios n ON n.id = s.negocio_id
-       WHERE s.id = ?`,
+      `
+      SELECT 
+        s.id AS sucursalId,
+        n.categoria_id AS categoriaId,
+        n.subcategoria_id AS subcategoriaId,
+        n.especialidad_id AS especialidadId
+      FROM sucursales_negocios s
+      INNER JOIN negocios n ON n.id = s.negocio_id
+      WHERE s.id = ?
+      `,
       [sucursalId],
     );
 
@@ -273,32 +299,36 @@ async create(dto: CreateCaracteristicaDto) {
     const row = rows[0];
 
     return this.findAplicables({
-      categoriaId:    row.categoriaId    ? Number(row.categoriaId)    : undefined,
-      subcategoriaId: row.subcategoriaId ? Number(row.subcategoriaId) : undefined,
-      especialidadId: row.especialidadId ? Number(row.especialidadId) : undefined,
+      categoriaId: row.categoriaId ? Number(row.categoriaId) : undefined,
+      subcategoriaId: row.subcategoriaId
+        ? Number(row.subcategoriaId)
+        : undefined,
+      especialidadId: row.especialidadId
+        ? Number(row.especialidadId)
+        : undefined,
     });
   }
 
   async obtenerAliasesPorCaracteristicaNombre(nombre: string): Promise<string[]> {
-  if (!nombre) return [];
+    if (!nombre) return [];
 
-  const caracteristica = await this.repo.findOne({
-    where: { nombre },
-  });
+    const caracteristica = await this.repo.findOne({
+      where: { nombre },
+    });
 
-  if (!caracteristica) return [];
+    if (!caracteristica) return [];
 
-  const aliases = await this.aliasRepo.find({
-    where: {
-      caracteristicaId: caracteristica.id,
-      activo: true,
-    },
-  });
+    const aliases = await this.aliasRepo.find({
+      where: {
+        caracteristicaId: caracteristica.id,
+        activo: true,
+      },
+    });
 
-  return [
-    caracteristica.nombre,
-    caracteristica.codigo,
-    ...aliases.map((a) => a.alias),
-  ].filter(Boolean);
-}
+    return [
+      caracteristica.nombre,
+      caracteristica.codigo,
+      ...aliases.map((a) => a.alias),
+    ].filter(Boolean);
+  }
 }
