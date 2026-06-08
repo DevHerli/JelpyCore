@@ -9,7 +9,6 @@ import { JelpyAssistantService } from './jelpy-assistant/jelpy-assistant.service
 import { AIResponseBuilder } from './utils/ai-response-builder';
 import { ChatResponses } from './utils/chat-responses';
 import { SearchCacheService } from './utils/search-cache.service';
-import { SugerenciasUtil } from './utils/suggestions.util';
 import { sugerirCorreccion } from './utils/levenshtein.util';
 import { RateLimiterService } from './utils/rate-limiter.service';
 import { ZeroResultLoggerUseCase } from './use-cases/zero-result-logger.usecase';
@@ -19,7 +18,6 @@ import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-pre
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
 import { JelpyAiService } from '../../jelpy-ai/jelpy-ai.service';
 import { ConversationService } from '../conversation/conversation.service';
-import { CaracteristicasSucursalService } from '../../business/caracteristicas_sucursales/caracteristicas-sucursal.service';
 
 @Injectable()
 export class AiService {
@@ -59,155 +57,7 @@ export class AiService {
     private readonly publicidadChatService: PublicidadChatService,
     private readonly usuarioPreferenciasService: UsuarioPreferenciasService,
     private readonly likesService: SucursalLikesService,
-    private readonly caracteristicasSucursalService: CaracteristicasSucursalService,
   ) {}
-
-  private generarRecomendacionProactiva(filtros: any, items: any[]): string {
-    const f = filtros || {};
-    const total = items.length;
-
-    if (total === 0) {
-      return 'No encontré opciones exactas 😕 ¿Quieres que busque algo parecido o en otra ciudad? 🌎';
-    }
-
-    const itemsConPromo = items.filter((i) => i.promo).length;
-    const porcentajePromos = itemsConPromo / total;
-
-    if (itemsConPromo > 0) {
-      if (porcentajePromos >= 0.5) {
-        return 'Puedo mostrarte también opiniones, horarios o negocios parecidos. ¿Quieres ver más opciones similares? 😊';
-      }
-
-      return 'Algunas sucursales tienen promociones activas 🎉 ¿Quieres que te muestre solo las que tienen promo?';
-    }
-
-    if (f.subcategoriaId || f.categoriaId) {
-      return '¿Quieres ver promociones disponibles en esta categoría? 💸';
-    }
-
-    return '¿Quieres ver negocios abiertos ahora cerca de ti? 😊';
-  }
-
-  private obtenerUpsellPorHora(): string {
-    const hora = new Date().getHours();
-
-    if (hora >= 6 && hora < 11) return '¿Te gustaría ver lugares para desayunar? 🥞';
-    if (hora >= 11 && hora < 15) return 'Hora de comer 🍽️ ¿Quieres opciones cerca de ti?';
-    if (hora >= 15 && hora < 19) return '¿Antojo de café o postre? ☕🍰';
-    if (hora >= 19 && hora < 24) return 'Perfecto para cenar 🍕 ¿Buscas algo rico?';
-
-    return '¿Quieres ver lugares abiertos 24 horas? 🌙';
-  }
-
-  private actualizarPreferenciasUsuario(
-    usuarioId: number | undefined,
-    filtros: any,
-    items: any[],
-  ) {
-    if (!usuarioId) return;
-
-    let prefs = this.preferenciasPorUsuario.get(usuarioId);
-
-    if (!prefs) {
-      prefs = { categorias: {}, subcategorias: {}, ciudades: {} };
-      this.preferenciasPorUsuario.set(usuarioId, prefs);
-    }
-
-    const f = filtros || {};
-
-    if (f.categoriaId) {
-      const cid = Number(f.categoriaId);
-      prefs.categorias[cid] = (prefs.categorias[cid] || 0) + 1;
-    }
-
-    if (f.subcategoriaId) {
-      const sid = Number(f.subcategoriaId);
-      prefs.subcategorias[sid] = (prefs.subcategorias[sid] || 0) + 1;
-    }
-
-    if (f.ciudad) {
-      prefs.ciudades[f.ciudad] = (prefs.ciudades[f.ciudad] || 0) + 1;
-    }
-
-    prefs.ultimaBusqueda = {
-      categoriaId: f.categoriaId,
-      subcategoriaId: f.subcategoriaId,
-      ciudad: f.ciudad,
-      fecha: new Date(),
-    };
-  }
-
-  private obtenerTopId(map: Record<number, number>): number | null {
-    const entries = Object.entries(map || {});
-    if (!entries.length) return null;
-
-    entries.sort((a, b) => b[1] - a[1]);
-
-    return Number(entries[0][0]);
-  }
-
-  private obtenerTopClave(map: Record<string, number>): string | null {
-    const entries = Object.entries(map || {});
-    if (!entries.length) return null;
-
-    entries.sort((a, b) => b[1] - a[1]);
-
-    return entries[0][0];
-  }
-
-  private generarMensajeContextual(ciudad?: string): string | null {
-    const now = new Date();
-    const mes = now.getMonth();
-    const dia = now.getDay();
-
-    if (mes === 11 || mes === 0) {
-      return 'Es temporada navideña ✨ Algunos lugares pueden tener menús especiales o horarios distintos.';
-    }
-
-    if (mes >= 5 && mes <= 7) {
-      return 'En temporada de calor muchos lugares se llenan rápido 🥵. Te conviene revisar opciones con reservación.';
-    }
-
-    if (dia === 0 || dia === 6) {
-      return 'Es fin de semana 🎉 Algunos negocios pueden estar más llenos de lo normal.';
-    }
-
-    if (ciudad) return `Buscando en ${ciudad}.`;
-
-    return null;
-  }
-
-  private generarUpsellPersonalizado(
-    usuarioId: number | undefined,
-    filtros: any,
-  ): string {
-    const upsellHora = this.obtenerUpsellPorHora();
-
-    if (!usuarioId) return upsellHora;
-
-    const prefs = this.preferenciasPorUsuario.get(usuarioId);
-
-    if (!prefs) return upsellHora;
-
-    const f = filtros || {};
-    const topSubcategoriaId = this.obtenerTopId(prefs.subcategorias);
-    const topCiudad = this.obtenerTopClave(prefs.ciudades);
-    const topCategoriaId = this.obtenerTopId(prefs.categorias);
-
-    if (topSubcategoriaId && !f.subcategoriaId) {
-      return 'Sueles buscar mucho esta categoría 🔍 ¿Quieres ver promociones relacionadas?';
-    }
-
-    if (topCiudad && f.ciudad && topCiudad !== f.ciudad) {
-      return `También sueles buscar en ${topCiudad}. ¿Quieres opciones ahí? 🌎`;
-    }
-
-    if (topCategoriaId && f.categoriaId && topCategoriaId !== f.categoriaId) {
-      return 'Puedo mostrarte también algo de tus categorías favoritas 😉';
-    }
-
-    return upsellHora;
-  }
 
   private normalizarTexto(texto: string): string {
     return (texto || '')
@@ -219,61 +69,93 @@ export class AiService {
       .trim();
   }
 
-  private async obtenerUltimosFiltrosDeBusqueda(sessionId: string) {
-    const historial = await this.conversationService.obtenerHistorial(sessionId);
-
-    const ultimoTurnoConFiltros = [...historial]
-      .reverse()
-      .find((t) => {
-        const metadata = t.metadata as any;
-
-        return (
-          t.rol === 'assistant' &&
-          metadata?.filtros &&
-          (
-            metadata.filtros.categoriaId ||
-            metadata.filtros.subcategoriaId ||
-            metadata.filtros.especialidadId ||
-            metadata.filtros.ciudad
-          )
-        );
-      });
-
-    return (ultimoTurnoConFiltros?.metadata as any)?.filtros ?? null;
+  private generarSugerenciasGenericas(ciudad?: string): string[] {
+    return [
+      ciudad ? `¿Quieres buscar otra cosa en ${ciudad}?` : '¿Quieres hacer otra búsqueda?',
+      '¿Quieres buscar algo cerca de ti?',
+    ];
   }
 
-  private async aplicarContextoSiEsCaracteristicaSola(
-    filtrosActuales: any,
-    sessionId: string,
-  ): Promise<any> {
-    if (!filtrosActuales?.caracteristica) return filtrosActuales;
+  private esSeleccionDeSugerenciaNoConfiable(texto: string): boolean {
+    const norm = this.normalizarTexto(texto);
 
-    const noTieneGiro =
-      !filtrosActuales.categoriaId &&
-      !filtrosActuales.subcategoriaId &&
-      !filtrosActuales.especialidadId;
+    return (
+      norm.startsWith('quieres ver cuales tienen') ||
+      norm.startsWith('tambien buscas') ||
+      norm.startsWith('buscas el mas cercano') ||
+      norm.startsWith('quieres ver los que') ||
+      norm.startsWith('quieres ver cuales') ||
+      norm.includes('refresco frio') ||
+      norm.includes('refrescos frios')
+    );
+  }
 
-    if (!noTieneGiro) return filtrosActuales;
+  private generarRecomendacionProactiva(filtros: any, items: any[]): string {
+    if (items.length === 0) {
+      return 'No encontré opciones exactas 😕 Puedes intentar con otra palabra, giro o ciudad.';
+    }
 
-    const filtrosPrevios = await this.obtenerUltimosFiltrosDeBusqueda(sessionId);
+    if (items.some((i) => i.promo)) {
+      return 'Algunos resultados pueden tener promociones activas 🎉 Revisa el perfil para más detalles.';
+    }
 
-    if (!filtrosPrevios) return filtrosActuales;
+    if (filtros?.subcategoriaId || filtros?.categoriaId) {
+      return 'Puedes abrir el perfil de cualquier opción para ver más información.';
+    }
 
-    return {
-      ...filtrosActuales,
-      categoriaId: filtrosPrevios.categoriaId ?? filtrosActuales.categoriaId,
-      subcategoriaId: filtrosPrevios.subcategoriaId ?? filtrosActuales.subcategoriaId,
-      especialidadId: filtrosPrevios.especialidadId ?? filtrosActuales.especialidadId,
-      ciudad: filtrosActuales.ciudad ?? filtrosPrevios.ciudad,
-      ciudadId: filtrosActuales.ciudadId ?? filtrosPrevios.ciudadId,
-      contextoHeredado: true,
-      contextoHeredadoDesde: {
-        categoriaId: filtrosPrevios.categoriaId ?? null,
-        subcategoriaId: filtrosPrevios.subcategoriaId ?? null,
-        especialidadId: filtrosPrevios.especialidadId ?? null,
-        ciudad: filtrosPrevios.ciudad ?? null,
-      },
+    return 'Puedes buscar por negocio, categoría, ciudad o algo cercano a ti.';
+  }
+
+  private obtenerUpsellPorHora(): string {
+    const hora = new Date().getHours();
+
+    if (hora >= 6 && hora < 11) return 'También puedo ayudarte a buscar desayunos, café o lugares abiertos.';
+    if (hora >= 11 && hora < 15) return 'También puedo ayudarte a buscar lugares para comer cerca de ti.';
+    if (hora >= 15 && hora < 19) return 'También puedo ayudarte a buscar café, postres o tiendas cercanas.';
+    if (hora >= 19 && hora < 24) return 'También puedo ayudarte a buscar opciones para cenar o lugares abiertos.';
+
+    return 'También puedo ayudarte a buscar lugares abiertos o servicios 24 horas.';
+  }
+
+  private actualizarPreferenciasUsuario(
+    usuarioId: number | undefined,
+    filtros: any,
+    items: any[],
+  ) {
+    if (!usuarioId || !items.length) return;
+
+    let prefs = this.preferenciasPorUsuario.get(usuarioId);
+
+    if (!prefs) {
+      prefs = { categorias: {}, subcategorias: {}, ciudades: {} };
+      this.preferenciasPorUsuario.set(usuarioId, prefs);
+    }
+
+    if (filtros?.categoriaId) {
+      const id = Number(filtros.categoriaId);
+      prefs.categorias[id] = (prefs.categorias[id] || 0) + 1;
+    }
+
+    if (filtros?.subcategoriaId) {
+      const id = Number(filtros.subcategoriaId);
+      prefs.subcategorias[id] = (prefs.subcategorias[id] || 0) + 1;
+    }
+
+    if (filtros?.ciudad) {
+      prefs.ciudades[filtros.ciudad] = (prefs.ciudades[filtros.ciudad] || 0) + 1;
+    }
+
+    prefs.ultimaBusqueda = {
+      categoriaId: filtros?.categoriaId,
+      subcategoriaId: filtros?.subcategoriaId,
+      ciudad: filtros?.ciudad,
+      fecha: new Date(),
     };
+  }
+
+  private generarMensajeContextual(ciudad?: string): string | null {
+    if (ciudad) return `Buscando en ${ciudad}.`;
+    return null;
   }
 
   async processUserMessage(
@@ -325,11 +207,7 @@ export class AiService {
     );
 
     if (!moderacion.permitido) {
-      await this.conversationService.guardarTurnoUsuario(
-        idSesionActiva,
-        input,
-        'rechazado',
-      );
+      await this.conversationService.guardarTurnoUsuario(idSesionActiva, input, 'rechazado');
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
@@ -345,18 +223,13 @@ export class AiService {
         motivo: moderacion.motivo,
         respuesta: {
           titulo: 'No puedo procesar ese mensaje',
-          mensaje:
-            'Detecté lenguaje inapropiado o agresivo. Si quieres, reformula tu mensaje y con gusto te ayudo.',
+          mensaje: 'Detecté lenguaje inapropiado o agresivo. Reformula tu mensaje y con gusto te ayudo.',
         },
       };
     }
 
     if (moderacion.advertencia === 'mantener_respecto') {
-      await this.conversationService.guardarTurnoUsuario(
-        idSesionActiva,
-        input,
-        'advertencia',
-      );
+      await this.conversationService.guardarTurnoUsuario(idSesionActiva, input, 'advertencia');
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
@@ -371,8 +244,39 @@ export class AiService {
         mensajeCorregido: textoCorregido,
         respuesta: {
           titulo: 'Por favor mantén un lenguaje respetuoso.',
+          mensaje: 'Estoy aquí para ayudarte. Reformula tu mensaje y con gusto continuamos.',
+        },
+      };
+    }
+
+    if (this.esSeleccionDeSugerenciaNoConfiable(textoCorregido)) {
+      const sugerencias = this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad);
+
+      await this.conversationService.guardarTurnoUsuario(
+        idSesionActiva,
+        input,
+        'sugerencia_generica',
+      );
+
+      await this.conversationService.guardarTurnoAsistente(
+        idSesionActiva,
+        'Puedo ayudarte con otra búsqueda.',
+        {
+          intent: 'sugerencia_generica',
+          sugerencias,
+        },
+      );
+
+      return {
+        sessionId: idSesionActiva,
+        status: 'chat',
+        mensajeOriginal: input,
+        mensajeCorregido: textoCorregido,
+        respuesta: {
+          titulo: 'Te ayudo',
           mensaje:
-            'Estoy aquí para ayudarte. Reformula tu mensaje y con gusto continuamos.',
+            'Para evitar mostrarte resultados incorrectos, dime qué quieres buscar con una frase directa. Por ejemplo: “abarrotes en Tepic”, “farmacias abiertas” o “mariscos cerca de mí”.',
+          sugerencias,
         },
       };
     }
@@ -435,11 +339,12 @@ export class AiService {
 
     if (aiIntent.reply?.mode === 'direct_reply' && !esBusquedaReal) {
       const respuestaTexto = aiIntent.reply.message || '';
+      const sugerencias = this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad);
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
         respuestaTexto,
-        { intent: aiIntent.intent },
+        { intent: aiIntent.intent, sugerencias },
       );
 
       return {
@@ -450,7 +355,7 @@ export class AiService {
         respuesta: {
           titulo: aiIntent.reply.title,
           mensaje: respuestaTexto,
-          sugerencias: aiIntent.reply.suggestions ?? [],
+          sugerencias,
         },
         debug: { aiIntent },
       };
@@ -513,7 +418,7 @@ export class AiService {
             titulo: 'Lo siento',
             mensaje:
               'Entiendo que no encontraste lo que buscabas 😔 Cuéntame qué necesitas con otras palabras y hago mi mejor esfuerzo para ayudarte.',
-            sugerencias: ['Intenta con otra palabra', '¿Qué ciudad buscas?'],
+            sugerencias: this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad),
           },
         };
       }
@@ -526,10 +431,12 @@ export class AiService {
         historialTurnos: historialPrevio.length,
       });
 
+      const sugerencias = this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad);
+
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
         respuestaChat.mensaje,
-        { intent: 'chat' },
+        { intent: 'chat', sugerencias },
       );
 
       return {
@@ -537,7 +444,10 @@ export class AiService {
         status: 'chat',
         mensajeOriginal: input,
         mensajeCorregido: textoCorregido,
-        respuesta: respuestaChat,
+        respuesta: {
+          ...respuestaChat,
+          sugerencias,
+        },
         debug: { aiIntent },
       };
     }
@@ -548,7 +458,6 @@ export class AiService {
     const cacheKey = `${ciudadBusqueda}:${textoParaProcesar.toLowerCase().trim()}`;
 
     let interpretacion: any = null;
-
     const cachedRaw = null;
 
     if (cachedRaw && Date.now() < cachedRaw.expiresAt) {
@@ -562,12 +471,6 @@ export class AiService {
         ciudadBusqueda,
         usuarioId,
       );
-
-      interpretacion.filtros_detectados =
-        await this.aplicarContextoSiEsCaracteristicaSola(
-          interpretacion.filtros_detectados ?? {},
-          idSesionActiva,
-        );
 
       const itemsCount = interpretacion.resultados?.items?.length ?? 0;
 
@@ -854,19 +757,12 @@ export class AiService {
         .catch(() => null);
     }
 
-    const recomendacion = this.generarRecomendacionProactiva(
+    friendly.recomendacion = this.generarRecomendacionProactiva(
       interpretacion.filtros_detectados,
       items,
     );
 
-    if (recomendacion) friendly.recomendacion = recomendacion;
-
-    const upsell = this.generarUpsellPersonalizado(
-      usuarioId,
-      interpretacion.filtros_detectados,
-    );
-
-    if (upsell) friendly.upsell = upsell;
+    friendly.upsell = this.obtenerUpsellPorHora();
 
     const contextoMsg = this.generarMensajeContextual(
       interpretacion.filtros_detectados?.ciudad,
@@ -874,58 +770,11 @@ export class AiService {
 
     if (contextoMsg) friendly.contexto = contextoMsg;
 
-    const historialParaSugerencias =
-      await this.conversationService.obtenerHistorial(idSesionActiva);
-
-    const sugerenciasDeHistorial: string[] = historialParaSugerencias
-      .filter(
-        (t) =>
-          t.rol === 'assistant' &&
-          Array.isArray((t.metadata as any)?.sugerencias),
-      )
-      .flatMap((t) => (t.metadata as any).sugerencias as string[]);
-
-    const sugerenciasYaMostradas = Array.from(
-      new Set([...sugerenciasDeHistorial, input, textoCorregido]),
-    );
-
-    const subcategoriaHint = items[0]?.subcategoria ?? '';
-    const categoriaHint = items[0]?.categoria ?? '';
-
-    const filtrosDetectados = interpretacion.filtros_detectados ?? {};
-
-    let caracteristicaAliases: string[] = [];
-
-    if (filtrosDetectados.caracteristica) {
-      try {
-        caracteristicaAliases =
-          await this.caracteristicasSucursalService.obtenerAliasesPorCaracteristicaNombre(
-            filtrosDetectados.caracteristica,
-          );
-      } catch {
-        this.logger.warn(
-          `No se pudieron obtener aliases para característica: ${filtrosDetectados.caracteristica}`,
-        );
-
-        caracteristicaAliases = [];
-      }
-    }
-
-    const sugerencias = SugerenciasUtil.generar(
-      {
-        ...(interpretacion.filtros_detectados ?? {}),
-        subcategoriaHint,
-        categoriaHint,
-        caracteristicaAliases,
-      },
-      items,
+    const sugerencias = this.generarSugerenciasGenericas(
       interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
-      sugerenciasYaMostradas,
     );
 
-    if (sugerencias.length > 0) {
-      friendly.sugerencias = sugerencias;
-    }
+    friendly.sugerencias = sugerencias;
 
     await this.conversationService.guardarTurnoAsistente(
       idSesionActiva,
@@ -972,14 +821,12 @@ export class AiService {
   autocomplete(q: string, ciudad?: string): string[] {
     if (!q || q.trim().length < 2) return [];
 
-    const normalizar = (s: string) => this.normalizarTexto(s);
-
-    const qNorm = normalizar(q.trim());
+    const qNorm = this.normalizarTexto(q.trim());
     const resultados = new Set<string>();
 
     for (const categoria of JELPY_SEMANTIC_CATEGORIES) {
       for (const alias of categoria.aliases) {
-        const aliasNorm = normalizar(alias);
+        const aliasNorm = this.normalizarTexto(alias);
 
         if (aliasNorm.startsWith(qNorm) || aliasNorm.includes(qNorm)) {
           resultados.add(alias);
@@ -993,8 +840,8 @@ export class AiService {
 
     return [...resultados]
       .sort((a, b) => {
-        const aN = normalizar(a);
-        const bN = normalizar(b);
+        const aN = this.normalizarTexto(a);
+        const bN = this.normalizarTexto(b);
         const aStarts = aN.startsWith(qNorm) ? 0 : 1;
         const bStarts = bN.startsWith(qNorm) ? 0 : 1;
 

@@ -232,14 +232,34 @@ export class SearchService {
       });
     }
 
-    if (params.caracteristica) {
-      qb.andWhere(
-        `${this.sqlNormalize('v.caracteristicas_keywords')} LIKE :caracteristica`,
-        {
-          caracteristica: `%${caracteristicaNorm}%`,
-        },
-      );
-    }
+if (params.caracteristica) {
+  qb.innerJoin(
+    'sucursales_caracteristicas',
+    'scf',
+    'scf.sucursal_id = v.sucursal_id AND scf.valor = 1',
+  );
+
+  qb.innerJoin(
+    'caracteristicas_sucursal',
+    'cf',
+    'cf.id = scf.caracteristica_id AND cf.activo = 1',
+  );
+
+  qb.leftJoin(
+    'caracteristicas_aliases',
+    'caf',
+    'caf.caracteristica_id = cf.id AND caf.activo = 1',
+  );
+
+  qb.andWhere(
+    new Brackets((b) => {
+      b.where(`${this.sqlNormalize('cf.nombre')} LIKE :caracteristica`)
+        .orWhere(`${this.sqlNormalize('cf.codigo')} LIKE :caracteristica`)
+        .orWhere(`${this.sqlNormalize('caf.alias')} LIKE :caracteristica`);
+    }),
+    { caracteristica: `%${caracteristicaNorm}%` },
+  );
+}
 
     const esBusquedaGenericaDePromos =
       !!params.promos &&
@@ -662,15 +682,35 @@ export class SearchService {
     }
 
     if (params.caracteristica) {
-      const caracteristicaNorm = normalizeBasic(params.caracteristica);
+  const caracteristicaNorm = normalizeBasic(params.caracteristica);
 
-      qb.andWhere(
-        `${this.sqlNormalize('v.caracteristicas_keywords')} LIKE :caracteristica`,
-        {
-          caracteristica: `%${caracteristicaNorm}%`,
-        },
-      );
-    }
+  qb.innerJoin(
+    'sucursales_caracteristicas',
+    'scf',
+    'scf.sucursal_id = v.sucursal_id AND scf.valor = 1',
+  );
+
+  qb.innerJoin(
+    'caracteristicas_sucursal',
+    'cf',
+    'cf.id = scf.caracteristica_id AND cf.activo = 1',
+  );
+
+  qb.leftJoin(
+    'caracteristicas_aliases',
+    'caf',
+    'caf.caracteristica_id = cf.id AND caf.activo = 1',
+  );
+
+  qb.andWhere(
+    new Brackets((b) => {
+      b.where(`${this.sqlNormalize('cf.nombre')} LIKE :caracteristica`)
+        .orWhere(`${this.sqlNormalize('cf.codigo')} LIKE :caracteristica`)
+        .orWhere(`${this.sqlNormalize('caf.alias')} LIKE :caracteristica`);
+    }),
+    { caracteristica: `%${caracteristicaNorm}%` },
+  );
+}
 
     if (tokens.length === 0) {
       qb.andWhere(
