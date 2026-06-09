@@ -510,10 +510,6 @@ for (const a of aliases) {
       }
     }
 
-    if ((ai.entities as any)?.caracteristica) {
-      filtros.caracteristica = String((ai.entities as any).caracteristica).trim();
-    }
-
     const textoNormalizado = ai.normalized_text || '';
 
     const entidadPrincipal =
@@ -536,20 +532,51 @@ for (const a of aliases) {
         '';
     }
 
-    const caracteristicaBD = await this.detectarCaracteristicaDesdeBD(
-      textoOriginal || ai.normalized_text || '',
-    );
+    // --- Característica: FastAPI como fuente principal, BD como fallback ---
+    const fdCaracteristica: string | null =
+      ai.filtros_detectados?.caracteristica ?? null;
+    const fdCaracteristicaNombre: string | null =
+      ai.filtros_detectados?.caracteristicaNombre ?? null;
+    const fdCaracteristicas: string[] =
+      ai.filtros_detectados?.caracteristicas ?? [];
 
-    if (caracteristicaBD) {
-      filtros.caracteristica = caracteristicaBD.nombre;
-      filtros.caracteristicaAliases = caracteristicaBD.aliases ?? [];
+    if (fdCaracteristica) {
+      // Usar el nombre legible para que SearchService haga LIKE en cf.nombre
+      filtros.caracteristica = fdCaracteristicaNombre ?? fdCaracteristica;
+      if (fdCaracteristicas.length > 0) {
+        filtros.caracteristicas = fdCaracteristicas;
+      }
 
-      const qSinCaracteristica = this.limpiarTextoSinCaracteristica(
+      // Limpiar la q del texto de la característica
+      const qLimpia = this.limpiarTextoSinCaracteristica(
         textoOriginal || ai.normalized_text || '',
-        caracteristicaBD,
+        {
+          id: 0,
+          nombre: fdCaracteristicaNombre ?? '',
+          codigo: fdCaracteristica,
+          aliasDetectado: '',
+          aliasNormalizado: '',
+          aliases: [],
+        },
+      );
+      if (qLimpia) filtros.q = qLimpia;
+    } else {
+      // Fallback: detección local contra la BD de aliases
+      const caracteristicaBD = await this.detectarCaracteristicaDesdeBD(
+        textoOriginal || ai.normalized_text || '',
       );
 
-      filtros.q = qSinCaracteristica || undefined;
+      if (caracteristicaBD) {
+        filtros.caracteristica = caracteristicaBD.nombre;
+        filtros.caracteristicaAliases = caracteristicaBD.aliases ?? [];
+
+        const qSinCaracteristica = this.limpiarTextoSinCaracteristica(
+          textoOriginal || ai.normalized_text || '',
+          caracteristicaBD,
+        );
+
+        filtros.q = qSinCaracteristica || undefined;
+      }
     }
 
     const soloCaracteristica =

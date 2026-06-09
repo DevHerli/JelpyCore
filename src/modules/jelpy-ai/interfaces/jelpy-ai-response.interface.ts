@@ -19,4 +19,16 @@ export interface JelpyAiResponse {
     message?: string | null;
     suggestions?: string[];
   };
+  /** Campos estructurados retornados directamente por FastAPI */
+  filtros_detectados?: {
+    categoriaId?: number | null;
+    subcategoriaId?: number | null;
+    ciudad?: string | null;
+    /** Código de la característica principal, ej. "24_HORAS" */
+    caracteristica?: string | null;
+    /** Nombre legible de la característica principal, ej. "Abierto 24 horas" */
+    caracteristicaNombre?: string | null;
+    /** Array de códigos de características detectadas */
+    caracteristicas?: string[] | null;
+  };
 }
