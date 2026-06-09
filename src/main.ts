@@ -74,11 +74,18 @@ async function bootstrap() {
         normalizedOrigin === 'http://127.0.0.1' ||
         normalizedOrigin === 'https://127.0.0.1';
 
+      // Capacitor/Ionic en dispositivo físico — siempre permitido (no es spoofeble desde browser)
       const isMobileWebView =
         normalizedOrigin === 'capacitor://localhost' ||
-        normalizedOrigin === 'ionic://localhost';
+        normalizedOrigin === 'ionic://localhost' ||
+        normalizedOrigin === 'https://localhost';
 
-      if (!isProd && (isLocalhost || isMobileWebView)) {
+      if (isMobileWebView) {
+        callback(null, true);
+        return;
+      }
+
+      if (!isProd && isLocalhost) {
         callback(null, true);
         return;
       }
