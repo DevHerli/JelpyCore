@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Req,
   UploadedFile,
   UseInterceptors,
   UseGuards,
@@ -81,11 +82,16 @@ export class NegociosController {
 
   @Put(':id')
   @UseGuards(JwtAuthGuard)
-  actualizar(
+  async actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateNegocioDto,
+    @Req() req: any,
   ) {
-    return this.negociosService.actualizar(id, dto);
+    const esSuperAdmin = this.esSuperAdmin(req.user);
+    if (esSuperAdmin) {
+      return this.negociosService.actualizarComoAdmin(id, dto);
+    }
+    return this.negociosService.actualizarComoOwner(id, dto, req.user?.sub ?? req.user?.id);
   }
 
   @Put(':id/logo')
@@ -94,9 +100,21 @@ export class NegociosController {
   async actualizarLogo(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
   ) {
     if (!file) {
       throw new BadRequestException('No se envió ninguna imagen.');
+    }
+
+    const esSuperAdmin = this.esSuperAdmin(req.user);
+
+    // Si no es admin, verificar ownership antes de continuar
+    if (!esSuperAdmin) {
+      await this.negociosService.actualizarComoOwner(
+        id,
+        {} as any,
+        req.user?.sub ?? req.user?.id,
+      );
     }
 
     const negocio = await this.negociosService.obtenerPorId(id);
@@ -110,7 +128,7 @@ export class NegociosController {
       await this.cloudinary.destroy(negocio.logoUrl);
     }
 
-    await this.negociosService.actualizar(id, { logoUrl: nuevoLogoUrl } as any);
+    await this.negociosService.actualizarComoAdmin(id, { logoUrl: nuevoLogoUrl } as any);
 
     return {
       success: true,
@@ -125,18 +143,36 @@ export class NegociosController {
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
-  async eliminar(@Param('id', ParseIntPipe) id: number) {
+  async eliminar(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     const negocio = await this.negociosService.obtenerPorId(id);
 
     if (negocio.logoUrl) {
       await this.cloudinary.destroy(negocio.logoUrl);
     }
 
-    await this.negociosService.eliminar(id);
+    const esSuperAdmin = this.esSuperAdmin(req.user);
+    if (esSuperAdmin) {
+      await this.negociosService.eliminarComoAdmin(id);
+    } else {
+      await this.negociosService.eliminarComoOwner(id, req.user?.sub ?? req.user?.id);
+    }
 
     return {
       success: true,
       message: 'Negocio eliminado correctamente (eliminado lógico).',
     };
+  }
+
+  // ============================================================
+  // HELPERS
+  // ============================================================
+
+  /** Devuelve true si el token pertenece a un SuperAdmin del panel */
+  private esSuperAdmin(user: any): boolean {
+    return (
+      user?.rol === 'SuperAdmin' ||
+      user?.tipo_usuario === 'SuperAdmin' ||
+      (Array.isArray(user?.roles) && user.roles.includes('SuperAdmin'))
+    );
   }
 }

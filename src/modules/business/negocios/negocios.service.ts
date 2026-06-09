@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -271,5 +271,56 @@ export class NegociosService {
 
     negocio.eliminado = true;
     await this.negocioRepo.save(negocio);
+  }
+
+  // ============================================================
+  // CONTROL DE ACCESO: Admin vs Owner
+  // ============================================================
+
+  /** Elimina sin validar ownership — solo para SuperAdmin del panel */
+  async eliminarComoAdmin(id: number): Promise<void> {
+    await this.eliminar(id);
+  }
+
+  /** Elimina validando que el userId sea el dueño del negocio */
+  async eliminarComoOwner(id: number, userId: number): Promise<void> {
+    const negocio = await this.negocioRepo.findOne({
+      where: { id, eliminado: false },
+      relations: ['suscriptor'],
+    });
+
+    if (!negocio) throw new NotFoundException('Negocio no encontrado');
+
+    if (Number(negocio.suscriptor?.id) !== Number(userId)) {
+      throw new UnauthorizedException('No eres el dueño de este negocio');
+    }
+
+    negocio.eliminado = true;
+    await this.negocioRepo.save(negocio);
+  }
+
+  /** Actualiza sin validar ownership — solo para SuperAdmin del panel */
+  async actualizarComoAdmin(id: number, dto: UpdateNegocioDto): Promise<Negocio> {
+    return this.actualizar(id, dto);
+  }
+
+  /** Actualiza validando que el userId sea el dueño del negocio */
+  async actualizarComoOwner(
+    id: number,
+    dto: UpdateNegocioDto,
+    userId: number,
+  ): Promise<Negocio> {
+    const negocio = await this.negocioRepo.findOne({
+      where: { id, eliminado: false },
+      relations: ['suscriptor'],
+    });
+
+    if (!negocio) throw new NotFoundException('Negocio no encontrado');
+
+    if (Number(negocio.suscriptor?.id) !== Number(userId)) {
+      throw new UnauthorizedException('No eres el dueño de este negocio');
+    }
+
+    return this.actualizar(id, dto);
   }
 }
