@@ -33,10 +33,13 @@ async function bootstrap() {
     [
       'http://localhost:4200',
       'http://localhost:3000',
+      'http://localhost:3001',
       'http://localhost:8100',
       'http://localhost:8101',
       'http://localhost',
+      'https://localhost',
       'http://127.0.0.1',
+      'https://127.0.0.1',
       'capacitor://localhost',
       'ionic://localhost',
       'https://jelpy.mx',
@@ -54,27 +57,33 @@ async function bootstrap() {
         return;
       }
 
+      const normalizedOrigin = origin.trim();
+
+      if (allowedOrigins.includes(normalizedOrigin)) {
+        callback(null, true);
+        return;
+      }
+
       const isLocalhost =
-        origin.startsWith('http://localhost:') ||
-        origin.startsWith('http://127.0.0.1:') ||
-        origin === 'http://localhost' ||
-        origin === 'http://127.0.0.1';
+        normalizedOrigin.startsWith('http://localhost:') ||
+        normalizedOrigin.startsWith('https://localhost:') ||
+        normalizedOrigin.startsWith('http://127.0.0.1:') ||
+        normalizedOrigin.startsWith('https://127.0.0.1:') ||
+        normalizedOrigin === 'http://localhost' ||
+        normalizedOrigin === 'https://localhost' ||
+        normalizedOrigin === 'http://127.0.0.1' ||
+        normalizedOrigin === 'https://127.0.0.1';
 
-      const isCapacitor =
-        origin === 'capacitor://localhost' ||
-        origin === 'ionic://localhost';
+      const isMobileWebView =
+        normalizedOrigin === 'capacitor://localhost' ||
+        normalizedOrigin === 'ionic://localhost';
 
-      if (!isProd && (isLocalhost || isCapacitor)) {
+      if (!isProd && (isLocalhost || isMobileWebView)) {
         callback(null, true);
         return;
       }
 
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error(`CORS: origen no permitido → ${origin}`));
+      callback(new Error(`CORS: origen no permitido → ${normalizedOrigin}`));
     },
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Accept', 'Authorization'],
@@ -113,7 +122,7 @@ async function bootstrap() {
       swaggerOptions: { persistAuthorization: true },
     });
 
-    Logger.log(`Swagger disponible en /docs`, 'Bootstrap');
+    Logger.log('Swagger disponible en /docs', 'Bootstrap');
   }
 
   const port = process.env.PORT || 3001;
