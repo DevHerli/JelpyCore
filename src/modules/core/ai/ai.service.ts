@@ -18,6 +18,7 @@ import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-pre
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
 import { JelpyAiService } from '../../jelpy-ai/jelpy-ai.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { SugerenciasUtil } from './utils/suggestions.util';
 
 @Injectable()
 export class AiService {
@@ -74,20 +75,6 @@ export class AiService {
       ciudad ? `¿Quieres buscar otra cosa en ${ciudad}?` : '¿Quieres hacer otra búsqueda?',
       '¿Quieres buscar algo cerca de ti?',
     ];
-  }
-
-  private esSeleccionDeSugerenciaNoConfiable(texto: string): boolean {
-    const norm = this.normalizarTexto(texto);
-
-    return (
-      norm.startsWith('quieres ver cuales tienen') ||
-      norm.startsWith('tambien buscas') ||
-      norm.startsWith('buscas el mas cercano') ||
-      norm.startsWith('quieres ver los que') ||
-      norm.startsWith('quieres ver cuales') ||
-      norm.includes('refresco frio') ||
-      norm.includes('refrescos frios')
-    );
   }
 
   private generarRecomendacionProactiva(filtros: any, items: any[]): string {
@@ -245,38 +232,6 @@ export class AiService {
         respuesta: {
           titulo: 'Por favor mantén un lenguaje respetuoso.',
           mensaje: 'Estoy aquí para ayudarte. Reformula tu mensaje y con gusto continuamos.',
-        },
-      };
-    }
-
-    if (this.esSeleccionDeSugerenciaNoConfiable(textoCorregido)) {
-      const sugerencias = this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad);
-
-      await this.conversationService.guardarTurnoUsuario(
-        idSesionActiva,
-        input,
-        'sugerencia_generica',
-      );
-
-      await this.conversationService.guardarTurnoAsistente(
-        idSesionActiva,
-        'Puedo ayudarte con otra búsqueda.',
-        {
-          intent: 'sugerencia_generica',
-          sugerencias,
-        },
-      );
-
-      return {
-        sessionId: idSesionActiva,
-        status: 'chat',
-        mensajeOriginal: input,
-        mensajeCorregido: textoCorregido,
-        respuesta: {
-          titulo: 'Te ayudo',
-          mensaje:
-            'Para evitar mostrarte resultados incorrectos, dime qué quieres buscar con una frase directa. Por ejemplo: “abarrotes en Tepic”, “farmacias abiertas” o “mariscos cerca de mí”.',
-          sugerencias,
         },
       };
     }
@@ -458,7 +413,7 @@ export class AiService {
     const cacheKey = `${ciudadBusqueda}:${textoParaProcesar.toLowerCase().trim()}`;
 
     let interpretacion: any = null;
-    const cachedRaw = null;
+    const cachedRaw = (this.searchCache as any).cache?.get(cacheKey);
 
     if (cachedRaw && Date.now() < cachedRaw.expiresAt) {
       interpretacion = cachedRaw.data;
@@ -770,11 +725,33 @@ export class AiService {
 
     if (contextoMsg) friendly.contexto = contextoMsg;
 
-    const sugerencias = this.generarSugerenciasGenericas(
-      interpretacion.filtros_detectados?.ciudad ?? ciudadBusqueda,
+    // ── SUGERENCIAS CONTEXTUALES SIN REPETICIÓN ───────────────────────
+    // 1. Carga sugerencias ya mostradas en turnos anteriores (historial DB)
+    const historialParaSugerencias = await this.conversationService.obtenerHistorial(idSesionActiva);
+    const sugerenciasDeHistorial: string[] = historialParaSugerencias
+      .filter((t) => t.rol === 'assistant' && Array.isArray((t.metadata as any)?.sugerencias))
+      .flatMap((t) => (t.metadata as any).sugerencias as string[]);
+
+    // 2. Añadir el texto actual del usuario → la sugerencia tocada nunca reaparece
+    //    aunque el sessionId no sea persistente entre requests.
+    const yaUsadas = Array.from(new Set([...sugerenciasDeHistorial, input, textoCorregido]));
+
+    // 3. Generar pool contextual según categoría/subcategoría/característica
+    const filtrosDetectados = interpretacion.filtros_detectados ?? {};
+    const sugerencias = SugerenciasUtil.generar(
+      {
+        categoriaId:       filtrosDetectados.categoriaId,
+        subcategoriaId:    filtrosDetectados.subcategoriaId,
+        subcategoriaHint:  items[0]?.subcategoria ?? filtrosDetectados.subcategoriaHint ?? '',
+        categoriaHint:     items[0]?.categoria    ?? filtrosDetectados.categoriaHint    ?? '',
+        caracteristica:    filtrosDetectados.caracteristica ?? null,
+      },
+      items,
+      filtrosDetectados.ciudad ?? ciudadBusqueda,
+      yaUsadas,
     );
 
-    friendly.sugerencias = sugerencias;
+    if (sugerencias.length > 0) friendly.sugerencias = sugerencias;
 
     await this.conversationService.guardarTurnoAsistente(
       idSesionActiva,
@@ -782,8 +759,8 @@ export class AiService {
       {
         intent: aiIntent.intent,
         totalResultados: items.length,
-        filtros: interpretacion.filtros_detectados,
-        sugerencias,
+        filtros: filtrosDetectados,
+        sugerencias,   // se persiste para deduplicar en el próximo turno
       },
     );
 
