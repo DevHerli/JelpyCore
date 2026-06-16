@@ -1,5 +1,6 @@
 import {
   Injectable,
+  NotFoundException,
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -101,11 +102,42 @@ export class SupportService {
 
   // ─── Listar tickets de un negocio ───────────────────────────────────────────
 
-  async listarPorNegocio(negocioId: number): Promise<SupportTicket[]> {
-    return this.ticketRepo.find({
+  async listarPorNegocio(negocioId: number) {
+    const tickets = await this.ticketRepo.find({
       where: { negocioId },
       order: { createdAt: 'DESC' },
     });
+
+    return tickets.map((t) => ({
+      id:              t.id,
+      folio:           t.folio,
+      estado:          t.estado,
+      prioridad:       t.prioridad,
+      categoria_label: t.categoriaLabel,
+      problema_label:  t.problemaLabel,
+      created_at:      t.createdAt,
+    }));
+  }
+
+  // ─── Detalle de un ticket por folio ─────────────────────────────────────────
+
+  async obtenerPorFolio(folio: string) {
+    const ticket = await this.ticketRepo.findOne({ where: { folio } });
+
+    if (!ticket) {
+      throw new NotFoundException(`No se encontró el ticket con folio ${folio}`);
+    }
+
+    return {
+      folio:            ticket.folio,
+      estado:           ticket.estado,
+      prioridad:        ticket.prioridad,
+      categoria_label:  ticket.categoriaLabel,
+      problema_label:   ticket.problemaLabel,
+      descripcion:      ticket.descripcion,
+      created_at:       ticket.createdAt,
+      respuesta_agente: ticket.respuestaAgente ?? null,
+    };
   }
 
   // ─── Helpers privados ───────────────────────────────────────────────────────

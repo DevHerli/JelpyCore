@@ -5,6 +5,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Query,
 } from '@nestjs/common';
@@ -37,10 +38,23 @@ export class SupportController {
    * Listar tickets de un negocio (para "Mis solicitudes" en el panel).
    *
    * GET /support/tickets?negocio_id=42
+   * Devuelve: id, folio, estado, prioridad, categoria_label, problema_label, created_at
    * Ordenado por created_at DESC.
    */
   @Get('tickets')
   listarPorNegocio(@Query('negocio_id') negocioId: string) {
     return this.supportService.listarPorNegocio(Number(negocioId));
+  }
+
+  /**
+   * Detalle completo de un ticket por folio.
+   *
+   * GET /support/tickets/JLP-KPA86Y
+   * Devuelve: folio, estado, prioridad, categoria_label, problema_label,
+   *           descripcion, created_at, respuesta_agente
+   */
+  @Get('tickets/:folio')
+  obtenerPorFolio(@Param('folio') folio: string) {
+    return this.supportService.obtenerPorFolio(folio);
   }
 }

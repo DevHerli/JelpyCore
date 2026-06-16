@@ -64,6 +64,10 @@ export class SupportTicket {
   })
   estado: EstadoTicket;
 
+  // Respuesta visible para el suscriptor (llenada por el agente desde el panel)
+  @Column({ name: 'respuesta_agente', type: 'text', nullable: true })
+  respuestaAgente: string | null;
+
   // Gestión interna — solo visible desde el panel admin
   @Column({ name: 'agente_id', type: 'bigint', unsigned: true, nullable: true })
   agenteId: number | null;

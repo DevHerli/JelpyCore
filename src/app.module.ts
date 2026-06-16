@@ -57,6 +57,7 @@ import { EventosNegociosModule } from './modules/business/eventos_negocios/event
 import { SupportModule } from './modules/support/support.module';
 import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
 import { MessagesModule } from './modules/messages/messages.module';
+import { PublicSucursalesModule } from './modules/public/sucursales/public-sucursales.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { MessagesModule } from './modules/messages/messages.module';
     SupportModule,
     NotificacionesModule,
     MessagesModule,
+    PublicSucursalesModule,
 
     // Guards globales (JwtAuthGuard + ApiKeyGuard disponibles en toda la app)
     GuardsModule,
