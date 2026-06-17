@@ -59,4 +59,37 @@ export class PublicSucursalesController {
       limit: Math.min(50, Math.max(1, limit)),
     });
   }
+
+  /**
+   * GET /public/sucursales/mas-likes?ciudadId=3&limit=10
+   * Las sucursales con más "me gusta" acumulados.
+   */
+  @Get('mas-likes')
+  masLikes(
+    @Query('ciudadId') ciudadId?: string,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number = 10,
+  ) {
+    return this.service.masLikes({
+      ciudadId: ciudadId ? Number(ciudadId) : undefined,
+      limit: Math.min(50, Math.max(1, limit)),
+    });
+  }
+
+  /**
+   * GET /public/sucursales/mas-buscados?ciudadId=3&limit=10&dias=30
+   * Las sucursales más buscadas según métricas históricas.
+   * - dias: ventana de tiempo a considerar (default 30, max 90)
+   */
+  @Get('mas-buscados')
+  masBuscados(
+    @Query('ciudadId') ciudadId?: string,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number = 10,
+    @Query('dias',  new DefaultValuePipe(30), ParseIntPipe) dias:  number = 30,
+  ) {
+    return this.service.masBuscados({
+      ciudadId: ciudadId ? Number(ciudadId) : undefined,
+      limit: Math.min(50, Math.max(1, limit)),
+      dias:  Math.min(90, Math.max(1, dias)),
+    });
+  }
 }

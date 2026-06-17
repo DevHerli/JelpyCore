@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 
 import { SucursalNegocio } from '../../business/sucursales_negocios/entities/sucursal-negocio.entity';
 import { HorarioSucursal } from '../../business/horario_sucursal/entities/horarios-sucursal.entity';
+import { EstadisticaSucursalHistorico } from '../../core/metrics/estadisticas-sucursales-historico/entities/estadistica-sucursal-historico.entity';
+import { SucursalLike } from '../../core/sucursal-likes/entities/sucursal-like.entity';
 
 @Injectable()
 export class PublicSucursalesService {
@@ -14,6 +16,12 @@ export class PublicSucursalesService {
 
     @InjectRepository(HorarioSucursal)
     private readonly horarioRepo: Repository<HorarioSucursal>,
+
+    @InjectRepository(EstadisticaSucursalHistorico)
+    private readonly metricaRepo: Repository<EstadisticaSucursalHistorico>,
+
+    @InjectRepository(SucursalLike)
+    private readonly likeRepo: Repository<SucursalLike>,
 
     private readonly cfg: ConfigService,
   ) {}
@@ -35,11 +43,17 @@ export class PublicSucursalesService {
     if (params.ciudadId) {
       qb.andWhere('ciudad.id = :ciudadId', { ciudadId: params.ciudadId });
     }
-    if (params.categoriaId) {
-      qb.andWhere('cat.id = :categoriaId', { categoriaId: params.categoriaId });
-    }
+
     if (params.subcategoriaId) {
       qb.andWhere('sub.id = :subcategoriaId', { subcategoriaId: params.subcategoriaId });
+    } else if (params.categoriaId) {
+      // Filtrar por categoría contemplando dos casos:
+      // 1. El negocio tiene categoria_id seteado directamente
+      // 2. El negocio solo tiene subcategoria_id, cuya subcategoría pertenece a esa categoría
+      qb.andWhere(
+        '(cat.id = :categoriaId OR sub_cat.id = :categoriaId)',
+        { categoriaId: params.categoriaId },
+      );
     }
 
     const [sucursales, total] = await qb.getManyAndCount();
@@ -57,7 +71,6 @@ export class PublicSucursalesService {
       qb.andWhere('ciudad.id = :ciudadId', { ciudadId: params.ciudadId });
     }
 
-    // Solo negocios con membresía activa y pagada
     qb.innerJoin(
       'ventas_membresias',
       'vm',
@@ -71,6 +84,105 @@ export class PublicSucursalesService {
     const items = await this.mapear(sucursales);
 
     return { items, total: items.length, page: 1, limit: params.limit };
+  }
+
+  // ─── Más buscados (últimos 30 días, ordenado por SUM(busquedas)) ─────────────
+
+  async masBuscados(params: { ciudadId?: number; limit: number; dias: number }) {
+    const { ciudadId, limit, dias } = params;
+
+    // 1. Obtener los top sucursal_id por búsquedas en los últimos N días
+    const qbMetrica = this.metricaRepo
+      .createQueryBuilder('m')
+      .select('m.sucursal_id', 'sucursalId')
+      .addSelect('SUM(m.busquedas)', 'totalBusquedas')
+      .where('m.fecha >= DATE_SUB(CURDATE(), INTERVAL :dias DAY)', { dias })
+      .groupBy('m.sucursal_id')
+      .orderBy('totalBusquedas', 'DESC')
+      .limit(limit * 3); // traemos más para luego filtrar por ciudad si aplica
+
+    if (ciudadId) {
+      qbMetrica.andWhere('m.ciudad_id = :ciudadId', { ciudadId });
+    }
+
+    const topMetricas = await qbMetrica.getRawMany<{
+      sucursalId: string;
+      totalBusquedas: string;
+    }>();
+
+    if (topMetricas.length === 0) return { items: [], total: 0, page: 1, limit };
+
+    const sucursalIds = topMetricas.map((m) => Number(m.sucursalId));
+
+    // 2. Cargar las sucursales con sus relaciones (mismo baseQuery)
+    const qb = this.baseQuery()
+      .andWhere('s.id IN (:...sucursalIds)', { sucursalIds });
+
+    if (ciudadId) {
+      qb.andWhere('ciudad.id = :ciudadId', { ciudadId });
+    }
+
+    const sucursales = await qb.getMany();
+
+    // 3. Mantener el orden de las métricas (más buscadas primero)
+    const ordenPorId = new Map(sucursalIds.map((id, i) => [id, i]));
+    sucursales.sort(
+      (a, b) => (ordenPorId.get(Number(a.id)) ?? 999) - (ordenPorId.get(Number(b.id)) ?? 999),
+    );
+
+    const items = (await this.mapear(sucursales)).slice(0, limit);
+
+    return { items, total: items.length, page: 1, limit };
+  }
+
+  // ─── Más likes ──────────────────────────────────────────────────────────────
+
+  async masLikes(params: { ciudadId?: number; limit: number }) {
+    const { ciudadId, limit } = params;
+
+    // Top sucursales por total de likes
+    const qbLikes = this.likeRepo
+      .createQueryBuilder('l')
+      .select('l.sucursal_id', 'sucursalId')
+      .addSelect('COUNT(l.id)', 'totalLikes')
+      .groupBy('l.sucursal_id')
+      .orderBy('totalLikes', 'DESC')
+      .limit(limit * 3); // margen por si filtro de ciudad reduce resultados
+
+    const topLikes = await qbLikes.getRawMany<{
+      sucursalId: string;
+      totalLikes: string;
+    }>();
+
+    if (topLikes.length === 0) return { items: [], total: 0, page: 1, limit };
+
+    const sucursalIds = topLikes.map((l) => Number(l.sucursalId));
+
+    const qb = this.baseQuery()
+      .andWhere('s.id IN (:...sucursalIds)', { sucursalIds });
+
+    if (ciudadId) {
+      qb.andWhere('ciudad.id = :ciudadId', { ciudadId });
+    }
+
+    const sucursales = await qb.getMany();
+
+    // Mantener orden: más likes primero
+    const ordenPorId = new Map(sucursalIds.map((id, i) => [id, i]));
+    sucursales.sort(
+      (a, b) => (ordenPorId.get(Number(a.id)) ?? 999) - (ordenPorId.get(Number(b.id)) ?? 999),
+    );
+
+    // Añadir totalLikes al item para que el front pueda mostrarlo si quiere
+    const likesMap = new Map(
+      topLikes.map((l) => [Number(l.sucursalId), Number(l.totalLikes)]),
+    );
+    const mapped = await this.mapear(sucursales);
+    const items = mapped
+      .slice(0, limit)
+      .map((item) => ({ ...item, totalLikes: likesMap.get(item.sucursalId) ?? 0 }));
+
+    return { items, total: items.length, page: 1, limit };
   }
 
   // ─── Sugeridos (promo activa o más recientes) ────────────────────────────────
@@ -94,11 +206,12 @@ export class PublicSucursalesService {
     return { items, total: items.length, page: 1, limit: params.limit };
   }
 
-  // ─── Helpers privados ───────────────────────────────────────────────────────
+  // ─── Base query ─────────────────────────────────────────────────────────────
 
   /**
-   * Base query: carga las relaciones necesarias con joinAndSelect
-   * para que TypeORM popule los objetos anidados (negocio, categoria, ciudad, etc.)
+   * Carga negocio, categoría, subcategoría (con su categoría padre) y ciudad.
+   * El join a sub_cat (categoría padre de la subcategoría) permite filtrar
+   * correctamente negocios que solo tienen subcategoria_id pero no categoria_id.
    */
   private baseQuery() {
     return this.sucursalRepo
@@ -106,10 +219,13 @@ export class PublicSucursalesService {
       .innerJoinAndSelect('s.negocio', 'n', 'n.eliminado = 0')
       .leftJoinAndSelect('n.categoria', 'cat')
       .leftJoinAndSelect('n.subcategoria', 'sub')
+      .leftJoinAndSelect('sub.categoria', 'sub_cat')   // ← categoría padre de la subcategoría
       .leftJoinAndSelect('n.especialidad', 'esp')
       .leftJoinAndSelect('s.ciudad', 'ciudad')
       .where('s.eliminado = 0');
   }
+
+  // ─── Sugeridos helpers ───────────────────────────────────────────────────────
 
   private async sugeridosConPromo(params: { ciudadId?: number; limit: number }) {
     const qb = this.baseQuery().take(params.limit);
@@ -118,7 +234,6 @@ export class PublicSucursalesService {
       qb.andWhere('ciudad.id = :ciudadId', { ciudadId: params.ciudadId });
     }
 
-    // Sucursales con promoción activa en este momento
     qb.innerJoin(
       'promociones_sucursales',
       'ps',
@@ -153,19 +268,19 @@ export class PublicSucursalesService {
     return this.mapear(sucursales);
   }
 
+  // ─── Mapper ──────────────────────────────────────────────────────────────────
+
   private async mapear(sucursales: SucursalNegocio[]) {
     if (sucursales.length === 0) return [];
 
     const sucursalIds = sucursales.map((s) => Number(s.id));
 
-    // Un solo query para todos los horarios, con join para obtener el sucursal_id
     const horarios = await this.horarioRepo
       .createQueryBuilder('h')
       .innerJoinAndSelect('h.sucursal', 'hs')
       .where('hs.id IN (:...ids) AND h.eliminado = 0', { ids: sucursalIds })
       .getMany();
 
-    // Agrupar por sucursal_id
     const horariosBySucursal = new Map<number, HorarioSucursal[]>();
     for (const h of horarios) {
       const sid = Number(h.sucursal.id);
@@ -176,11 +291,13 @@ export class PublicSucursalesService {
     const { diaHoy, horaActual } = this.getNowLocal();
 
     return sucursales.map((s) => {
-      const n       = s.negocio as any;
-      const cat     = n?.categoria as any;
-      const sub     = n?.subcategoria as any;
-      const esp     = n?.especialidad as any;
-      const ciudad  = s.ciudad as any;
+      const n      = s.negocio as any;
+      const cat    = n?.categoria as any;
+      const sub    = n?.subcategoria as any;
+      // Categoría efectiva: la del negocio, o la de la subcategoría si el negocio no tiene
+      const catEfectiva = cat ?? (sub as any)?.categoria;
+      const esp    = n?.especialidad as any;
+      const ciudad = s.ciudad as any;
 
       const horariosS = horariosBySucursal.get(Number(s.id)) ?? [];
       const { abiertoAhora, horaApertura, horaCierre } = this.calcularAbierto(
@@ -191,9 +308,9 @@ export class PublicSucursalesService {
 
       const direccion = [
         s.calle,
-        s.numeroExterior  ? `#${s.numeroExterior}`      : null,
-        s.numeroInterior  ? `Int. ${s.numeroInterior}`  : null,
-        s.colonia         ? `Col. ${s.colonia}`         : null,
+        s.numeroExterior ? `#${s.numeroExterior}`     : null,
+        s.numeroInterior ? `Int. ${s.numeroInterior}` : null,
+        s.colonia        ? `Col. ${s.colonia}`        : null,
       ]
         .filter(Boolean)
         .join(' ');
@@ -205,8 +322,8 @@ export class PublicSucursalesService {
         nombreSucursal: s.nombreSucursal,
         logoUrl:        n?.logoUrl        ?? null,
         imagenUrl:      s.imagenUrl       ?? null,
-        categoria:      cat?.nombre       ?? null,
-        categoriaId:    cat?.id ? Number(cat.id) : null,
+        categoria:      catEfectiva?.nombre ?? null,
+        categoriaId:    catEfectiva?.id ? Number(catEfectiva.id) : null,
         subcategoria:   sub?.nombre       ?? null,
         subcategoriaId: sub?.id ? Number(sub.id) : null,
         especialidad:   esp?.nombre       ?? null,
@@ -220,7 +337,7 @@ export class PublicSucursalesService {
     });
   }
 
-  // ─── Tiempo local (igual que SearchService) ─────────────────────────────────
+  // ─── Tiempo local ────────────────────────────────────────────────────────────
 
   private getNowLocal(): { diaHoy: string; horaActual: string } {
     const tz  = this.cfg.get<string>('APP_TIMEZONE') || 'America/Mazatlan';
@@ -256,7 +373,7 @@ export class PublicSucursalesService {
     return { diaHoy: diaMap[diaRaw] ?? diaRaw, horaActual };
   }
 
-  // ─── Calcular si está abierto ────────────────────────────────────────────────
+  // ─── Calcular si está abierto ─────────────────────────────────────────────────
 
   private calcularAbierto(
     horarios: HorarioSucursal[],
