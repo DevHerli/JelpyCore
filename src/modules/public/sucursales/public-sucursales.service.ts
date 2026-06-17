@@ -47,11 +47,15 @@ export class PublicSucursalesService {
     if (params.subcategoriaId) {
       qb.andWhere('sub.id = :subcategoriaId', { subcategoriaId: params.subcategoriaId });
     } else if (params.categoriaId) {
-      // Filtrar por categoría contemplando dos casos:
-      // 1. El negocio tiene categoria_id seteado directamente
-      // 2. El negocio solo tiene subcategoria_id, cuya subcategoría pertenece a esa categoría
+      // Cubre dos casos:
+      // 1. El negocio tiene categoria_id directo
+      // 2. El negocio solo tiene subcategoria_id, cuya sub pertenece a esa categoría
+      // Usamos EXISTS para evitar double-join en la tabla categorias
       qb.andWhere(
-        '(cat.id = :categoriaId OR sub_cat.id = :categoriaId)',
+        `(cat.id = :categoriaId OR EXISTS (
+          SELECT 1 FROM subcategorias sc
+          WHERE sc.id = sub.id AND sc.categoria_id = :categoriaId
+        ))`,
         { categoriaId: params.categoriaId },
       );
     }
@@ -86,12 +90,11 @@ export class PublicSucursalesService {
     return { items, total: items.length, page: 1, limit: params.limit };
   }
 
-  // ─── Más buscados (últimos 30 días, ordenado por SUM(busquedas)) ─────────────
+  // ─── Más buscados ────────────────────────────────────────────────────────────
 
   async masBuscados(params: { ciudadId?: number; limit: number; dias: number }) {
     const { ciudadId, limit, dias } = params;
 
-    // 1. Obtener los top sucursal_id por búsquedas en los últimos N días
     const qbMetrica = this.metricaRepo
       .createQueryBuilder('m')
       .select('m.sucursal_id', 'sucursalId')
@@ -99,7 +102,7 @@ export class PublicSucursalesService {
       .where('m.fecha >= DATE_SUB(CURDATE(), INTERVAL :dias DAY)', { dias })
       .groupBy('m.sucursal_id')
       .orderBy('totalBusquedas', 'DESC')
-      .limit(limit * 3); // traemos más para luego filtrar por ciudad si aplica
+      .limit(limit * 3);
 
     if (ciudadId) {
       qbMetrica.andWhere('m.ciudad_id = :ciudadId', { ciudadId });
@@ -114,9 +117,7 @@ export class PublicSucursalesService {
 
     const sucursalIds = topMetricas.map((m) => Number(m.sucursalId));
 
-    // 2. Cargar las sucursales con sus relaciones (mismo baseQuery)
-    const qb = this.baseQuery()
-      .andWhere('s.id IN (:...sucursalIds)', { sucursalIds });
+    const qb = this.baseQuery().andWhere('s.id IN (:...sucursalIds)', { sucursalIds });
 
     if (ciudadId) {
       qb.andWhere('ciudad.id = :ciudadId', { ciudadId });
@@ -124,42 +125,34 @@ export class PublicSucursalesService {
 
     const sucursales = await qb.getMany();
 
-    // 3. Mantener el orden de las métricas (más buscadas primero)
     const ordenPorId = new Map(sucursalIds.map((id, i) => [id, i]));
     sucursales.sort(
       (a, b) => (ordenPorId.get(Number(a.id)) ?? 999) - (ordenPorId.get(Number(b.id)) ?? 999),
     );
 
     const items = (await this.mapear(sucursales)).slice(0, limit);
-
     return { items, total: items.length, page: 1, limit };
   }
 
-  // ─── Más likes ──────────────────────────────────────────────────────────────
+  // ─── Más likes ───────────────────────────────────────────────────────────────
 
   async masLikes(params: { ciudadId?: number; limit: number }) {
     const { ciudadId, limit } = params;
 
-    // Top sucursales por total de likes
-    const qbLikes = this.likeRepo
+    const topLikes = await this.likeRepo
       .createQueryBuilder('l')
       .select('l.sucursal_id', 'sucursalId')
       .addSelect('COUNT(l.id)', 'totalLikes')
       .groupBy('l.sucursal_id')
       .orderBy('totalLikes', 'DESC')
-      .limit(limit * 3); // margen por si filtro de ciudad reduce resultados
-
-    const topLikes = await qbLikes.getRawMany<{
-      sucursalId: string;
-      totalLikes: string;
-    }>();
+      .limit(limit * 3)
+      .getRawMany<{ sucursalId: string; totalLikes: string }>();
 
     if (topLikes.length === 0) return { items: [], total: 0, page: 1, limit };
 
     const sucursalIds = topLikes.map((l) => Number(l.sucursalId));
 
-    const qb = this.baseQuery()
-      .andWhere('s.id IN (:...sucursalIds)', { sucursalIds });
+    const qb = this.baseQuery().andWhere('s.id IN (:...sucursalIds)', { sucursalIds });
 
     if (ciudadId) {
       qb.andWhere('ciudad.id = :ciudadId', { ciudadId });
@@ -167,16 +160,12 @@ export class PublicSucursalesService {
 
     const sucursales = await qb.getMany();
 
-    // Mantener orden: más likes primero
     const ordenPorId = new Map(sucursalIds.map((id, i) => [id, i]));
     sucursales.sort(
       (a, b) => (ordenPorId.get(Number(a.id)) ?? 999) - (ordenPorId.get(Number(b.id)) ?? 999),
     );
 
-    // Añadir totalLikes al item para que el front pueda mostrarlo si quiere
-    const likesMap = new Map(
-      topLikes.map((l) => [Number(l.sucursalId), Number(l.totalLikes)]),
-    );
+    const likesMap = new Map(topLikes.map((l) => [Number(l.sucursalId), Number(l.totalLikes)]));
     const mapped = await this.mapear(sucursales);
     const items = mapped
       .slice(0, limit)
@@ -185,18 +174,13 @@ export class PublicSucursalesService {
     return { items, total: items.length, page: 1, limit };
   }
 
-  // ─── Sugeridos (promo activa o más recientes) ────────────────────────────────
+  // ─── Sugeridos ───────────────────────────────────────────────────────────────
 
   async sugeridos(params: { ciudadId?: number; limit: number }) {
     const conPromo = await this.sugeridosConPromo(params);
 
     if (conPromo.length >= params.limit) {
-      return {
-        items: conPromo.slice(0, params.limit),
-        total: conPromo.length,
-        page: 1,
-        limit: params.limit,
-      };
+      return { items: conPromo.slice(0, params.limit), total: conPromo.length, page: 1, limit: params.limit };
     }
 
     const excluirIds = conPromo.map((s) => s.sucursalId);
@@ -206,20 +190,15 @@ export class PublicSucursalesService {
     return { items, total: items.length, page: 1, limit: params.limit };
   }
 
-  // ─── Base query ─────────────────────────────────────────────────────────────
+  // ─── Base query ──────────────────────────────────────────────────────────────
+  // NO se hace double-join en categorias. sub_cat se resuelve en el mapper via raw SQL.
 
-  /**
-   * Carga negocio, categoría, subcategoría (con su categoría padre) y ciudad.
-   * El join a sub_cat (categoría padre de la subcategoría) permite filtrar
-   * correctamente negocios que solo tienen subcategoria_id pero no categoria_id.
-   */
   private baseQuery() {
     return this.sucursalRepo
       .createQueryBuilder('s')
       .innerJoinAndSelect('s.negocio', 'n', 'n.eliminado = 0')
       .leftJoinAndSelect('n.categoria', 'cat')
       .leftJoinAndSelect('n.subcategoria', 'sub')
-      .leftJoinAndSelect('sub.categoria', 'sub_cat')   // ← categoría padre de la subcategoría
       .leftJoinAndSelect('n.especialidad', 'esp')
       .leftJoinAndSelect('s.ciudad', 'ciudad')
       .where('s.eliminado = 0');
@@ -249,10 +228,7 @@ export class PublicSucursalesService {
     return this.mapear(sucursales);
   }
 
-  private async sugeridosRecientes(
-    params: { ciudadId?: number; limit: number },
-    excluirIds: number[],
-  ) {
+  private async sugeridosRecientes(params: { ciudadId?: number; limit: number }, excluirIds: number[]) {
     const qb = this.baseQuery().take(params.limit);
 
     if (params.ciudadId) {
@@ -275,6 +251,7 @@ export class PublicSucursalesService {
 
     const sucursalIds = sucursales.map((s) => Number(s.id));
 
+    // Horarios en un solo query
     const horarios = await this.horarioRepo
       .createQueryBuilder('h')
       .innerJoinAndSelect('h.sucursal', 'hs')
@@ -288,16 +265,47 @@ export class PublicSucursalesService {
       horariosBySucursal.get(sid)!.push(h);
     }
 
+    // Resolución de categoría padre para negocios que solo tienen subcategoria_id
+    // Se hace con raw SQL para evitar el double-join en la tabla categorias
+    const subIdsNeedingCat = [
+      ...new Set(
+        sucursales
+          .filter((s) => !(s.negocio as any)?.categoria && (s.negocio as any)?.subcategoria?.id)
+          .map((s) => Number((s.negocio as any).subcategoria.id)),
+      ),
+    ];
+
+    const subCatMap = new Map<number, { catId: number; catNombre: string }>();
+
+    if (subIdsNeedingCat.length > 0) {
+      const rows: Array<{ subId: string; catId: string; catNombre: string }> =
+        await this.sucursalRepo.manager.query(
+          `SELECT sc.id AS subId, c.id AS catId, c.nombre AS catNombre
+           FROM subcategorias sc
+           INNER JOIN categorias c ON c.id = sc.categoria_id
+           WHERE sc.id IN (${subIdsNeedingCat.map(() => '?').join(',')})`,
+          subIdsNeedingCat,
+        );
+      for (const row of rows) {
+        subCatMap.set(Number(row.subId), { catId: Number(row.catId), catNombre: row.catNombre });
+      }
+    }
+
     const { diaHoy, horaActual } = this.getNowLocal();
 
     return sucursales.map((s) => {
       const n      = s.negocio as any;
       const cat    = n?.categoria as any;
       const sub    = n?.subcategoria as any;
-      // Categoría efectiva: la del negocio, o la de la subcategoría si el negocio no tiene
-      const catEfectiva = cat ?? (sub as any)?.categoria;
       const esp    = n?.especialidad as any;
       const ciudad = s.ciudad as any;
+
+      // Categoría efectiva: directa del negocio, o la de la subcategoría via raw lookup
+      const catEfectiva = cat
+        ? { id: Number(cat.id), nombre: cat.nombre }
+        : sub?.id
+          ? subCatMap.get(Number(sub.id)) ?? null
+          : null;
 
       const horariosS = horariosBySucursal.get(Number(s.id)) ?? [];
       const { abiertoAhora, horaApertura, horaCierre } = this.calcularAbierto(
@@ -322,8 +330,8 @@ export class PublicSucursalesService {
         nombreSucursal: s.nombreSucursal,
         logoUrl:        n?.logoUrl        ?? null,
         imagenUrl:      s.imagenUrl       ?? null,
-        categoria:      catEfectiva?.nombre ?? null,
-        categoriaId:    catEfectiva?.id ? Number(catEfectiva.id) : null,
+        categoria:      (catEfectiva as any)?.catNombre ?? (catEfectiva as any)?.nombre ?? null,
+        categoriaId:    (catEfectiva as any)?.catId    ?? (catEfectiva as any)?.id      ?? null,
         subcategoria:   sub?.nombre       ?? null,
         subcategoriaId: sub?.id ? Number(sub.id) : null,
         especialidad:   esp?.nombre       ?? null,
@@ -343,31 +351,21 @@ export class PublicSucursalesService {
     const tz  = this.cfg.get<string>('APP_TIMEZONE') || 'America/Mazatlan';
     const now = new Date();
 
-    const diaRaw = new Intl.DateTimeFormat('es-MX', {
-      weekday:  'long',
-      timeZone: tz,
-    })
+    const diaRaw = new Intl.DateTimeFormat('es-MX', { weekday: 'long', timeZone: tz })
       .format(now)
       .toLowerCase();
 
     const diaMap: Record<string, string> = {
-      lunes:     'Lunes',
-      martes:    'Martes',
-      miércoles: 'Miércoles',
-      miercoles: 'Miércoles',
-      jueves:    'Jueves',
-      viernes:   'Viernes',
-      sábado:    'Sábado',
-      sabado:    'Sábado',
-      domingo:   'Domingo',
+      lunes: 'Lunes', martes: 'Martes',
+      miércoles: 'Miércoles', miercoles: 'Miércoles',
+      jueves: 'Jueves', viernes: 'Viernes',
+      sábado: 'Sábado', sabado: 'Sábado',
+      domingo: 'Domingo',
     };
 
     const horaActual = new Intl.DateTimeFormat('en-GB', {
-      hour:     '2-digit',
-      minute:   '2-digit',
-      second:   '2-digit',
-      hour12:   false,
-      timeZone: tz,
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false, timeZone: tz,
     }).format(now);
 
     return { diaHoy: diaMap[diaRaw] ?? diaRaw, horaActual };
@@ -380,9 +378,7 @@ export class PublicSucursalesService {
     diaHoy: string,
     horaActual: string,
   ): { abiertoAhora: boolean; horaApertura: string | null; horaCierre: string | null } {
-    const horarioHoy = horarios.find(
-      (h) => h.diaSemana === diaHoy && !h.cerrado,
-    );
+    const horarioHoy = horarios.find((h) => h.diaSemana === diaHoy && !h.cerrado);
 
     if (!horarioHoy) {
       return { abiertoAhora: false, horaApertura: null, horaCierre: null };
