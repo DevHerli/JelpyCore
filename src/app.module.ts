@@ -149,7 +149,7 @@ import { PublicSucursalesModule } from './modules/public/sucursales/public-sucur
         password: cfg.get<string>('DB_PASS'),
         database: cfg.get<string>('DB_NAME'),
         autoLoadEntities: true,
-        synchronize: false, // PRODUCCIÓN: false (tu DB ya existe)
+        synchronize: cfg.get<string>('DB_SYNC') === 'true', // QA: true | PROD: false
         timezone: 'Z', // gestionamos TZ en app para "abiertoAhora"
       }),
     }),
