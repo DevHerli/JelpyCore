@@ -131,7 +131,38 @@ export class PublicSucursalesService {
           ciudadId ? [ciudadId, limit * 3] : [limit * 3],
         );
 
-      if (fallbackRows.length === 0) return { items: [], total: 0, page: 1, limit };
+      if (fallbackRows.length === 0) {
+        // Fallback final: usar vistas como proxy de popularidad
+        const vistaRows: Array<{ sucursalId: string }> =
+          await this.metricaRepo.manager.query(
+            ciudadId
+              ? `SELECT sucursal_id AS sucursalId FROM estadisticas_sucursales
+                 WHERE ciudad_id = ? ORDER BY vistas DESC, clics DESC LIMIT ?`
+              : `SELECT sucursal_id AS sucursalId FROM estadisticas_sucursales
+                 ORDER BY vistas DESC, clics DESC LIMIT ?`,
+            ciudadId ? [ciudadId, limit * 3] : [limit * 3],
+          );
+
+        if (vistaRows.length === 0) {
+          // Último recurso: devolver las sucursales más recientes
+          const qbRecientes = this.baseQuery().take(limit).orderBy('s.id', 'DESC');
+          if (ciudadId) qbRecientes.andWhere('ciudad.id = :ciudadId', { ciudadId });
+          const recientes = await qbRecientes.getMany();
+          const itemsRecientes = await this.mapear(recientes);
+          return { items: itemsRecientes, total: itemsRecientes.length, page: 1, limit };
+        }
+
+        const vistaIds = vistaRows.map((r) => Number(r.sucursalId));
+        const qbVistas = this.baseQuery().andWhere('s.id IN (:...sucursalIds)', { sucursalIds: vistaIds });
+        if (ciudadId) qbVistas.andWhere('ciudad.id = :ciudadId', { ciudadId });
+        const sucursalesVistas = await qbVistas.getMany();
+        const ordenVistas = new Map(vistaIds.map((id, i) => [id, i]));
+        sucursalesVistas.sort(
+          (a, b) => (ordenVistas.get(Number(a.id)) ?? 999) - (ordenVistas.get(Number(b.id)) ?? 999),
+        );
+        const itemsVistas = (await this.mapear(sucursalesVistas)).slice(0, limit);
+        return { items: itemsVistas, total: itemsVistas.length, page: 1, limit };
+      }
 
       const fallbackIds = fallbackRows.map((r) => Number(r.sucursalId));
       const qbFallback = this.baseQuery().andWhere('s.id IN (:...sucursalIds)', { sucursalIds: fallbackIds });
