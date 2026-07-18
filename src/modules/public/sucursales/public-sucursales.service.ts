@@ -114,57 +114,40 @@ export class PublicSucursalesService {
     }>();
 
     if (topMetricas.length === 0) {
-      // Fallback: usar la tabla acumulada estadisticas_sucursales (all-time)
-      const fallbackRows: Array<{ sucursalId: string; totalBusquedas: string }> =
+      // estadisticas_sucursales no tiene ciudad_id — se filtra via JOIN con sucursales_negocios
+      const ciudadJoin = ciudadId
+        ? `INNER JOIN sucursales_negocios sn ON sn.id = e.sucursal_id AND sn.ciudad_id = ${Number(ciudadId)}`
+        : `INNER JOIN sucursales_negocios sn ON sn.id = e.sucursal_id`;
+
+      // Fallback 1: busquedas acumuladas (all-time)
+      const fallbackRows: Array<{ sucursalId: string }> =
         await this.metricaRepo.manager.query(
-          ciudadId
-            ? `SELECT sucursal_id AS sucursalId, busquedas AS totalBusquedas
-               FROM estadisticas_sucursales
-               WHERE ciudad_id = ? AND busquedas > 0
-               ORDER BY busquedas DESC
-               LIMIT ?`
-            : `SELECT sucursal_id AS sucursalId, busquedas AS totalBusquedas
-               FROM estadisticas_sucursales
-               WHERE busquedas > 0
-               ORDER BY busquedas DESC
-               LIMIT ?`,
-          ciudadId ? [ciudadId, limit * 3] : [limit * 3],
+          `SELECT e.sucursal_id AS sucursalId FROM estadisticas_sucursales e
+           ${ciudadJoin}
+           WHERE e.busquedas > 0
+           ORDER BY e.busquedas DESC LIMIT ?`,
+          [limit * 3],
         );
 
-      if (fallbackRows.length === 0) {
-        // Fallback final: usar vistas como proxy de popularidad
-        const vistaRows: Array<{ sucursalId: string }> =
-          await this.metricaRepo.manager.query(
-            ciudadId
-              ? `SELECT sucursal_id AS sucursalId FROM estadisticas_sucursales
-                 WHERE ciudad_id = ? ORDER BY vistas DESC, clics DESC LIMIT ?`
-              : `SELECT sucursal_id AS sucursalId FROM estadisticas_sucursales
-                 ORDER BY vistas DESC, clics DESC LIMIT ?`,
-            ciudadId ? [ciudadId, limit * 3] : [limit * 3],
-          );
-
-        if (vistaRows.length === 0) {
-          // Último recurso: devolver las sucursales más recientes
-          const qbRecientes = this.baseQuery().take(limit).orderBy('s.id', 'DESC');
-          if (ciudadId) qbRecientes.andWhere('ciudad.id = :ciudadId', { ciudadId });
-          const recientes = await qbRecientes.getMany();
-          const itemsRecientes = await this.mapear(recientes);
-          return { items: itemsRecientes, total: itemsRecientes.length, page: 1, limit };
-        }
-
-        const vistaIds = vistaRows.map((r) => Number(r.sucursalId));
-        const qbVistas = this.baseQuery().andWhere('s.id IN (:...sucursalIds)', { sucursalIds: vistaIds });
-        if (ciudadId) qbVistas.andWhere('ciudad.id = :ciudadId', { ciudadId });
-        const sucursalesVistas = await qbVistas.getMany();
-        const ordenVistas = new Map(vistaIds.map((id, i) => [id, i]));
-        sucursalesVistas.sort(
-          (a, b) => (ordenVistas.get(Number(a.id)) ?? 999) - (ordenVistas.get(Number(b.id)) ?? 999),
+      // Fallback 2: vistas/clics como proxy si no hay busquedas
+      const rankRows = fallbackRows.length > 0 ? fallbackRows :
+        await this.metricaRepo.manager.query(
+          `SELECT e.sucursal_id AS sucursalId FROM estadisticas_sucursales e
+           ${ciudadJoin}
+           ORDER BY e.vistas DESC, e.clics DESC LIMIT ?`,
+          [limit * 3],
         );
-        const itemsVistas = (await this.mapear(sucursalesVistas)).slice(0, limit);
-        return { items: itemsVistas, total: itemsVistas.length, page: 1, limit };
+
+      if (rankRows.length === 0) {
+        // Último recurso: sucursales más recientes de la ciudad
+        const qbRecientes = this.baseQuery().take(limit).orderBy('s.id', 'DESC');
+        if (ciudadId) qbRecientes.andWhere('ciudad.id = :ciudadId', { ciudadId });
+        const recientes = await qbRecientes.getMany();
+        const itemsRecientes = await this.mapear(recientes);
+        return { items: itemsRecientes, total: itemsRecientes.length, page: 1, limit };
       }
 
-      const fallbackIds = fallbackRows.map((r) => Number(r.sucursalId));
+      const fallbackIds = rankRows.map((r: any) => Number(r.sucursalId));
       const qbFallback = this.baseQuery().andWhere('s.id IN (:...sucursalIds)', { sucursalIds: fallbackIds });
       if (ciudadId) qbFallback.andWhere('ciudad.id = :ciudadId', { ciudadId });
 
