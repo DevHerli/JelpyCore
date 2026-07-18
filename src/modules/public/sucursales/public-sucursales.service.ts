@@ -113,7 +113,38 @@ export class PublicSucursalesService {
       totalBusquedas: string;
     }>();
 
-    if (topMetricas.length === 0) return { items: [], total: 0, page: 1, limit };
+    if (topMetricas.length === 0) {
+      // Fallback: usar la tabla acumulada estadisticas_sucursales (all-time)
+      const fallbackRows: Array<{ sucursalId: string; totalBusquedas: string }> =
+        await this.metricaRepo.manager.query(
+          ciudadId
+            ? `SELECT sucursal_id AS sucursalId, busquedas AS totalBusquedas
+               FROM estadisticas_sucursales
+               WHERE ciudad_id = ? AND busquedas > 0
+               ORDER BY busquedas DESC
+               LIMIT ?`
+            : `SELECT sucursal_id AS sucursalId, busquedas AS totalBusquedas
+               FROM estadisticas_sucursales
+               WHERE busquedas > 0
+               ORDER BY busquedas DESC
+               LIMIT ?`,
+          ciudadId ? [ciudadId, limit * 3] : [limit * 3],
+        );
+
+      if (fallbackRows.length === 0) return { items: [], total: 0, page: 1, limit };
+
+      const fallbackIds = fallbackRows.map((r) => Number(r.sucursalId));
+      const qbFallback = this.baseQuery().andWhere('s.id IN (:...sucursalIds)', { sucursalIds: fallbackIds });
+      if (ciudadId) qbFallback.andWhere('ciudad.id = :ciudadId', { ciudadId });
+
+      const sucursalesFallback = await qbFallback.getMany();
+      const ordenFallback = new Map(fallbackIds.map((id, i) => [id, i]));
+      sucursalesFallback.sort(
+        (a, b) => (ordenFallback.get(Number(a.id)) ?? 999) - (ordenFallback.get(Number(b.id)) ?? 999),
+      );
+      const itemsFallback = (await this.mapear(sucursalesFallback)).slice(0, limit);
+      return { items: itemsFallback, total: itemsFallback.length, page: 1, limit };
+    }
 
     const sucursalIds = topMetricas.map((m) => Number(m.sucursalId));
 
