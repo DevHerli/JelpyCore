@@ -832,7 +832,13 @@ for (const a of aliases) {
         }
       }
 
-      if (!this.hasResults(resultados)) {
+      // Fallback final: solo buscar por nombre de negocio (sin categoría) cuando
+      // FastAPI NO detectó una categoría específica. Si detectó "comida" y no hay
+      // negocios de comida, es preferible devolver sin resultados que mostrar un hospital.
+      const tieneCategoriaClaraDeIA =
+        !!filtros.categoriaId || !!filtros.subcategoriaId || !!filtros.especialidadId;
+
+      if (!this.hasResults(resultados) && !tieneCategoriaClaraDeIA) {
         const resultadosNombre = await this.searchService.search({
           q: filtros.caracteristica ? queryBusqueda : texto,
           ciudad: filtros.ciudad,
@@ -853,9 +859,18 @@ for (const a of aliases) {
         await this.aprenderKeyword(textoNorm, resultados);
       }
 
+      // Log para debug: qué devuelve FastAPI y qué filtros se construyeron
+      console.log(`[JelpyAssistant] texto="${texto}" → categoriaId=${filtros.categoriaId} subcategoriaId=${filtros.subcategoriaId} q="${filtros.q}" intent=${filtros.intent} resultados=${resultados?.items?.length ?? 0}`);
+
+      const sinResultados = !this.hasResults(resultados);
+
       return {
         filtros_detectados: filtros,
         resultados,
+        sin_resultados: sinResultados,
+        mensaje_sin_resultados: sinResultados
+          ? `No encontré negocios con "${texto}" en tu zona. Intenta con otra búsqueda o amplía los filtros.`
+          : null,
       };
     } catch (error) {
       console.warn(
@@ -1152,9 +1167,15 @@ for (const a of aliases) {
       await this.reforzarKeyword(textoNorm, keywordElegida);
     }
 
+    const sinResultados = !this.hasResults(resultados);
+
     return {
       filtros_detectados: filtros,
       resultados,
+      sin_resultados: sinResultados,
+      mensaje_sin_resultados: sinResultados
+        ? `No encontré negocios con "${texto}" en tu zona. Intenta con otra búsqueda o amplía los filtros.`
+        : null,
     };
   }
 }
