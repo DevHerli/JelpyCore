@@ -116,10 +116,23 @@ export class JelpyAssistantService {
     const categorias = await this.categoriaRepo.find();
     const nombreNorm = this.normalizar(nombre);
 
-    for (const categoria of categorias) {
-      if (this.normalizar(categoria.nombre) === nombreNorm) {
-        return categoria;
-      }
+    if (!nombreNorm) return null;
+
+    // 1. Exacto: "comida" === "comida"
+    for (const c of categorias) {
+      if (this.normalizar(c.nombre) === nombreNorm) return c;
+    }
+
+    // 2. La categoría en DB contiene la palabra de FastAPI: "comida y bebida".includes("comida") ✓
+    for (const c of categorias) {
+      const catNorm = this.normalizar(c.nombre);
+      if (catNorm.includes(nombreNorm)) return c;
+    }
+
+    // 3. La palabra de FastAPI contiene el nombre de la categoría (cuando FastAPI es más verboso)
+    for (const c of categorias) {
+      const catNorm = this.normalizar(c.nombre);
+      if (catNorm.length >= 4 && nombreNorm.includes(catNorm)) return c;
     }
 
     return null;

@@ -53,23 +53,34 @@ export class SearchService {
     const variantes = new Set<string>();
     const w = word.toLowerCase();
 
-    if (w.length <= 2) return [];
+    // Palabras muy cortas no generan variantes — demasiado ruido
+    if (w.length <= 3) return [];
 
+    // Sustituciones fonéticas (s↔z, s↔c, ll↔y, v↔b, k↔c)
     variantes.add(w.replace(/s/g, 'z'));
     variantes.add(w.replace(/z/g, 's'));
-    variantes.add(w.replace(/c/g, 's'));
+    variantes.add(w.replace(/c([^h])/g, 's$1'));
     variantes.add(w.replace(/sh/g, 'ch'));
     variantes.add(w.replace(/ch/g, 'sh'));
-    variantes.add(w.replace(/[aeiouáéíóú]/g, ''));
+    variantes.add(w.replace(/ll/g, 'y'));
+    variantes.add(w.replace(/y/g, 'll'));
+    variantes.add(w.replace(/v/g, 'b'));
+    variantes.add(w.replace(/b/g, 'v'));
+    variantes.add(w.replace(/k/g, 'c'));
+    variantes.add(w.replace(/c([^h])/g, 'k$1'));
 
-    if (w.length > 3) {
-      variantes.add(w.slice(1));
-      variantes.add(w.slice(0, -1));
-    }
-
+    // Duplicar última letra (tacos → tacoss)
     variantes.add(w + w[w.length - 1]);
 
-    return [...variantes].filter((v) => v && v.length > 2 && v !== w);
+    // Truncados solo para palabras largas (≥7 chars) para evitar tokens genéricos
+    // "alitas"(6) NO genera "litas" — "farmacia"(8) SÍ genera "farmaci"
+    if (w.length >= 7) {
+      variantes.add(w.slice(1));      // quitar primera letra
+      variantes.add(w.slice(0, -1)); // quitar última letra
+    }
+
+    // Longitud mínima de 4 para no buscar con tokens de 3 letras que generan falsos positivos
+    return [...variantes].filter((v) => v && v.length >= 4 && v !== w);
   }
 
   private getLocalNow(tz: string) {
