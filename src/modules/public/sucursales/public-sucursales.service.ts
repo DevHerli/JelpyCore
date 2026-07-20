@@ -91,24 +91,31 @@ export class PublicSucursalesService {
   async masBuscados(params: { ciudadId?: number; limit: number; dias: number }) {
     const { ciudadId, limit, dias } = params;
 
-    // 1️⃣ Primario: histórico con ventana de tiempo
-    const qbMetrica = this.metricaRepo
-      .createQueryBuilder('m')
-      .select('m.sucursal_id', 'sucursalId')
-      .addSelect('SUM(m.busquedas)', 'totalBusquedas')
-      .where('m.fecha >= DATE_SUB(CURDATE(), INTERVAL :dias DAY)', { dias })
-      .groupBy('m.sucursal_id')
-      .orderBy('totalBusquedas', 'DESC')
-      .limit(limit * 3);
+    // 1️⃣ Primario: histórico con ventana de tiempo.
+    // Se envuelve en try/catch: si la tabla histórica está vacía o su esquema
+    // no coincide (p. ej. falta ciudad_id), degradamos limpiamente al fallback.
+    let topMetricas: Array<{ sucursalId: string; totalBusquedas: string }> = [];
+    try {
+      const qbMetrica = this.metricaRepo
+        .createQueryBuilder('m')
+        .select('m.sucursal_id', 'sucursalId')
+        .addSelect('SUM(m.busquedas)', 'totalBusquedas')
+        .where('m.fecha >= DATE_SUB(CURDATE(), INTERVAL :dias DAY)', { dias })
+        .groupBy('m.sucursal_id')
+        .orderBy('totalBusquedas', 'DESC')
+        .limit(limit * 3);
 
-    if (ciudadId) {
-      qbMetrica.andWhere('m.ciudad_id = :ciudadId', { ciudadId });
+      if (ciudadId) {
+        qbMetrica.andWhere('m.ciudad_id = :ciudadId', { ciudadId });
+      }
+
+      topMetricas = await qbMetrica.getRawMany<{
+        sucursalId: string;
+        totalBusquedas: string;
+      }>();
+    } catch {
+      topMetricas = [];
     }
-
-    const topMetricas = await qbMetrica.getRawMany<{
-      sucursalId: string;
-      totalBusquedas: string;
-    }>();
 
     if (topMetricas.length === 0) {
       // 2️⃣ Fallback: estadisticas_sucursales (acumulado all-time)
