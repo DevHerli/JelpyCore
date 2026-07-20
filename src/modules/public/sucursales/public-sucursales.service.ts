@@ -47,10 +47,6 @@ export class PublicSucursalesService {
     if (params.subcategoriaId) {
       qb.andWhere('sub.id = :subcategoriaId', { subcategoriaId: params.subcategoriaId });
     } else if (params.categoriaId) {
-      // Cubre dos casos:
-      // 1. El negocio tiene categoria_id directo
-      // 2. El negocio solo tiene subcategoria_id, cuya sub pertenece a esa categoría
-      // Usamos EXISTS para evitar double-join en la tabla categorias
       qb.andWhere(
         `(cat.id = :categoriaId OR EXISTS (
           SELECT 1 FROM subcategorias sc
@@ -95,6 +91,7 @@ export class PublicSucursalesService {
   async masBuscados(params: { ciudadId?: number; limit: number; dias: number }) {
     const { ciudadId, limit, dias } = params;
 
+    // 1️⃣ Primario: histórico con ventana de tiempo
     const qbMetrica = this.metricaRepo
       .createQueryBuilder('m')
       .select('m.sucursal_id', 'sucursalId')
@@ -114,32 +111,19 @@ export class PublicSucursalesService {
     }>();
 
     if (topMetricas.length === 0) {
-      // estadisticas_sucursales no tiene ciudad_id — se filtra via JOIN con sucursales_negocios
-      const ciudadJoin = ciudadId
-        ? `INNER JOIN sucursales_negocios sn ON sn.id = e.sucursal_id AND sn.ciudad_id = ${Number(ciudadId)}`
-        : `INNER JOIN sucursales_negocios sn ON sn.id = e.sucursal_id`;
-
-      // Fallback 1: busquedas acumuladas (all-time)
-      const fallbackRows: Array<{ sucursalId: string }> =
+      // 2️⃣ Fallback: estadisticas_sucursales (acumulado all-time)
+      // No tiene ciudad_id — se obtiene ranking global y baseQuery filtra por ciudad
+      const rankRows: Array<{ sucursalId: string }> =
         await this.metricaRepo.manager.query(
-          `SELECT e.sucursal_id AS sucursalId FROM estadisticas_sucursales e
-           ${ciudadJoin}
-           WHERE e.busquedas > 0
-           ORDER BY e.busquedas DESC LIMIT ?`,
-          [limit * 3],
-        );
-
-      // Fallback 2: vistas/clics como proxy si no hay busquedas
-      const rankRows = fallbackRows.length > 0 ? fallbackRows :
-        await this.metricaRepo.manager.query(
-          `SELECT e.sucursal_id AS sucursalId FROM estadisticas_sucursales e
-           ${ciudadJoin}
-           ORDER BY e.vistas DESC, e.clics DESC LIMIT ?`,
-          [limit * 3],
+          `SELECT sucursal_id AS sucursalId
+           FROM estadisticas_sucursales
+           ORDER BY busquedas DESC, vistas DESC, clics DESC
+           LIMIT ?`,
+          [limit * 5],
         );
 
       if (rankRows.length === 0) {
-        // Último recurso: sucursales más recientes de la ciudad
+        // 3️⃣ Último recurso: sucursales más recientes
         const qbRecientes = this.baseQuery().take(limit).orderBy('s.id', 'DESC');
         if (ciudadId) qbRecientes.andWhere('ciudad.id = :ciudadId', { ciudadId });
         const recientes = await qbRecientes.getMany();
@@ -236,7 +220,6 @@ export class PublicSucursalesService {
   }
 
   // ─── Base query ──────────────────────────────────────────────────────────────
-  // NO se hace double-join en categorias. sub_cat se resuelve en el mapper via raw SQL.
 
   private baseQuery() {
     return this.sucursalRepo
@@ -296,7 +279,6 @@ export class PublicSucursalesService {
 
     const sucursalIds = sucursales.map((s) => Number(s.id));
 
-    // Horarios en un solo query
     const horarios = await this.horarioRepo
       .createQueryBuilder('h')
       .innerJoinAndSelect('h.sucursal', 'hs')
@@ -310,8 +292,6 @@ export class PublicSucursalesService {
       horariosBySucursal.get(sid)!.push(h);
     }
 
-    // Resolución de categoría padre para negocios que solo tienen subcategoria_id
-    // Se hace con raw SQL para evitar el double-join en la tabla categorias
     const subIdsNeedingCat = [
       ...new Set(
         sucursales
@@ -345,7 +325,6 @@ export class PublicSucursalesService {
       const esp    = n?.especialidad as any;
       const ciudad = s.ciudad as any;
 
-      // Categoría efectiva: directa del negocio, o la de la subcategoría via raw lookup
       const catEfectiva = cat
         ? { id: Number(cat.id), nombre: cat.nombre }
         : sub?.id
