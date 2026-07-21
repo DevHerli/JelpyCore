@@ -286,7 +286,10 @@ if (params.caracteristica) {
           'descuentos',
         ].includes(qNormLimpio));
 
-    if (!tieneTaxonomia && qNormLimpio && !esBusquedaGenericaDePromos) {
+    // Aplicar filtro de texto SIEMPRE que haya q, incluso cuando hay categoriaId.
+    // Antes solo se aplicaba sin taxonomía, lo que causaba que "sushi" con categoriaId=Comida
+    // devolviera TODOS los negocios de Comida sin filtrar por la keyword.
+    if (qNormLimpio && !esBusquedaGenericaDePromos) {
       const tokensConVariantes = new Set<string>();
 
       baseTokens.forEach((tk) => {
