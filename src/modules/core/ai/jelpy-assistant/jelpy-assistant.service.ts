@@ -766,6 +766,8 @@ for (const a of aliases) {
         const resultadosItems = await this.searchService.searchByItems({
           q: queryBusqueda,
           ciudad: filtros.ciudad,
+          categoriaId: filtros.categoriaId,
+          subcategoriaId: filtros.subcategoriaId,
           caracteristica: filtros.caracteristica,
           lat: filtros.lat,
           lng: filtros.lng,
@@ -819,6 +821,8 @@ for (const a of aliases) {
           const resultadosItems = await this.searchService.searchByItems({
             q: queryBusqueda,
             ciudad: filtros.ciudad,
+            categoriaId: filtros.categoriaId,
+            subcategoriaId: filtros.subcategoriaId,
             caracteristica: filtros.caracteristica,
             lat: filtros.lat,
             lng: filtros.lng,
@@ -1113,6 +1117,8 @@ for (const a of aliases) {
       const resultadosItems = await this.searchService.searchByItems({
         q: queryBusqueda,
         ciudad: filtros.ciudad,
+        categoriaId: filtros.categoriaId,
+        subcategoriaId: filtros.subcategoriaId,
         caracteristica: filtros.caracteristica,
         lat: filtros.lat,
         lng: filtros.lng,
@@ -1144,6 +1150,8 @@ for (const a of aliases) {
         const resultadosItems = await this.searchService.searchByItems({
           q: queryBusqueda,
           ciudad: filtros.ciudad,
+          categoriaId: filtros.categoriaId,
+          subcategoriaId: filtros.subcategoriaId,
           caracteristica: filtros.caracteristica,
           lat: filtros.lat,
           lng: filtros.lng,

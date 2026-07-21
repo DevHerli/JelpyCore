@@ -655,6 +655,8 @@ if (params.caracteristica) {
     lng?: number;
     radioKm?: number;
     caracteristica?: string;
+    categoriaId?: number;
+    subcategoriaId?: number;
   }) {
     const qRaw = (params.q || '').slice(0, 140);
     const qNorm = normalizeBasic(qRaw);
@@ -693,6 +695,16 @@ if (params.caracteristica) {
 
     if (params.ciudad) {
       qb.andWhere('v.ciudad = :ciudad', { ciudad: params.ciudad });
+    }
+
+    // Respetar categoría/subcategoría detectada por FastAPI — evita que
+    // un hospital con "alitas" en su catálogo aparezca al buscar alitas de comida
+    if (params.categoriaId) {
+      qb.andWhere('v.categoria_id = :catId', { catId: params.categoriaId });
+    }
+
+    if (params.subcategoriaId) {
+      qb.andWhere('v.subcategoria_id = :subId', { subId: params.subcategoriaId });
     }
 
     if (params.caracteristica) {
