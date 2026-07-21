@@ -1,7 +1,9 @@
 -- ============================================================
 -- Vista: vista_negocios_completa
--- Ejecutar en la DB de QA (qajelpym_databaseCore) una vez,
--- después de que TypeORM haya creado todas las tablas con DB_SYNC=true.
+-- Compatible con MariaDB / MySQL 5.7+  (sin LATERAL)
+-- Ejecutar en la DB de QA:
+--   DROP VIEW IF EXISTS vista_negocios_completa;
+--   (luego pegar el CREATE OR REPLACE de abajo)
 -- ============================================================
 
 CREATE OR REPLACE VIEW vista_negocios_completa AS
@@ -10,11 +12,9 @@ SELECT
   n.nombre_negocio,
   n.descripcion                                AS descripcion_negocio,
 
-  /* Ciudad */
   s.ciudad_id,
   ciu.nombre                                   AS ciudad,
 
-  /* Categoría – viene del negocio o de la subcategoría */
   cat.nombre                                   AS categoria,
   cat.id                                       AS categoria_id,
   sub.nombre                                   AS subcategoria,
@@ -22,13 +22,12 @@ SELECT
   esp.nombre                                   AS especialidad,
   esp.id                                       AS especialidad_id,
 
-  /* Sucursal */
   s.id                                         AS sucursal_id,
   s.nombre_sucursal,
   s.latitud,
   s.longitud,
 
-  /* Horarios: "Lunes 08:00:00 18:00:00 0 | Martes ..." */
+  /* Horarios concatenados: "Lunes 08:00:00 18:00:00 0 | Martes ..." */
   (
     SELECT GROUP_CONCAT(
       CONCAT(h.dia_semana, ' ', h.hora_apertura, ' ', h.hora_cierre, ' ', h.cerrado)
@@ -40,7 +39,7 @@ SELECT
     WHERE h.sucursal_id = s.id AND h.eliminado = 0
   )                                            AS horarios_keywords,
 
-  /* Promoción activa más reciente */
+  /* Promo activa más reciente — sin LATERAL (compatible MariaDB) */
   pr.titulo                                    AS promo_titulo,
   pr.descripcion                               AS promo_descripcion,
   pr.tipo_promocion,
@@ -54,21 +53,21 @@ SELECT
   pr.imagen_url                                AS promo_imagen_url,
   pr.origen                                    AS promo_origen,
 
-  /* Catálogo (categorías internas del negocio) */
+  /* Catálogo interno del negocio */
   (
     SELECT GROUP_CONCAT(DISTINCT cc.nombre SEPARATOR ' ')
     FROM categorias_catalogo cc
     WHERE cc.negocio_id = n.id
   )                                            AS catalogo_keywords,
 
-  /* Anuncios */
+  /* Anuncios activos de la sucursal */
   (
     SELECT GROUP_CONCAT(DISTINCT a.titulo SEPARATOR ' ')
     FROM anuncios a
     WHERE a.sucursal_id = s.id AND a.eliminado = 0
   )                                            AS anuncio_keywords,
 
-  /* Características */
+  /* Características de la sucursal */
   (
     SELECT GROUP_CONCAT(DISTINCT cf.nombre SEPARATOR ' ')
     FROM sucursales_caracteristicas sc
@@ -76,7 +75,7 @@ SELECT
     WHERE sc.sucursal_id = s.id
   )                                            AS caracteristicas_keywords,
 
-  /* Items del catálogo (productos/servicios) */
+  /* Items / productos del negocio */
   (
     SELECT GROUP_CONCAT(DISTINCT i.nombre SEPARATOR ' ')
     FROM items_negocio i
@@ -85,30 +84,26 @@ SELECT
 
 FROM negocios n
 
+/* Solo sucursales activas (no eliminadas) */
 LEFT JOIN sucursales_negocios s
        ON s.negocio_id = n.id AND s.eliminado = 0
 
-LEFT JOIN ciudades ciu
-       ON ciu.id = s.ciudad_id
+LEFT JOIN ciudades ciu  ON ciu.id = s.ciudad_id
+LEFT JOIN categorias cat ON cat.id = n.categoria_id
+LEFT JOIN subcategorias sub ON sub.id = n.subcategoria_id
+LEFT JOIN especialidades esp ON esp.id = n.especialidad_id
 
-LEFT JOIN categorias cat
-       ON cat.id = n.categoria_id
+/* Promo: subquery correlacionada en lugar de LATERAL */
+LEFT JOIN promociones_sucursales pr
+       ON pr.id = (
+           SELECT id
+           FROM promociones_sucursales
+           WHERE sucursal_id = s.id
+             AND eliminado  = 0
+             AND activa     = 1
+           ORDER BY fecha_registro DESC
+           LIMIT 1
+       )
 
-LEFT JOIN subcategorias sub
-       ON sub.id = n.subcategoria_id
-
-LEFT JOIN especialidades esp
-       ON esp.id = n.especialidad_id
-
-/* Promo: la más reciente activa de la sucursal */
-LEFT JOIN LATERAL (
-  SELECT *
-  FROM promociones_sucursales ps
-  WHERE ps.sucursal_id = s.id
-    AND ps.eliminado  = 0
-    AND ps.activa     = 1
-  ORDER BY ps.fecha_registro DESC
-  LIMIT 1
-) pr ON TRUE
-
+/* Solo negocios activos (no eliminados) */
 WHERE n.eliminado = 0;

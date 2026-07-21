@@ -53,9 +53,11 @@ export class AIResponseBuilder {
 
     switch (tipo) {
       case 'item_negocio':
-        titulo = `Encontré ${nombreItem}${ciudadTxt}.`;
-        resumen =
-          'Estas sucursales tienen coincidencias con lo que estás buscando.';
+        // nombreItem viene verificado del item real, no de filtros.q
+        titulo = nombreItem && nombreItem !== 'lo que buscas'
+          ? `Encontré ${nombreItem}${ciudadTxt}.`
+          : `Resultados disponibles${ciudadTxt}.`;
+        resumen = 'Estas sucursales tienen coincidencias con lo que estás buscando.';
         break;
 
       case 'especialidad':
@@ -151,17 +153,26 @@ export class AIResponseBuilder {
     const caracteristica = filtros?.caracteristica ?? null;
 
     if (tipo === 'item_negocio') {
+      // Solo usar el nombre del item si viene verificado del resultado real,
+      // NUNCA usar filtros.q como fallback — generaría mensajes falsos
+      // del tipo "tiene alitas" cuando el negocio no vende alitas.
       const nombreItem =
         items[0]?.item?.nombre ??
         items[0]?.item_encontrado ??
-        filtros?.q ??
-        'ese producto o servicio';
+        null;
 
-      if (items.length === 1) {
-        return `Encontré una sucursal que tiene ${nombreItem}.`;
+      if (nombreItem) {
+        if (items.length === 1) {
+          return `Encontré una sucursal que tiene ${nombreItem}.`;
+        }
+        return `Encontré varias sucursales que tienen ${nombreItem}.`;
       }
 
-      return `Encontré varias sucursales que tienen ${nombreItem}.`;
+      // Sin nombre verificado → mensaje genérico honesto
+      if (items.length === 1) {
+        return `Encontré una opción que podría interesarte.`;
+      }
+      return `Encontré opciones disponibles.`;
     }
 
     if (caracteristica) {
