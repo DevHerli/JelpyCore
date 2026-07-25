@@ -61,6 +61,7 @@ private toSucursalResumenResponse(item: any): any {
     esMatriz: item.esMatriz,
     tipoSucursal: item.tipoSucursal,
     referenciaMapa: item.referenciaMapa,
+    rangoPrecios: item.rangoPrecios ?? null,
     fechaRegistro: item.fechaRegistro,
     fechaActualizacion: item.fechaActualizacion,
 
@@ -153,6 +154,7 @@ private toSucursalResumenResponse(item: any): any {
       whatsapp: dto.whatsapp,
       esMatriz: dto.esMatriz ?? false,
       imagenUrl: dto.imagenUrl,
+      rangoPrecios: dto.rangoPrecios ?? null,
       negocio: { id: dto.negocioId } as any,
       ciudad: { id: dto.ciudadId } as any,
       estado: { id: dto.estadoId } as any,
@@ -272,6 +274,7 @@ async listar(params?: {
     if (dto.whatsapp !== undefined) suc.whatsapp = dto.whatsapp;
     if (dto.esMatriz !== undefined) suc.esMatriz = dto.esMatriz;
     if (dto.imagenUrl !== undefined) suc.imagenUrl = dto.imagenUrl;
+    if (dto.rangoPrecios !== undefined) suc.rangoPrecios = dto.rangoPrecios ?? null;
 
     return this.sucursalRepo.save(suc);
   }

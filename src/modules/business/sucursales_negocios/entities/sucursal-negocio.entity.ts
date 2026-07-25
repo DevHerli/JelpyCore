@@ -129,6 +129,9 @@ export class SucursalNegocio {
   @Column({ name: 'imagen_url', type: 'varchar', length: 255, nullable: true })
   imagenUrl?: string;
 
+  @Column({ name: 'rango_precios', type: 'tinyint', nullable: true, default: null })
+  rangoPrecios?: number | null;
+
   @Column({ type: 'tinyint', width: 1, default: 0 })
   eliminado: boolean;
 

@@ -74,6 +74,14 @@ export class SucursalesNegociosController {
       longitud = parseFloat(body.longitud);
     }
 
+    let rangoPrecios: number | null = null;
+    if (body.rangoPrecios !== undefined && body.rangoPrecios !== null && body.rangoPrecios !== '' && body.rangoPrecios !== 'null') {
+      const parsed = parseInt(body.rangoPrecios);
+      if (!isNaN(parsed) && parsed >= 1 && parsed <= 3) {
+        rangoPrecios = parsed;
+      }
+    }
+
     const datosLimpios = {
       ...body,
       negocioId,
@@ -82,6 +90,7 @@ export class SucursalesNegociosController {
       esMatriz,
       latitud,
       longitud,
+      rangoPrecios,
       imagenUrl,
     };
 
@@ -181,6 +190,15 @@ export class SucursalesNegociosController {
     if (dto.ciudadId) datosLimpios.ciudadId = Number(dto.ciudadId);
     if (dto.estadoId) datosLimpios.estadoId = Number(dto.estadoId);
     if (dto.esMatriz !== undefined) datosLimpios.esMatriz = String(dto.esMatriz) === 'true';
+    if (dto.rangoPrecios !== undefined) {
+      const rp = dto.rangoPrecios;
+      if (rp === null || rp === '' as any || rp === 'null' as any) {
+        datosLimpios.rangoPrecios = null;
+      } else {
+        const parsed = Number(rp);
+        datosLimpios.rangoPrecios = !isNaN(parsed) && parsed >= 1 && parsed <= 3 ? parsed : null;
+      }
+    }
     if (imagenUrl) datosLimpios.imagenUrl = imagenUrl;
 
     return this.service.actualizar(id, datosLimpios);

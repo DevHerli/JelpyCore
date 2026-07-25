@@ -6,6 +6,8 @@ import {
   IsNumber,
   IsEmail,
   IsBoolean,
+  Min,
+  Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -159,4 +161,14 @@ export class CreateSucursalNegocioDto {
   @IsString()
   @MaxLength(255)
   imagenUrl?: string;
+
+  // ============================
+  // RANGO DE PRECIOS
+  // ============================
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(3)
+  rangoPrecios?: number | null;
 }
