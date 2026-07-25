@@ -95,4 +95,13 @@ export class SearchDto {
   @IsOptional()
   @IsBooleanString()
   promos?: string;
+
+  // 🏷 Filtro por característica
+  @ApiPropertyOptional({
+    description: 'Filtrar por característica: codigo, nombre o alias. Ej: "wifi", "estacionamiento", "pet_friendly"',
+    example: 'wifi'
+  })
+  @IsOptional()
+  @IsString()
+  caracteristica?: string;
 }

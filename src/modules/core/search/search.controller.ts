@@ -10,11 +10,11 @@ export class SearchController {
 
   @Get()
   async search(@Query() dto: SearchDto) {
-    // Permitir q o termino
+    // Permitir q o termino. Si viene caracteristica sola, q es opcional.
     const query = dto.q ?? dto.termino;
 
-    if (!query) {
-      throw new BadRequestException('Falta parámetro q o termino');
+    if (!query && !dto.caracteristica) {
+      throw new BadRequestException('Falta parámetro q, termino o caracteristica');
     }
 
     const resp = await this.svc.search({
@@ -31,6 +31,7 @@ export class SearchController {
       especialidadId: dto.especialidadId ? Number(dto.especialidadId) : undefined,
 
       promos: dto.promos === 'true',
+      caracteristica: dto.caracteristica,
     });
 
     return resp;
