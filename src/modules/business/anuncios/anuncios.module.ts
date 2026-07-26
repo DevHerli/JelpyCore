@@ -12,6 +12,7 @@ import { AnuncioAddon } from './entities/anuncio-addon.entity';
 import { Negocio } from '../negocios/entities/negocio.entity';
 import { Suscriptor } from '../suscriptores/entities/suscriptores.entity';
 import { Membresia } from '../membresias/entities/membresia.entity';
+import { MembresiaPublicidad } from '../membresias/entities/membresia-publicidad.entity';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 
 @Module({
@@ -24,6 +25,7 @@ import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negoci
       Negocio,
       Suscriptor,
       Membresia,
+      MembresiaPublicidad,
       SucursalNegocio,
     ]),
   ],

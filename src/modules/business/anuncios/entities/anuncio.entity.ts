@@ -52,9 +52,38 @@ export class Anuncio {
   eliminado: boolean;
 
   @Column({ name: 'cupo_consumido', type: 'tinyint', width: 1, default: 0 })
-cupoConsumido: boolean;
+  cupoConsumido: boolean;
 
-@Column({ name: 'imagen_public_id', type: 'varchar', length: 255, nullable: true })
-imagenPublicId?: string;
+  @Column({ name: 'imagen_public_id', type: 'varchar', length: 255, nullable: true })
+  imagenPublicId?: string;
 
+  // --- Publicidad v2 ---
+  @Column({ name: 'ciudad_id', type: 'int', nullable: true })
+  ciudadId?: number;
+
+  @Column({
+    name: 'placement',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  placement?: string;
+
+  @Column({ name: 'categoria', type: 'varchar', length: 64, nullable: true })
+  categoria?: string;
+
+  @Column({ name: 'prioridad', type: 'int', default: 0 })
+  prioridad: number;
+
+  @Column({ name: 'vistas', type: 'int', default: 0 })
+  vistas: number;
+
+  @Column({ name: 'clicks', type: 'int', default: 0 })
+  clicks: number;
+
+  @Column({ name: 'cta_label', type: 'varchar', length: 100, nullable: true })
+  ctaLabel?: string;
+
+  @Column({ name: 'external_url', type: 'varchar', length: 255, nullable: true })
+  externalUrl?: string;
 }

@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -221,6 +223,11 @@ export class AnunciosService {
       status: 'draft',
       eliminado: false,
       cupoConsumido: false,
+      placement: dto.placement ?? null,
+      ciudadId: dto.ciudadId ?? null,
+      categoria: dto.categoria ?? null,
+      ctaLabel: dto.ctaLabel ?? null,
+      externalUrl: dto.externalUrl ?? null,
     });
 
     const saved = await this.anuncioRepo.save(anuncio);
@@ -247,6 +254,54 @@ export class AnunciosService {
         throw new BadRequestException('No puedes activar un anuncio ya vencido.');
       }
 
+      // --- Validaciones de placement / tier (si el anuncio tiene placement asignado) ---
+      if (anuncio.placement) {
+        const pubRows: any[] = await this.anuncioRepo.manager.query(
+          `SELECT mp.placements_permitidos, mp.max_slots_simultaneos, mp.prioridad
+           FROM negocios n
+           INNER JOIN suscriptores s   ON s.id  = n.suscriptor_id
+           INNER JOIN membresia_publicidad mp ON mp.membresia_id = s.membresia_id
+           WHERE n.id = ? AND n.eliminado = 0
+           LIMIT 1`,
+          [anuncio.negocio.id],
+        );
+
+        if (pubRows.length > 0) {
+          const reglas = pubRows[0];
+          const placementsPermitidos: string[] =
+            typeof reglas.placements_permitidos === 'string'
+              ? JSON.parse(reglas.placements_permitidos)
+              : reglas.placements_permitidos;
+
+          // 1. Validar placement permitido
+          if (!placementsPermitidos.includes(anuncio.placement)) {
+            throw new ForbiddenException({ error: 'PLACEMENT_NO_PERMITIDO' });
+          }
+
+          // 2. Validar max_slots_simultaneos
+          const [slotRow]: any[] = await this.anuncioRepo.manager.query(
+            `SELECT COUNT(*) AS total
+             FROM anuncios
+             WHERE negocio_id = ?
+               AND status    = 'active'
+               AND placement = ?
+               AND fecha_inicio <= NOW()
+               AND fecha_fin    >= NOW()
+               AND eliminado    = 0
+               AND id != ?`,
+            [anuncio.negocio.id, anuncio.placement, anuncio.id],
+          );
+
+          if (Number(slotRow.total) >= Number(reglas.max_slots_simultaneos)) {
+            throw new ConflictException({ error: 'LIMITE_SLOTS' });
+          }
+
+          // 3. Snapshot de prioridad desde el tier
+          anuncio.prioridad = Number(reglas.prioridad);
+        }
+      }
+
+      // --- Cupo mensual ---
       const membresia = anuncio?.negocio?.suscriptor?.membresia as any;
       const ilimitado = this.isUnlimitedMembership(membresia);
 
@@ -513,20 +568,150 @@ private mapAnuncio(a: Anuncio) {
   }
 
   async update(id: number, dto: UpdateAnuncioDto) {
-  const ad = await this.anuncioRepo.findOne({ where: { id, eliminado: false } });
-  if (!ad) throw new NotFoundException('Anuncio no encontrado');
+    const ad = await this.anuncioRepo.findOne({ where: { id, eliminado: false } });
+    if (!ad) throw new NotFoundException('Anuncio no encontrado');
 
-  if (dto.titulo !== undefined) ad.titulo = dto.titulo;
-  if (dto.descripcion !== undefined) ad.descripcion = dto.descripcion;
-  if (dto.imagenUrl !== undefined) ad.imagenUrl = dto.imagenUrl ?? null;
-  if (dto.imagenPublicId !== undefined) ad.imagenPublicId = dto.imagenPublicId ?? null;
-  if (dto.fechaInicio !== undefined) ad.fechaInicio = new Date(dto.fechaInicio);
-  if (dto.fechaFin !== undefined) ad.fechaFin = new Date(dto.fechaFin);
+    if (dto.titulo       !== undefined) ad.titulo       = dto.titulo;
+    if (dto.descripcion  !== undefined) ad.descripcion  = dto.descripcion;
+    if (dto.imagenUrl    !== undefined) ad.imagenUrl    = dto.imagenUrl    ?? null;
+    if (dto.imagenPublicId !== undefined) ad.imagenPublicId = dto.imagenPublicId ?? null;
+    if (dto.fechaInicio  !== undefined) ad.fechaInicio  = new Date(dto.fechaInicio);
+    if (dto.fechaFin     !== undefined) ad.fechaFin     = new Date(dto.fechaFin);
 
-  await this.anuncioRepo.save(ad);
+    await this.anuncioRepo.save(ad);
+    return { message: 'Anuncio actualizado' };
+  }
 
-  return { message: 'Anuncio actualizado' };
-}
+  // -----------------------------------------------------------------------
+  // FEED PÚBLICO — GET /ads/public
+  // -----------------------------------------------------------------------
+  async getPublicAds(params: {
+    placement: string;
+    ciudadId?: number;
+    categoria?: string;
+    limit?: number;
+  }) {
+    const { placement, ciudadId, categoria, limit = 5 } = params;
 
+    const qParams: any[] = [placement];
+    let ciudadFilter = '';
+    if (ciudadId) {
+      ciudadFilter = 'AND (a.ciudad_id = ? OR a.ciudad_id IS NULL)';
+      qParams.push(ciudadId);
+    }
 
+    let categoriaFilter = '';
+    if (categoria) {
+      categoriaFilter = 'AND (a.categoria = ? OR a.categoria IS NULL)';
+      qParams.push(categoria);
+    }
+
+    qParams.push(limit);
+
+    // ROW_NUMBER() particiona por negocio y limita a max_slots_simultaneos del tier.
+    // Si el negocio no tiene regla en membresia_publicidad, COALESCE usa 999 (sin límite).
+    const rows: any[] = await this.anuncioRepo.manager.query(
+      `SELECT t.id, t.title, t.description, t.imageUrl, t.ctaLabel,
+              t.sponsorName, t.placement, t.internalRoute, t.externalUrl,
+              t.negocioId, t.sucursalId
+       FROM (
+         SELECT
+           a.id,
+           a.titulo                                              AS title,
+           a.descripcion                                         AS description,
+           a.imagen_url                                          AS imageUrl,
+           a.cta_label                                           AS ctaLabel,
+           a.placement,
+           a.external_url                                        AS externalUrl,
+           CASE WHEN a.sucursal_id IS NOT NULL
+                THEN CONCAT('/branch/branch-detail/', a.sucursal_id)
+                ELSE NULL END                                    AS internalRoute,
+           a.negocio_id                                          AS negocioId,
+           a.sucursal_id                                         AS sucursalId,
+           a.prioridad,
+           n.nombre_negocio                                      AS sponsorName,
+           ROW_NUMBER() OVER (
+             PARTITION BY a.negocio_id ORDER BY a.prioridad DESC
+           )                                                      AS rn,
+           COALESCE(mp.max_slots_simultaneos, 999)               AS max_slots
+         FROM anuncios a
+         INNER JOIN negocios n    ON n.id  = a.negocio_id AND n.eliminado = 0
+         LEFT  JOIN suscriptores s ON s.id = n.suscriptor_id
+         LEFT  JOIN membresia_publicidad mp ON mp.membresia_id = s.membresia_id
+         WHERE a.status       = 'active'
+           AND a.placement    = ?
+           AND a.fecha_inicio <= NOW()
+           AND a.fecha_fin    >= NOW()
+           AND a.eliminado    = 0
+           ${ciudadFilter}
+           ${categoriaFilter}
+       ) t
+       WHERE t.rn <= t.max_slots
+       ORDER BY t.prioridad DESC, RAND()
+       LIMIT ?`,
+      qParams,
+    );
+
+    return { items: rows };
+  }
+
+  // -----------------------------------------------------------------------
+  // TRACKING — POST /ads/:id/impression  |  POST /ads/:id/click
+  // -----------------------------------------------------------------------
+  async impression(adId: number) {
+    await this.anuncioRepo.manager.query(
+      'UPDATE anuncios SET vistas = vistas + 1 WHERE id = ? AND eliminado = 0',
+      [adId],
+    );
+    return { ok: true };
+  }
+
+  async click(adId: number) {
+    await this.anuncioRepo.manager.query(
+      'UPDATE anuncios SET clicks = clicks + 1 WHERE id = ? AND eliminado = 0',
+      [adId],
+    );
+    return { ok: true };
+  }
+
+  // -----------------------------------------------------------------------
+  // PLACEMENTS PERMITIDOS — GET /ads/placements-permitidos/:negocioId
+  // -----------------------------------------------------------------------
+  async getPlacementsPermitidos(negocioId: number) {
+    const rows: any[] = await this.anuncioRepo.manager.query(
+      `SELECT
+         mp.placements_permitidos,
+         mp.max_slots_simultaneos,
+         (
+           SELECT COUNT(*) FROM anuncios a
+           WHERE a.negocio_id   = ?
+             AND a.status       = 'active'
+             AND a.fecha_inicio <= NOW()
+             AND a.fecha_fin    >= NOW()
+             AND a.eliminado    = 0
+         ) AS usados
+       FROM negocios n
+       INNER JOIN suscriptores s          ON s.id  = n.suscriptor_id
+       INNER JOIN membresia_publicidad mp ON mp.membresia_id = s.membresia_id
+       WHERE n.id = ? AND n.eliminado = 0
+       LIMIT 1`,
+      [negocioId, negocioId],
+    );
+
+    if (!rows.length) {
+      return { placementsPermitidos: [], maxSlotsSimultaneos: 0, usados: 0 };
+    }
+
+    const r = rows[0];
+    const placementsPermitidos: string[] =
+      typeof r.placements_permitidos === 'string'
+        ? JSON.parse(r.placements_permitidos)
+        : r.placements_permitidos;
+
+    return {
+      placementsPermitidos,
+      maxSlotsSimultaneos: Number(r.max_slots_simultaneos),
+      usados: Number(r.usados),
+    };
+  }
 }
