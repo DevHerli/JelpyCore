@@ -124,4 +124,7 @@ reseñas: SucursalReview[];
 
   @OneToMany(() => LecturaEventoNegocio, (lectura) => lectura.suscriptor)
   lecturasEventosNegocios: LecturaEventoNegocio[];
+
+  @Column({ name: 'stripe_customer_id', type: 'varchar', length: 100, nullable: true })
+  stripeCustomerId?: string;
 }

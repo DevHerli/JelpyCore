@@ -8,7 +8,7 @@ import {
   IsUrl,
 } from 'class-validator';
 
-const PLACEMENTS = ['home_slider', 'home_feed', 'home_footer', 'home_bottom'] as const;
+const PLACEMENTS = ['home_slider', 'home_feed', 'home_footer', 'home_bottom', 'category_modal'] as const;
 
 export class CreateAnuncioDto {
   @IsNumber()

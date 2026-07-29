@@ -107,45 +107,133 @@ export class SuscripcionesService {
   }
 
   async obtenerResumenSuscriptor(suscriptorId: number) {
-    const suscripcion = await this.obtenerSuscripcionActiva(suscriptorId);
-    const cuotas = await this.obtenerCuotasDeMembresia(suscripcion.membresia.id);
-    const ciclo = await this.obtenerOCrearCicloActual(suscripcion);
+    // 2.2 — Devuelve 200 con subscription:null si no hay suscripción activa (no 404)
+    let suscripcion: SuscriptorSuscripcion | null = null;
+    try {
+      suscripcion = await this.obtenerSuscripcionActiva(suscriptorId);
+    } catch {
+      return { suscriptorId, subscription: null, suscripcion: null, cicloActual: null, cuotas: null };
+    }
 
-    // anuncios: si tu membresía tiene anuncios_ilimitados, forzamos disponible grande
-    const anunciosMax =
-      suscripcion.membresia.anunciosIlimitados
-        ? 1_000_000_000
-        : (cuotas.maxAnuncios || suscripcion.membresia.anunciosMensuales || 0);
+    let cuotas: MembresiaCuotas | null = null;
+    let ciclo: any = null;
+    try {
+      cuotas = await this.obtenerCuotasDeMembresia(suscripcion.membresia.id);
+      ciclo  = await this.obtenerOCrearCicloActual(suscripcion);
+    } catch { /* cuotas no configuradas — devuelve resumen sin ciclo */ }
 
-    const cuotasResumen = {
-      negocios: this.calcularCuota(cuotas.maxNegocios, ciclo.negociosExtra, ciclo.negociosUsados),
+    const anunciosMax = suscripcion.membresia.anunciosIlimitados
+      ? 1_000_000_000
+      : (cuotas?.maxAnuncios || suscripcion.membresia.anunciosMensuales || 0);
+
+    const cuotasResumen = cuotas && ciclo ? {
+      negocios:   this.calcularCuota(cuotas.maxNegocios,   ciclo.negociosExtra,   ciclo.negociosUsados),
       promociones: this.calcularCuota(cuotas.maxPromociones, ciclo.promocionesExtra, ciclo.promocionesUsadas),
-      anuncios: this.calcularCuota(anunciosMax, ciclo.anunciosExtra, ciclo.anunciosUsados),
+      anuncios:   this.calcularCuota(anunciosMax,           ciclo.anunciosExtra,   ciclo.anunciosUsados),
+    } : null;
+
+    const suscripcionPayload = {
+      id:                   suscripcion.id,
+      estatus:              suscripcion.estatus,
+      fechaInicio:          suscripcion.fechaInicio,
+      fechaFin:             suscripcion.fechaFin,
+      proximaFechaCorte:    suscripcion.proximaFechaCorte,
+      renovacionAutomatica: !!suscripcion.renovacionAutomatica,
+      autoRenew:            !!suscripcion.renovacionAutomatica,  // alias que usa el front
+      nextBillingDate:      suscripcion.proximaFechaCorte ?? null,
+      membresia: {
+        id:           suscripcion.membresia.id,
+        nombre:       suscripcion.membresia.nombre,
+        name:         suscripcion.membresia.nombre,  // alias para el front
+        duracionMeses: suscripcion.membresia.duracion_meses,
+        precio:       suscripcion.membresia.precio,
+      },
+      membership: {
+        name: suscripcion.membresia.nombre,
+      },
     };
 
     return {
       suscriptorId,
-      suscripcion: {
-        id: suscripcion.id,
-        estatus: suscripcion.estatus,
-        fechaInicio: suscripcion.fechaInicio,
-        fechaFin: suscripcion.fechaFin,
-        proximaFechaCorte: suscripcion.proximaFechaCorte,
-        renovacionAutomatica: !!suscripcion.renovacionAutomatica,
-        membresia: {
-          id: suscripcion.membresia.id,
-          nombre: suscripcion.membresia.nombre,
-          duracionMeses: suscripcion.membresia.duracion_meses,
-          precio: suscripcion.membresia.precio,
-        },
-      },
-      cicloActual: {
-        id: ciclo.id,
-        cicloInicio: ciclo.cicloInicio,
-        cicloFin: ciclo.cicloFin,
-      },
+      subscription: suscripcionPayload,  // alias esperado por el front
+      suscripcion:  suscripcionPayload,
+      cicloActual: ciclo ? { id: ciclo.id, cicloInicio: ciclo.cicloInicio, cicloFin: ciclo.cicloFin } : null,
       cuotas: cuotasResumen,
     };
+  }
+
+  /** 2.1 Toggle de renovación automática */
+  async setAutoRenew(suscriptorId: number, autoRenew: boolean) {
+    const suscripcion = await this.susRepo.findOne({
+      where: { suscriptor: { id: suscriptorId } as any, estatus: 'activa' },
+      order: { id: 'DESC' },
+    });
+
+    if (!suscripcion) {
+      // Graceful: no hay suscripción activa, respondemos ok sin error
+      return { ok: true, autoRenew };
+    }
+
+    suscripcion.renovacionAutomatica = autoRenew;
+    await this.susRepo.save(suscripcion);
+    return { ok: true, autoRenew };
+  }
+
+  /**
+   * Crea o renueva la suscripción activa tras un pago confirmado.
+   * Llamado desde PagosService.markAsPaid (best-effort, no bloquea el pago).
+   */
+  async renovarOCrearSuscripcion(params: {
+    suscriptorId: number;
+    membresiaId:  number;
+    pagoId:       number;
+  }) {
+    const { suscriptorId, membresiaId } = params;
+
+    const membresia = await this.membresiasRepo.findOne({ where: { id: membresiaId } });
+    if (!membresia) throw new NotFoundException(`Membresía no existe: id=${membresiaId}`);
+
+    const duracionMeses = Number(membresia.duracion_meses) || 1;
+    const hoy      = new Date();
+    const fechaFin = new Date(hoy);
+    fechaFin.setMonth(fechaFin.getMonth() + duracionMeses);
+
+    // Buscar suscripción activa existente
+    const activa = await this.susRepo.findOne({
+      where: { suscriptor: { id: suscriptorId } as any, estatus: 'activa' },
+      relations: { suscriptor: true, membresia: true } as any,
+      order: { id: 'DESC' },
+    });
+
+    if (activa) {
+      if (Number(activa.membresia?.id) === membresiaId) {
+        // Misma membresía → extender fecha_fin
+        activa.fechaFin           = fechaFin;
+        activa.proximaFechaCorte  = fechaFin;
+        activa.proveedorPago      = 'stripe';
+        await this.susRepo.save(activa);
+      } else {
+        // Cambio de plan
+        await this.cambiarPlan({
+          suscriptorId,
+          nuevaMembresiaId: membresiaId,
+          fechaInicio:      hoy.toISOString(),
+          proximaFechaCorte: fechaFin.toISOString(),
+          renovacionAutomatica: !!activa.renovacionAutomatica,
+        });
+      }
+    } else {
+      // No hay activa → crear
+      await this.crearSuscripcion({
+        suscriptorId,
+        membresiaId,
+        estatus: 'activa',
+        fechaInicio: hoy.toISOString(),
+        fechaFin: fechaFin.toISOString(),
+        proximaFechaCorte: fechaFin.toISOString(),
+        proveedorPago: 'stripe',
+      });
+    }
   }
 
 

@@ -12,6 +12,7 @@ import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entit
 import { Membresia } from '../business/membresias/entities/membresia.entity';
 import { SuscripcionesService } from '../suscripciones/suscripciones.service';
 import { EstadoCuentaMovimiento } from '../suscripciones/entities/estado-cuenta-movimiento.entity';
+import { StripeService } from './stripe/stripe.service';
 
 type CreatePaymentInput = {
   negocioId: number;
@@ -42,7 +43,8 @@ export class PagosService {
     @InjectRepository(Membresia)
     private readonly membresiasRepo: Repository<Membresia>,
     private readonly dataSource: DataSource,
-    private readonly suscripcionesService: SuscripcionesService, // para crear movimiento ledger
+    private readonly suscripcionesService: SuscripcionesService,
+    private readonly stripeService: StripeService,
   ) {}
 
   // =========================
@@ -74,11 +76,11 @@ export class PagosService {
    * (Luego tu pasarela lo pasa a "procesando" y "pagado")
    */
   async createPayment(input: CreatePaymentInput) {
-    const negocioId = Number(input.negocioId);
+    const negocioId = input.negocioId ? Number(input.negocioId) : null;
     const suscriptorId = Number(input.suscriptorId);
     const membresiaId = Number(input.membresiaId);
 
-    if (!Number.isFinite(negocioId) || negocioId <= 0) {
+    if (negocioId !== null && (!Number.isFinite(negocioId) || negocioId <= 0)) {
       throw new BadRequestException('negocioId inválido');
     }
     if (!Number.isFinite(suscriptorId) || suscriptorId <= 0) {
@@ -116,7 +118,7 @@ export class PagosService {
     }
 
     const pago = this.pagosRepo.create({
-      negocioId: String(negocioId),
+      negocioId: negocioId ? String(negocioId) : null,
       suscriptorId: String(suscriptorId),
       membresiaId: String(membresiaId),
       monto: this.toMoneyString(Number(input.monto)),
@@ -300,6 +302,18 @@ async markAsPaid(
     });
 
     await runner.commitTransaction();
+
+    // Crear/renovar suscripción activa (best-effort — no falla el pago si hay error)
+    try {
+      await this.suscripcionesService.renovarOCrearSuscripcion({
+        suscriptorId: Number((pago as any).suscriptorId),
+        membresiaId:  Number((pago as any).membresiaId),
+        pagoId,
+      });
+    } catch (e: any) {
+      console.warn(`[PagosService] renovarOCrearSuscripcion warning: ${e?.message}`);
+    }
+
     return { ok: true };
   } catch (e) {
     await runner.rollbackTransaction();
@@ -410,18 +424,170 @@ async markAsFailed(
 }
 
 
-async attachExternalReferenceIfMissing(pagoId: number, referenciaExterna: string) {
-  if (!pagoId || pagoId <= 0) return;
+  async attachExternalReferenceIfMissing(pagoId: number, referenciaExterna: string) {
+    if (!pagoId || pagoId <= 0) return;
 
-  await this.pagosRepo
-    .createQueryBuilder()
-    .update()
-    .set({ referenciaExterna })
-    .where('id = :pagoId', { pagoId })
-    .andWhere('(referencia_externa IS NULL OR referencia_externa = "")')
-    .execute();
-}
+    await this.pagosRepo
+      .createQueryBuilder()
+      .update()
+      .set({ referenciaExterna })
+      .where('id = :pagoId', { pagoId })
+      .andWhere('(referencia_externa IS NULL OR referencia_externa = "")')
+      .execute();
+  }
 
+  // =====================================================================
+  // STRIPE — Customer, Payment Methods, Checkout
+  // =====================================================================
 
+  /** Obtiene o crea el Stripe Customer para el suscriptor. Idempotente. */
+  async ensureStripeCustomer(suscriptorId: number): Promise<string> {
+    const sus = await this.suscriptoresRepo.findOne({ where: { id: suscriptorId as any } });
+    if (!sus) throw new NotFoundException(`Suscriptor no existe: id=${suscriptorId}`);
 
+    if (sus.stripeCustomerId) return sus.stripeCustomerId;
+
+    const customer = await this.stripeService.client.customers.create({
+      name:  `${sus.nombre} ${sus.apellidoPaterno}`.trim(),
+      email: sus.correoElectronico ?? undefined,
+      metadata: { suscriptor_id: String(suscriptorId) },
+    });
+
+    await this.suscriptoresRepo.update(suscriptorId as any, {
+      stripeCustomerId: customer.id,
+    } as any);
+
+    return customer.id;
+  }
+
+  /**
+   * 1.1 POST /pagos/stripe/customer
+   * Crea o recupera el Stripe Customer asociado al suscriptor.
+   */
+  async getOrCreateCustomer(suscriptorId: number) {
+    const customerId = await this.ensureStripeCustomer(suscriptorId);
+    return { customerId };
+  }
+
+  /**
+   * 1.2 POST /pagos/stripe/setup-intent
+   * SetupIntent para guardar tarjeta sin cobrar.
+   */
+  async createSetupIntent(suscriptorId: number) {
+    const customerId = await this.ensureStripeCustomer(suscriptorId);
+    const si = await this.stripeService.client.setupIntents.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+    });
+    return { clientSecret: si.client_secret };
+  }
+
+  /**
+   * 1.3 GET /pagos/metodos/:suscriptorId
+   * Lista los métodos de pago (tarjetas) guardados en Stripe.
+   */
+  async listPaymentMethods(suscriptorId: number) {
+    const sus = await this.suscriptoresRepo.findOne({ where: { id: suscriptorId as any } });
+    if (!sus?.stripeCustomerId) return [];
+
+    const [pms, customer] = await Promise.all([
+      this.stripeService.client.paymentMethods.list({
+        customer: sus.stripeCustomerId,
+        type: 'card',
+      }),
+      this.stripeService.client.customers.retrieve(sus.stripeCustomerId),
+    ]);
+
+    const defaultPmId = (customer as any)?.invoice_settings?.default_payment_method ?? null;
+
+    return pms.data.map((pm) => ({
+      id:       pm.id,
+      brand:    pm.card?.brand     ?? null,
+      last4:    pm.card?.last4     ?? null,
+      expMonth: pm.card?.exp_month ?? null,
+      expYear:  pm.card?.exp_year  ?? null,
+      isDefault: pm.id === defaultPmId,
+    }));
+  }
+
+  /**
+   * 1.4 DELETE /pagos/metodos/:paymentMethodId
+   * Desvincula la tarjeta del customer en Stripe.
+   */
+  async deletePaymentMethod(paymentMethodId: string) {
+    await this.stripeService.client.paymentMethods.detach(paymentMethodId);
+    return { ok: true };
+  }
+
+  /**
+   * 1.5 PATCH /pagos/metodos/:paymentMethodId/default
+   * Establece la tarjeta como método por defecto del customer.
+   */
+  async setDefaultPaymentMethod(paymentMethodId: string, suscriptorId: number) {
+    const sus = await this.suscriptoresRepo.findOne({ where: { id: suscriptorId as any } });
+    if (!sus?.stripeCustomerId) {
+      throw new BadRequestException('El suscriptor no tiene customer de Stripe. Llama primero a /pagos/stripe/customer.');
+    }
+
+    await this.stripeService.client.customers.update(sus.stripeCustomerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    return { ok: true };
+  }
+
+  /**
+   * 1.6 POST /pagos/stripe/checkout
+   * Cobra la membresía con la tarjeta guardada. Crea un Pago pendiente,
+   * confirma el PaymentIntent y lo vincula vía metadata para el webhook.
+   */
+  async createCheckout(dto: {
+    suscriptorId: number;
+    membresiaId:  number;
+    paymentMethodId: string;
+  }) {
+    const { suscriptorId, membresiaId, paymentMethodId } = dto;
+
+    const membresia = await this.membresiasRepo.findOne({ where: { id: membresiaId as any } });
+    if (!membresia) throw new NotFoundException(`Membresía no existe: id=${membresiaId}`);
+
+    const customerId = await this.ensureStripeCustomer(suscriptorId);
+    const montoPesos = Number(membresia.precio);
+    if (!montoPesos || montoPesos <= 0) throw new BadRequestException('La membresía tiene precio inválido.');
+
+    // 1) Crear registro Pago (pendiente)
+    const pagoResult = await this.createPayment({
+      negocioId:  null as any,
+      suscriptorId,
+      membresiaId,
+      monto: montoPesos,
+      metodoPago: 'stripe',
+    });
+    const pagoId = pagoResult.pago.id;
+
+    // 2) PaymentIntent con confirm=true
+    const pi = await this.stripeService.client.paymentIntents.create({
+      amount:   Math.round(montoPesos * 100),
+      currency: 'mxn',
+      customer: customerId,
+      payment_method: paymentMethodId,
+      confirm: true,
+      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+      metadata: {
+        pago_id:       String(pagoId),
+        suscriptor_id: String(suscriptorId),
+        membresia_id:  String(membresiaId),
+      },
+    });
+
+    // 3) Vincular referencia_externa
+    await this.attachExternalReferenceIfMissing(pagoId, pi.id);
+
+    return {
+      clientSecret:    pi.client_secret,
+      requiresAction:  pi.status === 'requires_action',
+      paymentIntentId: pi.id,
+      pagoId,
+    };
+  }
 }

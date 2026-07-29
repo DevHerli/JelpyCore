@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { SuscripcionesService } from './suscripciones.service';
 import { CrearSuscripcionDto } from './dtos/crear-suscripcion.dto';
 import { CambiarPlanDto } from './dtos/cambiar-plan.dto';
@@ -81,5 +81,17 @@ export class SuscripcionesController {
   @Post('cuotas')
   upsertCuotas(@Body() dto: UpsertMembresiaCuotasDto) {
     return this.service.upsertCuotas(dto);
+  }
+
+  // ── Renovación automática ──────────────────────────────────────
+
+  /** 2.1 PATCH /suscripciones/renovacion/:suscriptorId */
+  @Patch('renovacion/:suscriptorId')
+  setAutoRenew(
+    @Param('suscriptorId', ParseIntPipe) suscriptorId: number,
+    @Body() body: { autoRenew: boolean },
+  ) {
+    if (body?.autoRenew === undefined) throw new BadRequestException('autoRenew requerido (boolean)');
+    return this.service.setAutoRenew(suscriptorId, !!body.autoRenew);
   }
 }

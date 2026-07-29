@@ -1,8 +1,13 @@
 import {
   BadRequestException,
+  Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
+  Param,
+  ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -24,8 +29,9 @@ export class PagosController {
     private readonly pagosService: PagosService,
   ) {}
 
-  // ✅ LISTAR PAGOS (para Ionic) — requiere JWT
-  // GET /pagos?negocioId=6&suscriptorId=8&limit=50
+  // ──────────────────────────────────────────────────────────────
+  // LISTADO
+  // ──────────────────────────────────────────────────────────────
   @Get()
   @UseGuards(JwtAuthGuard)
   async listPagos(
@@ -33,31 +39,94 @@ export class PagosController {
     @Query('suscriptorId') suscriptorId?: string,
     @Query('limit') limit?: string,
   ) {
-    const parsedNegocioId = negocioId ? Number(negocioId) : undefined;
+    const parsedNegocioId    = negocioId    ? Number(negocioId)    : undefined;
     const parsedSuscriptorId = suscriptorId ? Number(suscriptorId) : undefined;
-    const parsedLimit = limit ? Number(limit) : 50;
+    const parsedLimit        = limit        ? Number(limit)        : 50;
 
-    if (parsedNegocioId != null && (!Number.isFinite(parsedNegocioId) || parsedNegocioId <= 0)) {
-      throw new BadRequestException('negocioId inválido');
-    }
-    if (parsedSuscriptorId != null && (!Number.isFinite(parsedSuscriptorId) || parsedSuscriptorId <= 0)) {
-      throw new BadRequestException('suscriptorId inválido');
-    }
-    if (!Number.isFinite(parsedLimit) || parsedLimit <= 0 || parsedLimit > 200) {
-      throw new BadRequestException('limit inválido (1-200)');
-    }
+    if (parsedNegocioId    != null && (!Number.isFinite(parsedNegocioId)    || parsedNegocioId    <= 0)) throw new BadRequestException('negocioId inválido');
+    if (parsedSuscriptorId != null && (!Number.isFinite(parsedSuscriptorId) || parsedSuscriptorId <= 0)) throw new BadRequestException('suscriptorId inválido');
+    if (!Number.isFinite(parsedLimit) || parsedLimit <= 0 || parsedLimit > 200) throw new BadRequestException('limit inválido (1-200)');
 
     return this.pagosService.listPagos({
-      negocioId: parsedNegocioId,
+      negocioId:    parsedNegocioId,
       suscriptorId: parsedSuscriptorId,
-      limit: parsedLimit,
+      limit:        parsedLimit,
     });
   }
 
-  /**
-   * WEBHOOK STRIPE (NO TOCAR tu lógica funcional)
-   * main.ts debe tener raw body en esta ruta
-   */
+  // ──────────────────────────────────────────────────────────────
+  // STRIPE — Customer
+  // ──────────────────────────────────────────────────────────────
+
+  /** 1.1 Crea o recupera el Stripe Customer del suscriptor */
+  @Post('stripe/customer')
+  @UseGuards(JwtAuthGuard)
+  createCustomer(@Body() body: { suscriptorId: number }) {
+    if (!body?.suscriptorId) throw new BadRequestException('suscriptorId requerido');
+    return this.pagosService.getOrCreateCustomer(Number(body.suscriptorId));
+  }
+
+  /** 1.2 SetupIntent para guardar tarjeta sin cobrar */
+  @Post('stripe/setup-intent')
+  @UseGuards(JwtAuthGuard)
+  createSetupIntent(@Body() body: { suscriptorId: number }) {
+    if (!body?.suscriptorId) throw new BadRequestException('suscriptorId requerido');
+    return this.pagosService.createSetupIntent(Number(body.suscriptorId));
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // STRIPE — Métodos de pago (tarjetas guardadas)
+  // ──────────────────────────────────────────────────────────────
+
+  /** 1.3 Lista tarjetas guardadas del suscriptor */
+  @Get('metodos/:suscriptorId')
+  @UseGuards(JwtAuthGuard)
+  listPaymentMethods(@Param('suscriptorId', ParseIntPipe) suscriptorId: number) {
+    return this.pagosService.listPaymentMethods(suscriptorId);
+  }
+
+  /** 1.4 Elimina una tarjeta guardada */
+  @Delete('metodos/:paymentMethodId')
+  @UseGuards(JwtAuthGuard)
+  deletePaymentMethod(@Param('paymentMethodId') paymentMethodId: string) {
+    return this.pagosService.deletePaymentMethod(paymentMethodId);
+  }
+
+  /** 1.5 Establece tarjeta por defecto */
+  @Patch('metodos/:paymentMethodId/default')
+  @UseGuards(JwtAuthGuard)
+  setDefaultPaymentMethod(
+    @Param('paymentMethodId') paymentMethodId: string,
+    @Body() body: { suscriptorId: number },
+  ) {
+    if (!body?.suscriptorId) throw new BadRequestException('suscriptorId requerido');
+    return this.pagosService.setDefaultPaymentMethod(paymentMethodId, Number(body.suscriptorId));
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // STRIPE — Checkout
+  // ──────────────────────────────────────────────────────────────
+
+  /** 1.6 Cobra la membresía con la tarjeta guardada */
+  @Post('stripe/checkout')
+  @UseGuards(JwtAuthGuard)
+  createCheckout(
+    @Body() body: { suscriptorId: number; membresiaId: number; paymentMethodId: string },
+  ) {
+    if (!body?.suscriptorId)    throw new BadRequestException('suscriptorId requerido');
+    if (!body?.membresiaId)     throw new BadRequestException('membresiaId requerido');
+    if (!body?.paymentMethodId) throw new BadRequestException('paymentMethodId requerido');
+
+    return this.pagosService.createCheckout({
+      suscriptorId:    Number(body.suscriptorId),
+      membresiaId:     Number(body.membresiaId),
+      paymentMethodId: body.paymentMethodId,
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // WEBHOOK STRIPE (raw body — sin guards, sin tocar)
+  // ──────────────────────────────────────────────────────────────
   @Post('webhook/stripe')
   @HttpCode(200)
   async stripeWebhook(
@@ -77,7 +146,7 @@ export class PagosController {
 
       switch (event.type) {
         case 'payment_intent.succeeded': {
-          const pi = event.data.object as Stripe.PaymentIntent;
+          const pi     = event.data.object as Stripe.PaymentIntent;
           const pagoId = Number((pi.metadata as any)?.pago_id || (pi.metadata as any)?.pagoId || 0);
           const referenciaExterna = String(pi.id);
 
@@ -93,7 +162,7 @@ export class PagosController {
         }
 
         case 'payment_intent.payment_failed': {
-          const pi = event.data.object as Stripe.PaymentIntent;
+          const pi     = event.data.object as Stripe.PaymentIntent;
           const pagoId = Number((pi.metadata as any)?.pago_id || (pi.metadata as any)?.pagoId || 0);
 
           if (pagoId > 0) {
@@ -107,10 +176,10 @@ export class PagosController {
         }
 
         case 'invoice.payment_succeeded': {
-          const inv = event.data.object as Stripe.Invoice;
-          const paymentIntentId = (inv as any).payment_intent;
+          const inv               = event.data.object as Stripe.Invoice;
+          const paymentIntentId   = (inv as any).payment_intent;
           const referenciaExterna = String(paymentIntentId || inv.id);
-          const pagoId = Number((inv as any)?.metadata?.pago_id || 0);
+          const pagoId            = Number((inv as any)?.metadata?.pago_id || 0);
 
           if (pagoId > 0) {
             await this.pagosService.attachExternalReferenceIfMissing(pagoId, referenciaExterna);

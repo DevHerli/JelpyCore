@@ -10,8 +10,8 @@ export class Pago {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: string;
 
-  @Column({ name: 'negocio_id', type: 'bigint', unsigned: true })
-  negocioId: string;
+  @Column({ name: 'negocio_id', type: 'bigint', unsigned: true, nullable: true })
+  negocioId: string | null;
 
   @Column({ name: 'suscriptor_id', type: 'bigint', unsigned: true })
   suscriptorId: string;
