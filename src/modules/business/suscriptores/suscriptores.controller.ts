@@ -15,6 +15,7 @@ import { SuscriptoresService } from './suscriptores.service';
 import { CreateSuscriptorDto } from './dto/create-suscriptor.dto';
 import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
 import { CompletarPerfilDto } from './dto/completar-perfil.dto';
+import { DatosFiscalesDto } from './dto/datos-fiscales.dto';
 
 @Controller('suscriptores')
 export class SuscriptoresController {
@@ -90,5 +91,24 @@ export class SuscriptoresController {
   @UseGuards(JwtAuthGuard)
   eliminar(@Param('id', ParseIntPipe) id: number) {
     return this.suscriptoresService.eliminar(id);
+  }
+
+  // ── Datos fiscales ──────────────────────────────────────────────────────
+
+  /** GET /suscriptores/:id/datos-fiscales */
+  @Get(':id/datos-fiscales')
+  @UseGuards(JwtAuthGuard)
+  getDatosFiscales(@Param('id', ParseIntPipe) id: number) {
+    return this.suscriptoresService.getDatosFiscales(id);
+  }
+
+  /** PUT /suscriptores/:id/datos-fiscales */
+  @Put(':id/datos-fiscales')
+  @UseGuards(JwtAuthGuard)
+  updateDatosFiscales(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DatosFiscalesDto,
+  ) {
+    return this.suscriptoresService.updateDatosFiscales(id, dto);
   }
 }

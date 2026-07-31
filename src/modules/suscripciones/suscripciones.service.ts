@@ -263,18 +263,37 @@ const saldoActualCentavos =
     suscriptorId,
     saldoActualCentavos,
     moneda: 'MXN',
-    movimientos: movimientos.map((m) => ({
-    id: Number(m.id),
-    tipoMovimiento: m.tipoMovimiento,
-    descripcion: m.descripcion,
-    referenciaTabla: m.referenciaTabla ?? null,
-    referenciaId: m.referenciaId != null ? Number(m.referenciaId) : null,
-    cargoCentavos: Number(m.cargoCentavos || 0),
-    abonoCentavos: Number(m.abonoCentavos || 0),
-    saldoDespuesCentavos: Number(m.saldoDespuesCentavos || 0),
-    moneda: m.moneda,
-    fechaCreacion: m.fechaCreacion,
-    })),
+    movimientos: movimientos.map((m) => {
+      const cargo = Number(m.cargoCentavos || 0);
+      const abono = Number(m.abonoCentavos || 0);
+      const saldo = Number(m.saldoDespuesCentavos || 0);
+      // referencia legible: "pagos#42" o null
+      const referencia =
+        m.referenciaTabla && m.referenciaId != null
+          ? `${m.referenciaTabla}#${m.referenciaId}`
+          : null;
+
+      return {
+        // ── campos originales (backward compat) ──
+        id:                   Number(m.id),
+        tipoMovimiento:       m.tipoMovimiento,
+        descripcion:          m.descripcion,
+        referenciaTabla:      m.referenciaTabla ?? null,
+        referenciaId:         m.referenciaId != null ? Number(m.referenciaId) : null,
+        cargoCentavos:        cargo,
+        abonoCentavos:        abono,
+        saldoDespuesCentavos: saldo,
+        moneda:               m.moneda,
+        fechaCreacion:        m.fechaCreacion,
+        // ── aliases que espera el front ──
+        fecha:         m.fechaCreacion,
+        concepto:      m.descripcion,
+        tipo:          m.tipoMovimiento,
+        montoCentavos: cargo > 0 ? cargo : abono,
+        saldoCentavos: saldo,
+        referencia,
+      };
+    }),
   };
 }
 

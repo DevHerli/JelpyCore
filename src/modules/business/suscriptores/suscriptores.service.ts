@@ -10,6 +10,7 @@ import { Suscriptor } from './entities/suscriptores.entity';
 import { CreateSuscriptorDto } from './dto/create-suscriptor.dto';
 import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
 import { CompletarPerfilDto } from './dto/completar-perfil.dto';
+import { DatosFiscalesDto } from './dto/datos-fiscales.dto';
 
 import * as bcrypt from 'bcryptjs';
 import { Membresia } from '../membresias/entities/membresia.entity';
@@ -222,5 +223,45 @@ export class SuscriptoresService {
     const suscriptor = await this.obtenerPorId(id);
     suscriptor.eliminado = true;
     await this.suscriptorRepo.save(suscriptor);
+  }
+
+  // ── Datos fiscales ────────────────────────────────────────────────────────
+
+  async getDatosFiscales(id: number) {
+    const suscriptor = await this.suscriptorRepo.findOne({
+      where: { id, eliminado: false },
+      select: ['id', 'rfc', 'razonSocial', 'usoCfdi', 'regimenFiscal', 'codigoPostalFiscal', 'emailFiscal'] as any,
+    });
+
+    if (!suscriptor) throw new NotFoundException('Suscriptor no encontrado');
+
+    return {
+      suscriptorId:       id,
+      rfc:                suscriptor.rfc ?? null,
+      razonSocial:        suscriptor.razonSocial ?? null,
+      usoCfdi:            suscriptor.usoCfdi ?? null,
+      regimenFiscal:      suscriptor.regimenFiscal ?? null,
+      codigoPostalFiscal: suscriptor.codigoPostalFiscal ?? null,
+      emailFiscal:        suscriptor.emailFiscal ?? null,
+    };
+  }
+
+  async updateDatosFiscales(id: number, dto: DatosFiscalesDto) {
+    const suscriptor = await this.suscriptorRepo.findOne({
+      where: { id, eliminado: false },
+    });
+
+    if (!suscriptor) throw new NotFoundException('Suscriptor no encontrado');
+
+    if (dto.rfc               !== undefined) suscriptor.rfc               = dto.rfc ?? null;
+    if (dto.razonSocial       !== undefined) suscriptor.razonSocial       = dto.razonSocial ?? null;
+    if (dto.usoCfdi           !== undefined) suscriptor.usoCfdi           = dto.usoCfdi ?? null;
+    if (dto.regimenFiscal     !== undefined) suscriptor.regimenFiscal     = dto.regimenFiscal ?? null;
+    if (dto.codigoPostalFiscal !== undefined) suscriptor.codigoPostalFiscal = dto.codigoPostalFiscal ?? null;
+    if (dto.emailFiscal       !== undefined) suscriptor.emailFiscal       = dto.emailFiscal ?? null;
+
+    await this.suscriptorRepo.save(suscriptor);
+
+    return this.getDatosFiscales(id);
   }
 }

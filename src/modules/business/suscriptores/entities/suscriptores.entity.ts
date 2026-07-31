@@ -127,4 +127,23 @@ reseñas: SucursalReview[];
 
   @Column({ name: 'stripe_customer_id', type: 'varchar', length: 100, nullable: true })
   stripeCustomerId?: string;
+
+  // ── Datos fiscales (Phase 3) ──────────────────────────────────────────────
+  @Column({ type: 'varchar', length: 13, nullable: true })
+  rfc?: string;
+
+  @Column({ name: 'razon_social', type: 'varchar', length: 150, nullable: true })
+  razonSocial?: string;
+
+  @Column({ name: 'uso_cfdi', type: 'varchar', length: 10, nullable: true })
+  usoCfdi?: string;
+
+  @Column({ name: 'regimen_fiscal', type: 'varchar', length: 10, nullable: true })
+  regimenFiscal?: string;
+
+  @Column({ name: 'codigo_postal_fiscal', type: 'varchar', length: 5, nullable: true })
+  codigoPostalFiscal?: string;
+
+  @Column({ name: 'email_fiscal', type: 'varchar', length: 150, nullable: true })
+  emailFiscal?: string;
 }

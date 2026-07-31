@@ -49,6 +49,7 @@ import { AnunciosModule } from './modules/business/anuncios/anuncios.module';
 import { PromocionesNegociosModule } from './modules/business/promociones_negocio/promociones-negocios.module';
 import { SuscripcionesModule } from './modules/suscripciones/suscripciones.module';
 import { PagosModule } from './modules/pagos/pagos.module';
+import { FacturasModule } from './modules/facturas/facturas.module';
 import { PostalCodesModule } from './modules/business/domicilios/codigos_postal/postal-codes.module';
 import { ColoniasModule } from './modules/business/domicilios/colonias/colonias.module';
 import { StreetsModule } from './modules/business/domicilios/calles/streets.module';
@@ -95,6 +96,7 @@ import { PublicSucursalesModule } from './modules/public/sucursales/public-sucur
     PromocionesNegociosModule,
     SuscripcionesModule,
     PagosModule,
+    FacturasModule,
     PostalCodesModule,
     ColoniasModule,
     StreetsModule,
