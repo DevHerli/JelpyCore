@@ -849,6 +849,90 @@ for (const a of aliases) {
     return !norm || GENERICOS.some((g) => norm === g || norm.includes(g));
   }
 
+  /**
+   * Detecta si el texto viene de un chip de sugerencia (es una pregunta
+   * meta-conversacional del bot, no una intención de búsqueda real).
+   * Ej: "¿Quieres intentar con otra palabra?" → true
+   *     "¿Buscas mariscos con domicilio?"    → false (es búsqueda real)
+   */
+  private esMetaPregunta(texto: string): boolean {
+    const norm = this.normalizar(texto);
+    const META = [
+      'quieres intentar con otra palabra',
+      'buscas algo diferente',
+      'quieres ampliar la busqueda',
+      'intentar de nuevo',
+      'buscar en otra categoria',
+      'quieres ver mas opciones',
+      'ampliar la busqueda',
+      'cambiar de busqueda',
+    ];
+    return META.some((m) => norm.includes(m));
+  }
+
+  /**
+   * Limpia el texto si viene como label de chip (quita ¿? y connectors iniciales).
+   * "¿Buscas mariscos con servicio a domicilio?" → "mariscos con servicio a domicilio"
+   */
+  private limpiarTextoChip(texto: string): string {
+    return texto
+      .replace(/^[¿¡\s]+/, '')
+      .replace(/[?!\s]+$/, '')
+      .replace(/^(buscas|busca|quieres|solo los que|los que tienen|ver)\s+/i, '')
+      .trim();
+  }
+
+  /**
+   * Genera sugerencias de ampliación cuando no hay resultados.
+   * En vez de chips meta ("¿intentar con otra palabra?") devuelve
+   * búsquedas concretas más amplias para salir del ciclo.
+   */
+  private generarSugerenciasSinResultados(
+    filtros: any,
+    ciudad: string | undefined,
+    filtersApplied: string[],
+  ): Array<{ label: string; query: string; filter: string }> {
+    const sugerencias: Array<{ label: string; query: string; filter: string }> = [];
+    const yaAplicados = new Set<string>(filtersApplied);
+    const ciudadLabel = ciudad ? ` en ${ciudad}` : '';
+
+    // Si tenía características aplicadas → quitar filtros y buscar solo la entidad
+    const entidad = filtros.q || filtros.normalizedText || '';
+    const entidadLimpia = entidad
+      .replace(/con\s+(servicio a domicilio|domicilio|estacionamiento|wifi|promociones)/gi, '')
+      .trim();
+
+    if (entidadLimpia && !yaAplicados.has('sin_filtros')) {
+      sugerencias.push({
+        label:  `Ver todos los ${entidadLimpia.toLowerCase()}${ciudadLabel}`,
+        query:  entidadLimpia,
+        filter: 'sin_filtros',
+      });
+    }
+
+    // Sugerir ampliar a la categoría padre
+    if (filtros.subcategoriaId || filtros.especialidadId) {
+      if (!yaAplicados.has('ampliar_categoria')) {
+        sugerencias.push({
+          label:  `Buscar en toda la categoría${ciudadLabel}`,
+          query:  filtros.q?.split(' ')[0] ?? 'negocios',
+          filter: 'ampliar_categoria',
+        });
+      }
+    }
+
+    // Búsqueda completamente abierta
+    if (sugerencias.length < 2 && !yaAplicados.has('busqueda_abierta')) {
+      sugerencias.push({
+        label:  `¿Qué más puedo buscar para ti${ciudadLabel}?`,
+        query:  '',
+        filter: 'busqueda_abierta',
+      });
+    }
+
+    return sugerencias.slice(0, 2);
+  }
+
   async interpretar(
     texto: string,
     latitud?: number,
@@ -860,18 +944,40 @@ for (const a of aliases) {
     let filtros: any = {};
     let prefs: any[] | null = null;
 
-    const textoNorm = this.normalizar(texto);
+    // ── Detección anti-ciclo ───────────────────────────────────────────────
+    // Si el mensaje es una meta-pregunta del propio bot (chip sin resultados),
+    // responder con mensaje de orientación en vez de buscar sin sentido.
+    if (this.esMetaPregunta(texto)) {
+      return {
+        filtros_detectados: {},
+        resultados: { items: [] },
+        sin_resultados: true,
+        mensaje_sin_resultados:
+          '¿Qué estás buscando? Cuéntame y te ayudo a encontrarlo 😊',
+        suggestedQueries: [],
+        esMensajeOrientacion: true,
+      };
+    }
+
+    // Si el texto viene de un chip (empieza con ¿ y termina con ?),
+    // limpiar los signos para extraer mejor el intent.
+    const textoProcesado =
+      texto.startsWith('¿') && texto.endsWith('?')
+        ? this.limpiarTextoChip(texto)
+        : texto;
+
+    const textoNorm = this.normalizar(textoProcesado);
 
     try {
       const ai = await this.jelpyAiService.interpretar({
-        text: texto,
+        text: textoProcesado,
         city_hint: ciudadManual ?? null,
         lat: latitud ?? null,
         lng: longitud ?? null,
         user_id: usuarioId ?? null,
       });
 
-      filtros = await this.mapearFastApiAFiltros(ai, ciudadManual, texto);
+      filtros = await this.mapearFastApiAFiltros(ai, ciudadManual, textoProcesado);
 
       this.aplicarCoordenadasSiCorresponde(filtros, latitud, longitud);
 
@@ -1000,7 +1106,7 @@ for (const a of aliases) {
       const sinResultados = !this.hasResults(resultados);
 
       const suggestedQueries = sinResultados
-        ? []
+        ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
         : await this.generarSugerencias(resultados, filtros, filtersApplied);
 
       return {
@@ -1008,7 +1114,7 @@ for (const a of aliases) {
         resultados,
         sin_resultados: sinResultados,
         mensaje_sin_resultados: sinResultados
-          ? `No encontré negocios con "${texto}" en tu zona. Intenta con otra búsqueda o amplía los filtros.`
+          ? `No encontré negocios en tu zona con esa búsqueda. Prueba alguna de estas opciones:`
           : null,
         suggestedQueries,
       };
@@ -1019,7 +1125,7 @@ for (const a of aliases) {
       );
 
       return this.interpretarFallbackLocal(
-        texto,
+        textoProcesado,
         latitud,
         longitud,
         ciudadManual,
@@ -1316,7 +1422,7 @@ for (const a of aliases) {
     const sinResultados = !this.hasResults(resultados);
 
     const suggestedQueries = sinResultados
-      ? []
+      ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
       : await this.generarSugerencias(resultados, filtros, filtersApplied);
 
     return {
@@ -1324,7 +1430,7 @@ for (const a of aliases) {
       resultados,
       sin_resultados: sinResultados,
       mensaje_sin_resultados: sinResultados
-        ? `No encontré negocios con "${texto}" en tu zona. Intenta con otra búsqueda o amplía los filtros.`
+        ? `No encontré negocios en tu zona con esa búsqueda. Prueba alguna de estas opciones:`
         : null,
       suggestedQueries,
     };
