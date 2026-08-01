@@ -720,17 +720,18 @@ for (const a of aliases) {
   }
 
   // -----------------------------------------------------------------------
-  // SUGERENCIAS DE SEGUIMIENTO — no repetitivas, basadas en datos reales
+  // SUGERENCIAS DE SEGUIMIENTO — contextuales, no repetitivas
   // -----------------------------------------------------------------------
   /**
-   * Genera hasta 3 sugerencias contextuales para el siguiente turno.
+   * Regla principal:
+   *   - Búsqueda GENERAL (solo categoría, sin subcategoría/especialidad):
+   *       → solo refinadores universales: abierto ahora, domicilio, promos,
+   *         estacionamiento. NUNCA características específicas de un giro.
+   *   - Búsqueda ESPECÍFICA (subcategoría / especialidad / keyword concreto):
+   *       → primero características reales de los negocios encontrados
+   *         (extraídas de sucursales_caracteristicas), luego refinadores generales.
    *
-   * Prioridad:
-   *   1. Características que realmente tienen los negocios encontrados
-   *      (extraídas de sucursales_caracteristicas en la BD)
-   *   2. Refinadores generales (abierto ahora, promos, domicilio)
-   *
-   * Nunca devuelve algo que ya esté en filtersApplied ni en filtros activos.
+   * En ambos casos: nunca repite algo que ya esté en filtersApplied.
    */
   private async generarSugerencias(
     resultados: any,
@@ -740,65 +741,74 @@ for (const a of aliases) {
     const sugerencias: Array<{ label: string; query: string; filter: string }> = [];
     const yaAplicados = new Set<string>(filtersApplied);
 
-    // Marcar lo que ya está activo en esta búsqueda
+    // Marcar filtros activos en esta búsqueda
     if (filtros.abiertoAhora)   yaAplicados.add('abierto_ahora');
     if (filtros.promos)         yaAplicados.add('con_promos');
     if (filtros.caracteristica) {
       yaAplicados.add(this.normalizar(filtros.caracteristica).replace(/\s+/g, '_'));
     }
 
-    // IDs de sucursales en los resultados
-    const sucursalIds: number[] = (resultados?.items ?? [])
-      .map((i: any) => Number(i.sucursal_id ?? i.id))
-      .filter((id: number) => id > 0 && !Number.isNaN(id));
+    // ── Determinar si la búsqueda es específica o general ─────────────────
+    // Específica = el usuario ya mencionó una subcategoría, especialidad
+    // o una keyword concreta (no solo el nombre genérico de una categoría).
+    const esEspecifica =
+      !!filtros.subcategoriaId ||
+      !!filtros.especialidadId ||
+      (!!filtros.q && !this.esTerminoGenerico(filtros.q));
 
-    // Características reales de esos negocios
-    if (sucursalIds.length > 0) {
-      try {
-        const placeholders = sucursalIds.map(() => '?').join(',');
-        const rows: any[] = await this.caracteristicaRepo.manager.query(
-          `SELECT cs.codigo, cs.nombre, COUNT(*) AS total
-           FROM sucursales_caracteristicas sc
-           INNER JOIN caracteristicas_sucursal cs ON cs.id = sc.caracteristica_id
-           WHERE sc.sucursal_id IN (${placeholders})
-             AND sc.valor  = 1
-             AND cs.activo = 1
-           GROUP BY cs.id, cs.codigo, cs.nombre
-           ORDER BY total DESC
-           LIMIT 8`,
-          sucursalIds,
-        );
+    // ── Características reales (solo para búsquedas específicas) ──────────
+    if (esEspecifica) {
+      const sucursalIds: number[] = (resultados?.items ?? [])
+        .map((i: any) => Number(i.sucursal_id ?? i.id))
+        .filter((id: number) => id > 0 && !Number.isNaN(id));
 
-        for (const row of rows) {
-          if (sugerencias.length >= 2) break;
+      if (sucursalIds.length > 0) {
+        try {
+          const placeholders = sucursalIds.map(() => '?').join(',');
+          const rows: any[] = await this.caracteristicaRepo.manager.query(
+            `SELECT cs.codigo, cs.nombre, COUNT(*) AS total
+             FROM sucursales_caracteristicas sc
+             INNER JOIN caracteristicas_sucursal cs ON cs.id = sc.caracteristica_id
+             WHERE sc.sucursal_id IN (${placeholders})
+               AND sc.valor  = 1
+               AND cs.activo = 1
+             GROUP BY cs.id, cs.codigo, cs.nombre
+             ORDER BY total DESC
+             LIMIT 10`,
+            sucursalIds,
+          );
 
-          const filterKey: string = row.codigo;
-          const nombreNorm = this.normalizar(row.nombre).replace(/\s+/g, '_');
-
-          if (yaAplicados.has(filterKey) || yaAplicados.has(nombreNorm)) continue;
-
-          const nTotal    = Number(row.total);
-          const prefijo   = nTotal === 1 ? 'el que tiene' : 'los que tienen';
-
-          sugerencias.push({
-            label:  `¿Solo ${prefijo} ${row.nombre.toLowerCase()}?`,
-            query:  `con ${row.nombre.toLowerCase()}`,
-            filter: filterKey,
-          });
-
-          yaAplicados.add(filterKey);
+          for (const row of rows) {
+            if (sugerencias.length >= 2) break;
+            const filterKey: string   = row.codigo;
+            const nombreNorm: string  = this.normalizar(row.nombre).replace(/\s+/g, '_');
+            if (yaAplicados.has(filterKey) || yaAplicados.has(nombreNorm)) continue;
+            const prefijo = Number(row.total) === 1 ? 'el que tiene' : 'los que tienen';
+            sugerencias.push({
+              label:  `¿Solo ${prefijo} ${row.nombre.toLowerCase()}?`,
+              query:  `con ${row.nombre.toLowerCase()}`,
+              filter: filterKey,
+            });
+            yaAplicados.add(filterKey);
+          }
+        } catch {
+          // Si la query falla, rellena con generales
         }
-      } catch {
-        // Si la query falla, continúa con sugerencias generales
       }
     }
 
-    // Refinadores generales (solo si aún hay espacio y no se usaron)
-    const generales: Array<{ label: string; query: string; filter: string }> = [
+    // ── Refinadores universales (aplican para CUALQUIER giro) ─────────────
+    // Se muestran siempre que haya espacio y no se hayan aplicado ya.
+    const universales: Array<{ label: string; query: string; filter: string }> = [
       {
         label:  '¿Solo los que están abiertos ahora?',
         query:  'abierto ahora',
         filter: 'abierto_ahora',
+      },
+      {
+        label:  '¿Solo los que tienen servicio a domicilio?',
+        query:  'con servicio a domicilio',
+        filter: 'servicio_domicilio',
       },
       {
         label:  '¿Quieres ver los que tienen promociones?',
@@ -806,21 +816,37 @@ for (const a of aliases) {
         filter: 'con_promos',
       },
       {
-        label:  '¿Los prefieres con servicio a domicilio?',
-        query:  'con servicio a domicilio',
-        filter: 'servicio_domicilio',
+        label:  '¿Los prefieres con estacionamiento?',
+        query:  'con estacionamiento',
+        filter: 'estacionamiento',
       },
     ];
 
-    for (const g of generales) {
+    for (const u of universales) {
       if (sugerencias.length >= 3) break;
-      if (!yaAplicados.has(g.filter)) {
-        sugerencias.push(g);
-        yaAplicados.add(g.filter);
+      if (!yaAplicados.has(u.filter)) {
+        sugerencias.push(u);
+        yaAplicados.add(u.filter);
       }
     }
 
     return sugerencias.slice(0, 3);
+  }
+
+  /**
+   * Devuelve true si el término es demasiado genérico para considerarse
+   * una búsqueda específica (y así evitar sugerencias de giro particular).
+   */
+  private esTerminoGenerico(q: string): boolean {
+    const GENERICOS = [
+      'restaurante', 'restaurantes', 'comida', 'negocio', 'negocios',
+      'tienda', 'tiendas', 'servicio', 'servicios', 'salud', 'belleza',
+      'entretenimiento', 'mascotas', 'turismo', 'educacion', 'hogar',
+      'automotriz', 'deporte', 'bar', 'bares', 'cafe', 'cafes',
+      'cerca', 'cercano', 'cercanos', 'lugar', 'lugares',
+    ];
+    const norm = this.normalizar(q ?? '');
+    return !norm || GENERICOS.some((g) => norm === g || norm.includes(g));
   }
 
   async interpretar(
