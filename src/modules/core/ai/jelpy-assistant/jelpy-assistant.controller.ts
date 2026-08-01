@@ -31,6 +31,7 @@ export class JelpyAssistantController {
     @Req() req: any,
     @Body('latitud') latitud?: number,
     @Body('longitud') longitud?: number,
+    @Body('filtersApplied') filtersApplied?: string[],
   ) {
     if (!mensaje || mensaje.trim().length === 0) {
       return {
@@ -67,6 +68,9 @@ export class JelpyAssistantController {
       textoCorregido,
       latitud,
       longitud,
+      undefined,        // ciudadManual
+      suscriptorId,
+      Array.isArray(filtersApplied) ? filtersApplied : [],
     );
 
     // ======================================================

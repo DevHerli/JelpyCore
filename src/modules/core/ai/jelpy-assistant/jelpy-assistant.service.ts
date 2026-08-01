@@ -719,12 +719,117 @@ for (const a of aliases) {
     return resultados;
   }
 
+  // -----------------------------------------------------------------------
+  // SUGERENCIAS DE SEGUIMIENTO — no repetitivas, basadas en datos reales
+  // -----------------------------------------------------------------------
+  /**
+   * Genera hasta 3 sugerencias contextuales para el siguiente turno.
+   *
+   * Prioridad:
+   *   1. Características que realmente tienen los negocios encontrados
+   *      (extraídas de sucursales_caracteristicas en la BD)
+   *   2. Refinadores generales (abierto ahora, promos, domicilio)
+   *
+   * Nunca devuelve algo que ya esté en filtersApplied ni en filtros activos.
+   */
+  private async generarSugerencias(
+    resultados: any,
+    filtros: any,
+    filtersApplied: string[] = [],
+  ): Promise<Array<{ label: string; query: string; filter: string }>> {
+    const sugerencias: Array<{ label: string; query: string; filter: string }> = [];
+    const yaAplicados = new Set<string>(filtersApplied);
+
+    // Marcar lo que ya está activo en esta búsqueda
+    if (filtros.abiertoAhora)   yaAplicados.add('abierto_ahora');
+    if (filtros.promos)         yaAplicados.add('con_promos');
+    if (filtros.caracteristica) {
+      yaAplicados.add(this.normalizar(filtros.caracteristica).replace(/\s+/g, '_'));
+    }
+
+    // IDs de sucursales en los resultados
+    const sucursalIds: number[] = (resultados?.items ?? [])
+      .map((i: any) => Number(i.sucursal_id ?? i.id))
+      .filter((id: number) => id > 0 && !Number.isNaN(id));
+
+    // Características reales de esos negocios
+    if (sucursalIds.length > 0) {
+      try {
+        const placeholders = sucursalIds.map(() => '?').join(',');
+        const rows: any[] = await this.caracteristicaRepo.manager.query(
+          `SELECT cs.codigo, cs.nombre, COUNT(*) AS total
+           FROM sucursales_caracteristicas sc
+           INNER JOIN caracteristicas_sucursal cs ON cs.id = sc.caracteristica_id
+           WHERE sc.sucursal_id IN (${placeholders})
+             AND sc.valor  = 1
+             AND cs.activo = 1
+           GROUP BY cs.id, cs.codigo, cs.nombre
+           ORDER BY total DESC
+           LIMIT 8`,
+          sucursalIds,
+        );
+
+        for (const row of rows) {
+          if (sugerencias.length >= 2) break;
+
+          const filterKey: string = row.codigo;
+          const nombreNorm = this.normalizar(row.nombre).replace(/\s+/g, '_');
+
+          if (yaAplicados.has(filterKey) || yaAplicados.has(nombreNorm)) continue;
+
+          const nTotal    = Number(row.total);
+          const prefijo   = nTotal === 1 ? 'el que tiene' : 'los que tienen';
+
+          sugerencias.push({
+            label:  `¿Solo ${prefijo} ${row.nombre.toLowerCase()}?`,
+            query:  `con ${row.nombre.toLowerCase()}`,
+            filter: filterKey,
+          });
+
+          yaAplicados.add(filterKey);
+        }
+      } catch {
+        // Si la query falla, continúa con sugerencias generales
+      }
+    }
+
+    // Refinadores generales (solo si aún hay espacio y no se usaron)
+    const generales: Array<{ label: string; query: string; filter: string }> = [
+      {
+        label:  '¿Solo los que están abiertos ahora?',
+        query:  'abierto ahora',
+        filter: 'abierto_ahora',
+      },
+      {
+        label:  '¿Quieres ver los que tienen promociones?',
+        query:  'con promociones',
+        filter: 'con_promos',
+      },
+      {
+        label:  '¿Los prefieres con servicio a domicilio?',
+        query:  'con servicio a domicilio',
+        filter: 'servicio_domicilio',
+      },
+    ];
+
+    for (const g of generales) {
+      if (sugerencias.length >= 3) break;
+      if (!yaAplicados.has(g.filter)) {
+        sugerencias.push(g);
+        yaAplicados.add(g.filter);
+      }
+    }
+
+    return sugerencias.slice(0, 3);
+  }
+
   async interpretar(
     texto: string,
     latitud?: number,
     longitud?: number,
     ciudadManual?: string,
     usuarioId?: number,
+    filtersApplied: string[] = [],
   ) {
     let filtros: any = {};
     let prefs: any[] | null = null;
@@ -868,6 +973,10 @@ for (const a of aliases) {
 
       const sinResultados = !this.hasResults(resultados);
 
+      const suggestedQueries = sinResultados
+        ? []
+        : await this.generarSugerencias(resultados, filtros, filtersApplied);
+
       return {
         filtros_detectados: filtros,
         resultados,
@@ -875,6 +984,7 @@ for (const a of aliases) {
         mensaje_sin_resultados: sinResultados
           ? `No encontré negocios con "${texto}" en tu zona. Intenta con otra búsqueda o amplía los filtros.`
           : null,
+        suggestedQueries,
       };
     } catch (error) {
       console.warn(
@@ -888,6 +998,7 @@ for (const a of aliases) {
         longitud,
         ciudadManual,
         usuarioId,
+        filtersApplied,
       );
     }
   }
@@ -898,6 +1009,7 @@ for (const a of aliases) {
     longitud?: number,
     ciudadManual?: string,
     usuarioId?: number,
+    filtersApplied: string[] = [],
   ) {
     const filtros: any = {};
     const textoNorm = this.normalizar(texto);
@@ -1177,6 +1289,10 @@ for (const a of aliases) {
 
     const sinResultados = !this.hasResults(resultados);
 
+    const suggestedQueries = sinResultados
+      ? []
+      : await this.generarSugerencias(resultados, filtros, filtersApplied);
+
     return {
       filtros_detectados: filtros,
       resultados,
@@ -1184,6 +1300,7 @@ for (const a of aliases) {
       mensaje_sin_resultados: sinResultados
         ? `No encontré negocios con "${texto}" en tu zona. Intenta con otra búsqueda o amplía los filtros.`
         : null,
+      suggestedQueries,
     };
   }
 }
