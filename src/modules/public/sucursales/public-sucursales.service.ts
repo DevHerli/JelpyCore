@@ -65,20 +65,27 @@ export class PublicSucursalesService {
   // ─── Destacados (con membresía activa) ──────────────────────────────────────
 
   async destacados(params: { ciudadId?: number; limit: number }) {
-    const qb = this.baseQuery().take(params.limit);
+    const qb = this.baseQuery();
 
     if (params.ciudadId) {
       qb.andWhere('ciudad.id = :ciudadId', { ciudadId: params.ciudadId });
     }
 
-    qb.innerJoin(
-      'ventas_membresias',
-      'vm',
-      'vm.negocio_id = n.id AND vm.estatus = :estatus AND (vm.fecha_expiracion IS NULL OR vm.fecha_expiracion > NOW())',
-      { estatus: 'pagado' },
+    // Usar EXISTS en vez de innerJoin con params para evitar problemas de
+    // binding de parámetros en ON-clause con raw-table joins en TypeORM 0.3.x
+    qb.andWhere(
+      `EXISTS (
+        SELECT 1 FROM ventas_membresias vm
+        WHERE vm.negocio_id = n.id
+          AND vm.estatus = 'pagado'
+          AND (vm.fecha_expiracion IS NULL OR vm.fecha_expiracion > NOW())
+      )`,
     );
 
-    qb.orderBy('n.fechaRegistro', 'DESC');
+    // Usar nombre de columna real (snake_case) en orderBy para joins externos;
+    // TypeORM no siempre traduce camelCase en alias de entidades JOIN'd
+    qb.orderBy('n.fecha_registro', 'DESC');
+    qb.take(params.limit);
 
     const sucursales = await qb.getMany();
     const items = await this.mapear(sucursales);
