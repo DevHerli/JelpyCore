@@ -82,9 +82,9 @@ export class PublicSucursalesService {
       )`,
     );
 
-    // Usar nombre de columna real (snake_case) en orderBy para joins externos;
-    // TypeORM no siempre traduce camelCase en alias de entidades JOIN'd
-    qb.orderBy('n.fecha_registro', 'DESC');
+    // TypeORM resuelve orderBy contra el metadata de la entidad, por lo que
+    // se debe usar el nombre de propiedad camelCase, no el nombre de columna raw.
+    qb.orderBy('n.fechaRegistro', 'DESC');
     qb.take(params.limit);
 
     const sucursales = await qb.getMany();
