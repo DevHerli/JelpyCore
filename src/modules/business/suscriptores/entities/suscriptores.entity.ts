@@ -47,8 +47,8 @@ reseñas: SucursalReview[];
   membresia?: Membresia;
 
   // --- Contacto ---
-  @Column({ name: 'telefono_celular', length: 20, unique: true })
-  telefonoCelular: string;
+  @Column({ name: 'telefono_celular', length: 20, unique: true, nullable: true })
+  telefonoCelular?: string | null;
 
   @Column({
     name: 'correo_electronico',
@@ -127,6 +127,21 @@ reseñas: SucursalReview[];
 
   @Column({ name: 'stripe_customer_id', type: 'varchar', length: 100, nullable: true })
   stripeCustomerId?: string;
+
+  // ── Permisos del dispositivo / consentimientos ────────────────────────────
+  // NULL = aún no preguntado, 1 = concedido, 0 = denegado
+  @Column({ name: 'permiso_notificaciones', type: 'tinyint', width: 1, nullable: true, default: null })
+  permisoNotificaciones?: boolean | null;
+
+  @Column({ name: 'permiso_geolocalizacion', type: 'tinyint', width: 1, nullable: true, default: null })
+  permisoGeolocalizacion?: boolean | null;
+
+  @Column({ name: 'permiso_uso_datos', type: 'tinyint', width: 1, nullable: true, default: null })
+  permisoUsoDatos?: boolean | null;
+
+  // Fecha en que el usuario eliminó su cuenta (soft delete companion)
+  @Column({ name: 'fecha_eliminacion', type: 'datetime', nullable: true, default: null })
+  fechaEliminacion?: Date | null;
 
   // ── Datos fiscales (Phase 3) ──────────────────────────────────────────────
   @Column({ type: 'varchar', length: 13, nullable: true })

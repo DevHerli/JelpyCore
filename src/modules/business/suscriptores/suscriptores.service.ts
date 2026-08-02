@@ -11,6 +11,7 @@ import { CreateSuscriptorDto } from './dto/create-suscriptor.dto';
 import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
 import { CompletarPerfilDto } from './dto/completar-perfil.dto';
 import { DatosFiscalesDto } from './dto/datos-fiscales.dto';
+import { UpdatePermisosDto } from './dto/update-permisos.dto';
 
 import * as bcrypt from 'bcryptjs';
 import { Membresia } from '../membresias/entities/membresia.entity';
@@ -226,6 +227,76 @@ export class SuscriptoresService {
     const suscriptor = await this.obtenerPorId(id);
     suscriptor.eliminado = true;
     await this.suscriptorRepo.save(suscriptor);
+  }
+
+  // ── Eliminación lógica de la propia cuenta (vía JWT) ────────────────────
+
+  async eliminarCuenta(suscriptorId: number) {
+    const suscriptor = await this.obtenerPorId(suscriptorId);
+
+    suscriptor.eliminado = true;
+    suscriptor.fechaEliminacion = new Date();
+    suscriptor.refreshToken = null;
+
+    await this.suscriptorRepo.save(suscriptor);
+
+    // Desactivar todos los device tokens del usuario
+    await this.suscriptorRepo.manager.query(
+      `UPDATE device_tokens SET is_active = 0 WHERE user_id = ?`,
+      [suscriptorId],
+    );
+
+    // Cancelar suscripciones activas
+    await this.suscriptorRepo.manager.query(
+      `UPDATE suscriptor_suscripciones
+          SET estatus = 'cancelada', fecha_fin = NOW()
+        WHERE suscriptor_id = ? AND estatus = 'activa'`,
+      [suscriptorId],
+    );
+
+    return { ok: true, message: 'Tu cuenta ha sido eliminada correctamente.' };
+  }
+
+  // ── Permisos del dispositivo ─────────────────────────────────────────────
+
+  async getPermisos(suscriptorId: number) {
+    const s = await this.suscriptorRepo.findOne({
+      where: { id: suscriptorId, eliminado: false },
+      select: ['id', 'permisoNotificaciones', 'permisoGeolocalizacion', 'permisoUsoDatos'] as any,
+    });
+
+    if (!s) throw new NotFoundException('Suscriptor no encontrado');
+
+    return {
+      suscriptorId,
+      notificaciones: s.permisoNotificaciones ?? null,
+      geolocalizacion: s.permisoGeolocalizacion ?? null,
+      usoDatos: s.permisoUsoDatos ?? null,
+    };
+  }
+
+  async updatePermisos(suscriptorId: number, dto: UpdatePermisosDto) {
+    const s = await this.suscriptorRepo.findOne({
+      where: { id: suscriptorId, eliminado: false },
+    });
+
+    if (!s) throw new NotFoundException('Suscriptor no encontrado');
+
+    if (dto.notificaciones !== undefined) s.permisoNotificaciones = dto.notificaciones;
+    if (dto.geolocalizacion !== undefined) s.permisoGeolocalizacion = dto.geolocalizacion;
+    if (dto.usoDatos !== undefined) s.permisoUsoDatos = dto.usoDatos;
+
+    await this.suscriptorRepo.save(s);
+
+    // Si se revocan las notificaciones, desactivar los device tokens inmediatamente
+    if (dto.notificaciones === false) {
+      await this.suscriptorRepo.manager.query(
+        `UPDATE device_tokens SET is_active = 0 WHERE user_id = ?`,
+        [suscriptorId],
+      );
+    }
+
+    return this.getPermisos(suscriptorId);
   }
 
   // ── Datos fiscales ────────────────────────────────────────────────────────
