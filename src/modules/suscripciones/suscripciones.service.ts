@@ -234,6 +234,15 @@ export class SuscripcionesService {
         proveedorPago: 'stripe',
       });
     }
+
+    // Sincronizar suscriptores.membresia_id con el plan pagado.
+    // Es crítico: getPlacementsPermitidos y getDashboard leen s.membresia_id
+    // directamente (no la suscripcion activa), por lo que si no se actualiza
+    // el suscriptor sigue viendo los permisos y cuotas de su plan anterior.
+    await this.suscriptoresRepo.update(
+      { id: suscriptorId },
+      { membresia: { id: membresiaId } as any },
+    );
   }
 
 

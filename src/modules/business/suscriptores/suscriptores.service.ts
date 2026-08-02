@@ -72,6 +72,9 @@ export class SuscriptoresService {
         ? new Date(dto.fechaNacimiento)
         : null,
       correoElectronico: dto.correoElectronico ?? null,
+      // BUG 0.1 — el front envía telefonoCelular en el registro por correo
+      // pero el campo no se mapeaba al create() → se perdía en silencio.
+      telefonoCelular: dto.telefonoCelular ?? null,
       aceptoTerminos: dto.aceptoTerminos ? true : false,
       registroCompleto: false,
       tieneNegocios: false,
