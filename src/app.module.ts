@@ -153,6 +153,26 @@ import { PublicSucursalesModule } from './modules/public/sucursales/public-sucur
         autoLoadEntities: true,
         synchronize: cfg.get<string>('DB_SYNC') === 'true', // QA: true | PROD: false
         timezone: 'Z', // gestionamos TZ en app para "abiertoAhora"
+
+        // ── Pool de conexiones robusto ─────────────────────────────────────
+        // ECONNRESET ocurre cuando el servidor MySQL cierra conexiones idle
+        // del pool y TypeORM intenta reutilizarlas sin saber que ya murieron.
+        extra: {
+          // Tamaño del pool: ajustar según límite de conexiones del plan DB
+          connectionLimit: 10,
+
+          // keepAlive envía un ping TCP para mantener la conexión viva
+          // y detectar si el servidor la cerró antes de usarla.
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 10000, // 10 s antes del primer ping
+
+          // Tiempo máximo esperando una conexión libre del pool (ms)
+          waitForConnections: true,
+          queueLimit: 0,
+
+          // Timeout de conexión inicial (ms)
+          connectTimeout: 30000,
+        },
       }),
     }),
 
