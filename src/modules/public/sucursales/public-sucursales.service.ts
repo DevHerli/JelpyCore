@@ -71,21 +71,20 @@ export class PublicSucursalesService {
       qb.andWhere('ciudad.id = :ciudadId', { ciudadId: params.ciudadId });
     }
 
-    // Usar EXISTS en vez de innerJoin con params para evitar problemas de
-    // binding de parámetros en ON-clause con raw-table joins en TypeORM 0.3.x
-    qb.andWhere(
-      `EXISTS (
-        SELECT 1 FROM ventas_membresias vm
-        WHERE vm.negocio_id = n.id
-          AND vm.estatus = 'pagado'
-          AND (vm.fecha_expiracion IS NULL OR vm.fecha_expiracion > NOW())
-      )`,
+    // JOIN directo a suscriptor_suscripciones para filtrar negocios con membresía activa.
+    // Se usa innerJoin sin parámetros bindados para evitar bugs de TypeORM 0.3.x con take().
+    qb.innerJoin(
+      'suscriptor_suscripciones',
+      'ss',
+      `ss.suscriptor_id = n.suscriptor_id
+       AND ss.estatus = 'activa'
+       AND (ss.fecha_fin IS NULL OR ss.fecha_fin >= CURDATE())`,
     );
 
-    // TypeORM resuelve orderBy contra el metadata de la entidad, por lo que
-    // se debe usar el nombre de propiedad camelCase, no el nombre de columna raw.
     qb.orderBy('n.fechaRegistro', 'DESC');
-    qb.take(params.limit);
+    // limit() en vez de take(): emite LIMIT plano, sin subquery de paginación.
+    // take() en TypeORM con joins a tablas raw genera SQL inválido en MariaDB.
+    qb.limit(params.limit);
 
     const sucursales = await qb.getMany();
     const items = await this.mapear(sucursales);

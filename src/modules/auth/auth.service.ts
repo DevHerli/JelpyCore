@@ -79,7 +79,7 @@ export class AuthService {
       role: suscriptor.role ?? 'user',
     };
 
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
     const refreshToken = this.jwtService.sign(
       { sub: suscriptor.id },
       { expiresIn: '30d' },
@@ -230,7 +230,7 @@ export class AuthService {
       tieneNegocios: suscriptor.tieneNegocios,
     };
 
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '15m' });
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
     const refreshToken = this.jwtService.sign(
       { sub: suscriptor.id },
       { expiresIn: '30d' },
@@ -406,7 +406,7 @@ export class AuthService {
       role: suscriptor.role ?? 'user',
     };
 
-    const newAccess = this.jwtService.sign(payload, { expiresIn: '15m' });
+    const newAccess = this.jwtService.sign(payload, { expiresIn: '1h' });
     const newRefresh = this.jwtService.sign(
       { sub: suscriptor.id },
       { expiresIn: '30d' },
