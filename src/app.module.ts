@@ -59,6 +59,7 @@ import { SupportModule } from './modules/support/support.module';
 import { NotificacionesModule } from './modules/notificaciones/notificaciones.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { PublicSucursalesModule } from './modules/public/sucursales/public-sucursales.module';
+import { PublicAdsModule } from './modules/public/ads/public-ads.module';
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { PublicSucursalesModule } from './modules/public/sucursales/public-sucur
     NotificacionesModule,
     MessagesModule,
     PublicSucursalesModule,
+    PublicAdsModule,
 
     // Guards globales (JwtAuthGuard + ApiKeyGuard disponibles en toda la app)
     GuardsModule,
