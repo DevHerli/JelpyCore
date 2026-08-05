@@ -5,8 +5,9 @@ import {
   IsDateString,
   IsNumber,
   IsNotEmpty,
-  Length,
+  Matches,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CompletarPerfilDto {
   @IsEnum(['M', 'F', 'Otro', 'No especifica'])
@@ -17,13 +18,16 @@ export class CompletarPerfilDto {
   @IsOptional()
   fechaNacimiento: string;
 
-  //Ahora obligatorio en completar perfil
+  // 10 dígitos exactos — formato mexicano estándar
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
-  @Length(10, 20)
+  @Matches(/^\d{10}$/, {
+    message: 'telefonoCelular debe tener exactamente 10 dígitos numéricos.',
+  })
   telefonoCelular: string;
 
-  //Selección de membresía obligatoria
+  // Selección de membresía obligatoria
   @IsNumber()
   @IsNotEmpty()
   membresiaId: number;

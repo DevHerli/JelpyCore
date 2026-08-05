@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
@@ -28,8 +29,14 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 
+// ── Constantes de tiempo de vida de tokens ────────────────────────────────────
+export const ACCESS_TOKEN_TTL  = '15m';   // corto por seguridad — el interceptor renueva
+export const REFRESH_TOKEN_TTL = '30d';   // larga — rotación en cada uso
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(CodigoOtp)
     private readonly otpRepo: Repository<CodigoOtp>,
@@ -79,10 +86,10 @@ export class AuthService {
       role: suscriptor.role ?? 'user',
     };
 
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const accessToken = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
     const refreshToken = this.jwtService.sign(
       { sub: suscriptor.id },
-      { expiresIn: '30d' },
+      { expiresIn: REFRESH_TOKEN_TTL },
     );
 
     suscriptor.refreshToken = await bcrypt.hash(refreshToken, 10);
@@ -230,10 +237,10 @@ export class AuthService {
       tieneNegocios: suscriptor.tieneNegocios,
     };
 
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const accessToken = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
     const refreshToken = this.jwtService.sign(
       { sub: suscriptor.id },
-      { expiresIn: '30d' },
+      { expiresIn: REFRESH_TOKEN_TTL },
     );
 
     suscriptor.refreshToken = await bcrypt.hash(refreshToken, 10);
@@ -376,6 +383,7 @@ export class AuthService {
       throw new UnauthorizedException('Falta refresh token');
     }
 
+    // 1. Verificar firma y expiración del JWT
     let decoded: any;
     try {
       decoded = this.jwtService.verify(refreshToken);
@@ -387,43 +395,57 @@ export class AuthService {
       where: { id: decoded.sub },
     });
 
+    // 2. Si no hay token almacenado → sesión cerrada o cuenta eliminada
     if (!suscriptor || !suscriptor.refreshToken) {
-      throw new UnauthorizedException('Refresh token inválido');
+      throw new UnauthorizedException('Sesión inválida. Inicia sesión de nuevo.');
     }
 
     const isValid = await bcrypt.compare(refreshToken, suscriptor.refreshToken);
+
     if (!isValid) {
-      throw new UnauthorizedException('Refresh token no válido');
+      // ── Detección de reuso (token rotation attack) ────────────────────────
+      // Token JWT firmado correctamente pero no coincide con el hash → ya fue
+      // rotado. Posible robo. Revocar sesión completa como medida defensiva.
+      this.logger.warn(
+        `[JLP-001] Reuso de refresh token detectado — suscriptor id=${suscriptor.id}. Sesión revocada.`,
+      );
+      await this.suscriptorRepo.update(suscriptor.id, { refreshToken: null });
+      throw new UnauthorizedException(
+        'Sesión revocada por seguridad. Inicia sesión de nuevo.',
+      );
     }
 
+    // 3. Rotar: generar nuevo par y actualizar hash en BD (el anterior queda inválido)
     const payload = {
-      sub: suscriptor.id,
-      correo: suscriptor.correoElectronico,
-      nombre: suscriptor.nombre,
-      apellidoPaterno: suscriptor.apellidoPaterno,
+      sub             : suscriptor.id,
+      correo          : suscriptor.correoElectronico,
+      nombre          : suscriptor.nombre,
+      apellidoPaterno : suscriptor.apellidoPaterno,
       registroCompleto: suscriptor.registroCompleto,
-      tieneNegocios: suscriptor.tieneNegocios,
-      role: suscriptor.role ?? 'user',
+      tieneNegocios   : suscriptor.tieneNegocios,
+      role            : suscriptor.role ?? 'user',
     };
 
-    const newAccess = this.jwtService.sign(payload, { expiresIn: '1h' });
-    const newRefresh = this.jwtService.sign(
-      { sub: suscriptor.id },
-      { expiresIn: '30d' },
-    );
+    const newAccess  = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
+    const newRefresh = this.jwtService.sign({ sub: suscriptor.id }, { expiresIn: REFRESH_TOKEN_TTL });
 
     suscriptor.refreshToken = await bcrypt.hash(newRefresh, 10);
     await this.suscriptorRepo.save(suscriptor);
 
     return {
-      success: true,
-      access_token: newAccess,
+      success      : true,
+      access_token : newAccess,
       refresh_token: newRefresh,
+      expires_in   : 900,  // segundos — 15 min, para que el front sepa cuándo renovar
     };
   }
 
-  async logout(id: number) {
-    await this.suscriptorRepo.update(id, { refreshToken: null });
-    return { success: true, message: 'Sesión cerrada.' };
+  /**
+   * Cierra la sesión del usuario autenticado.
+   * El suscriptorId se extrae del JWT en el guard — nunca del body o URL.
+   */
+  async logout(suscriptorId: number) {
+    await this.suscriptorRepo.update(suscriptorId, { refreshToken: null });
+    return { success: true, message: 'Sesión cerrada correctamente.' };
   }
 }

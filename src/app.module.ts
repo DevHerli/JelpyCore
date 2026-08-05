@@ -60,6 +60,8 @@ import { NotificacionesModule } from './modules/notificaciones/notificaciones.mo
 import { MessagesModule } from './modules/messages/messages.module';
 import { PublicSucursalesModule } from './modules/public/sucursales/public-sucursales.module';
 import { PublicAdsModule } from './modules/public/ads/public-ads.module';
+import { DataRetentionModule } from './modules/core/data-retention/data-retention.module';
+import { LegalModule } from './modules/core/legal/legal.module';
 
 @Module({
   imports: [
@@ -108,6 +110,8 @@ import { PublicAdsModule } from './modules/public/ads/public-ads.module';
     MessagesModule,
     PublicSucursalesModule,
     PublicAdsModule,
+    DataRetentionModule,
+    LegalModule,
 
     // Guards globales (JwtAuthGuard + ApiKeyGuard disponibles en toda la app)
     GuardsModule,

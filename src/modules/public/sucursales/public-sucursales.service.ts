@@ -378,6 +378,7 @@ export class PublicSucursalesService {
         abiertoAhora,
         horaApertura,
         horaCierre,
+        nivelPrecio:    s.rangoPrecios ?? null,  // 1=$ 2=$$ 3=$$$ null=sin configurar
       };
     });
   }

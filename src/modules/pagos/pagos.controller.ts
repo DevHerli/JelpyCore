@@ -58,19 +58,27 @@ export class PagosController {
   // STRIPE — Customer
   // ──────────────────────────────────────────────────────────────
 
-  /** 1.1 Crea o recupera el Stripe Customer del suscriptor */
+  /** 1.1 Crea o recupera el Stripe Customer del suscriptor (JLP-014) */
   @Post('stripe/customer')
   @UseGuards(JwtAuthGuard)
-  createCustomer(@Body() body: { suscriptorId: number }) {
+  createCustomer(@Req() req: any, @Body() body: { suscriptorId: number }) {
     if (!body?.suscriptorId) throw new BadRequestException('suscriptorId requerido');
+    const authenticatedId = Number(req.user?.sub);
+    if (!authenticatedId || authenticatedId !== Number(body.suscriptorId)) {
+      throw new BadRequestException('No puedes operar en nombre de otro usuario.');
+    }
     return this.pagosService.getOrCreateCustomer(Number(body.suscriptorId));
   }
 
-  /** 1.2 SetupIntent para guardar tarjeta sin cobrar */
+  /** 1.2 SetupIntent para guardar tarjeta sin cobrar (JLP-014) */
   @Post('stripe/setup-intent')
   @UseGuards(JwtAuthGuard)
-  createSetupIntent(@Body() body: { suscriptorId: number }) {
+  createSetupIntent(@Req() req: any, @Body() body: { suscriptorId: number }) {
     if (!body?.suscriptorId) throw new BadRequestException('suscriptorId requerido');
+    const authenticatedId = Number(req.user?.sub);
+    if (!authenticatedId || authenticatedId !== Number(body.suscriptorId)) {
+      throw new BadRequestException('No puedes operar en nombre de otro usuario.');
+    }
     return this.pagosService.createSetupIntent(Number(body.suscriptorId));
   }
 
@@ -78,10 +86,17 @@ export class PagosController {
   // STRIPE — Métodos de pago (tarjetas guardadas)
   // ──────────────────────────────────────────────────────────────
 
-  /** 1.3 Lista tarjetas guardadas del suscriptor */
+  /** 1.3 Lista tarjetas guardadas del suscriptor (JLP-014) */
   @Get('metodos/:suscriptorId')
   @UseGuards(JwtAuthGuard)
-  listPaymentMethods(@Param('suscriptorId', ParseIntPipe) suscriptorId: number) {
+  listPaymentMethods(
+    @Req() req: any,
+    @Param('suscriptorId', ParseIntPipe) suscriptorId: number,
+  ) {
+    const authenticatedId = Number(req.user?.sub);
+    if (!authenticatedId || authenticatedId !== suscriptorId) {
+      throw new BadRequestException('No puedes consultar los métodos de pago de otro usuario.');
+    }
     return this.pagosService.listPaymentMethods(suscriptorId);
   }
 
@@ -107,18 +122,36 @@ export class PagosController {
   // STRIPE — Checkout
   // ──────────────────────────────────────────────────────────────
 
-  /** 1.6 Cobra la membresía con la tarjeta guardada */
+  /**
+   * 1.6 Cobra la membresía con la tarjeta guardada.
+   *
+   * Seguridad (JLP-014 / B5):
+   *  - El suscriptorId del body DEBE coincidir con el sub del JWT para evitar
+   *    que un usuario pague como si fuera otro (IDOR — Insecure Direct Object Reference).
+   *  - El usuario debe tener al menos un negocio registrado antes de pagar;
+   *    de lo contrario el cobro no tiene sentido de negocio.
+   */
   @Post('stripe/checkout')
   @UseGuards(JwtAuthGuard)
   createCheckout(
+    @Req() req: any,
     @Body() body: { suscriptorId: number; membresiaId: number; paymentMethodId: string },
   ) {
     if (!body?.suscriptorId)    throw new BadRequestException('suscriptorId requerido');
     if (!body?.membresiaId)     throw new BadRequestException('membresiaId requerido');
     if (!body?.paymentMethodId) throw new BadRequestException('paymentMethodId requerido');
 
+    const authenticatedId = Number(req.user?.sub);
+    const requestedId     = Number(body.suscriptorId);
+
+    if (!authenticatedId || authenticatedId !== requestedId) {
+      throw new BadRequestException(
+        'No puedes realizar un pago en nombre de otro usuario.',
+      );
+    }
+
     return this.pagosService.createCheckout({
-      suscriptorId:    Number(body.suscriptorId),
+      suscriptorId:    requestedId,
       membresiaId:     Number(body.membresiaId),
       paymentMethodId: body.paymentMethodId,
     });

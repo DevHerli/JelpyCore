@@ -212,7 +212,7 @@ export class SuscriptoresService {
       tieneNegocios: suscriptor.tieneNegocios,
     };
   
-    const newToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const newToken = this.jwtService.sign(payload, { expiresIn: '15m' });
   
     return {
       success: true,
