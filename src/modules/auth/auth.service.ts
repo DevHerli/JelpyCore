@@ -57,9 +57,14 @@ export class AuthService {
       throw new BadRequestException('Correo y contraseña son obligatorios.');
     }
 
-    const suscriptor = await this.suscriptorRepo.findOne({
-      where: { correoElectronico, eliminado: false },
-    });
+    // contrasena tiene select:false en la entidad → QB con addSelect para leerla
+    const suscriptor = await this.suscriptorRepo
+      .createQueryBuilder('s')
+      .addSelect('s.contrasena')
+      .where('s.correoElectronico = :correo AND s.eliminado = 0', {
+        correo: correoElectronico,
+      })
+      .getOne();
 
     if (!suscriptor) {
       throw new UnauthorizedException('Correo o contraseña incorrectos.');
@@ -92,9 +97,11 @@ export class AuthService {
       { expiresIn: REFRESH_TOKEN_TTL },
     );
 
-    suscriptor.refreshToken = await bcrypt.hash(refreshToken, 10);
-    suscriptor.ultimoLogin = new Date();
-    await this.suscriptorRepo.save(suscriptor);
+    // Columnas select:false → update() atómico (evita ambigüedad de save() con snapshot)
+    await this.suscriptorRepo.update(suscriptor.id as any, {
+      refreshToken: await bcrypt.hash(refreshToken, 10),
+      ultimoLogin:  new Date(),
+    } as any);
 
     return {
       success: true,
@@ -243,8 +250,10 @@ export class AuthService {
       { expiresIn: REFRESH_TOKEN_TTL },
     );
 
-    suscriptor.refreshToken = await bcrypt.hash(refreshToken, 10);
-    await this.suscriptorRepo.save(suscriptor);
+    // refreshToken tiene select:false → update() atómico
+    await this.suscriptorRepo.update(suscriptor.id as any, {
+      refreshToken: await bcrypt.hash(refreshToken, 10),
+    } as any);
 
     return {
       success: true,
@@ -369,8 +378,10 @@ export class AuthService {
       throw new NotFoundException('Usuario no encontrado.');
     }
 
-    suscriptor.contrasena = await bcrypt.hash(nuevaContrasena, 10);
-    await this.suscriptorRepo.save(suscriptor);
+    // contrasena tiene select:false → update() atómico
+    await this.suscriptorRepo.update(suscriptor.id as any, {
+      contrasena: await bcrypt.hash(nuevaContrasena, 10),
+    } as any);
 
     otp.usado = true;
     await this.otpRepo.save(otp);
@@ -391,9 +402,12 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token expirado o inválido');
     }
 
-    const suscriptor = await this.suscriptorRepo.findOne({
-      where: { id: decoded.sub },
-    });
+    // refreshToken tiene select:false en la entidad → QB con addSelect para leerlo
+    const suscriptor = await this.suscriptorRepo
+      .createQueryBuilder('s')
+      .addSelect('s.refreshToken')
+      .where('s.id = :id', { id: decoded.sub })
+      .getOne();
 
     // 2. Si no hay token almacenado → sesión cerrada o cuenta eliminada
     if (!suscriptor || !suscriptor.refreshToken) {
@@ -429,8 +443,10 @@ export class AuthService {
     const newAccess  = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
     const newRefresh = this.jwtService.sign({ sub: suscriptor.id }, { expiresIn: REFRESH_TOKEN_TTL });
 
-    suscriptor.refreshToken = await bcrypt.hash(newRefresh, 10);
-    await this.suscriptorRepo.save(suscriptor);
+    // refreshToken tiene select:false → update() atómico para la rotación
+    await this.suscriptorRepo.update(suscriptor.id as any, {
+      refreshToken: await bcrypt.hash(newRefresh, 10),
+    } as any);
 
     return {
       success      : true,

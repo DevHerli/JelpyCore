@@ -73,7 +73,7 @@ export class SuscriptoresService {
         ? new Date(dto.fechaNacimiento)
         : null,
       correoElectronico: dto.correoElectronico ?? null,
-      // BUG 0.1 — el front envía telefonoCelular en el registro por correo
+      // BUG 0.1 — el front enviaba telefonoCelular en el registro por correo
       // pero el campo no se mapeaba al create() → se perdía en silencio.
       telefonoCelular: dto.telefonoCelular ?? null,
       aceptoTerminos: dto.aceptoTerminos ? true : false,
@@ -83,11 +83,17 @@ export class SuscriptoresService {
       estado: dto.estadoId ? ({ id: dto.estadoId } as any) : null,
     });
 
+    const guardado = await this.suscriptorRepo.save(nuevo);
+
+    // Guardar contraseña en operación separada (columna select:false)
+    // — evita que create() + save() intente escribir el hash en una columna
+    //   que TypeORM no incluyó en el snapshot original.
     if (dto.contrasena) {
-      nuevo.contrasena = await bcrypt.hash(dto.contrasena, 10);
+      await this.suscriptorRepo.update(guardado.id, {
+        contrasena: await bcrypt.hash(dto.contrasena, 10),
+      } as any);
     }
 
-    const guardado = await this.suscriptorRepo.save(nuevo);
     return this.obtenerPorId(guardado.id);
   }
 
@@ -121,20 +127,28 @@ export class SuscriptoresService {
       }
     }
 
+    // Excluimos contrasena, ciudadId y estadoId del spread:
+    //  - contrasena tiene select:false → actualizarla por separado via update()
+    //    para evitar que save() la escriba como undefined (NULL accidental).
+    //  - ciudadId/estadoId son IDs numéricos del DTO que no existen en la entidad.
+    const { contrasena, ciudadId, estadoId, ...rest } = dto;
+
     Object.assign(suscriptor, {
-      ...dto,
-      ciudad: dto.ciudadId
-        ? ({ id: dto.ciudadId } as any)
-        : suscriptor.ciudad,
-      estado: dto.estadoId ? ({ id: dto.estadoId } as any) : suscriptor.estado,
+      ...rest,
+      ciudad: ciudadId ? ({ id: ciudadId } as any) : suscriptor.ciudad,
+      estado: estadoId ? ({ id: estadoId } as any) : suscriptor.estado,
     });
 
-    if (dto.contrasena) {
-      suscriptor.contrasena = await bcrypt.hash(dto.contrasena, 10);
+    await this.suscriptorRepo.save(suscriptor);
+
+    // Actualizar contraseña en operación separada (columna select:false)
+    if (contrasena) {
+      await this.suscriptorRepo.update(suscriptor.id, {
+        contrasena: await bcrypt.hash(contrasena, 10),
+      } as any);
     }
 
-    const actualizado = await this.suscriptorRepo.save(suscriptor);
-    return this.obtenerPorId(actualizado.id);
+    return this.obtenerPorId(suscriptor.id);
   }
 
   async completarRegistro(id: number) {

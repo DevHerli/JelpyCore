@@ -60,14 +60,23 @@ reseñas: SucursalReview[];
   correoElectronico?: string;
 
   // --- Autenticación ---
+  // select: false — nunca se incluye en SELECT por defecto; se lee sólo con QB + addSelect
   @Column({
     length: 255,
     nullable: true,
-    comment: 'Contraseña opcional, útil para acceso web o recuperación de cuenta',
+    select: false,
+    comment: 'Hash bcrypt. select:false evita exposición accidental en cualquier find()',
   })
   contrasena?: string;
 
-  @Column({ name: 'refresh_token', type: 'varchar', length: 500, nullable: true })
+  @Column({
+    name: 'refresh_token',
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+    select: false,
+    comment: 'Hash bcrypt del refresh token. select:false evita exposición accidental.',
+  })
   refreshToken?: string;
 
   // --- Banderas y control ---
