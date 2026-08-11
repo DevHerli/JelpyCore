@@ -57,12 +57,19 @@ export class NegociosController {
   // CREAR
   // ============================================================
 
+  /**
+   * POST /negocios
+   * JLP-C07 — IDOR corregido: el suscriptorId del DTO se ignora para usuarios
+   * normales y se sobreescribe con el sub del JWT.  Sólo un admin puede crear
+   * un negocio bajo el ID de otro suscriptor (operación de back-office).
+   */
   @Post()
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('logo', { storage: memoryStorage() }))
   async crear(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateNegocioDto,
+    @Req() req: any,
   ) {
     let logoUrl: string | null = null;
 
@@ -73,7 +80,12 @@ export class NegociosController {
       logoUrl = upload.secure_url;
     }
 
-    return this.negociosService.crear({ ...dto, logoUrl });
+    // Non-admin: se ignora el suscriptorId del body y se usa el del JWT.
+    // Admin: se respeta el suscriptorId del body para operaciones de back-office.
+    const isAdmin = req.user?.role === 'admin';
+    const suscriptorId = isAdmin ? Number(dto.suscriptorId) : Number(req.user.sub);
+
+    return this.negociosService.crear({ ...dto, logoUrl, suscriptorId });
   }
 
   // ============================================================
@@ -167,12 +179,20 @@ export class NegociosController {
   // HELPERS
   // ============================================================
 
-  /** Devuelve true si el token pertenece a un SuperAdmin del panel */
+  /**
+   * Devuelve true si el token pertenece a un administrador.
+   *
+   * JLP-M16 — Antes se leían claims manipulables/inexistentes
+   * (`rol`/`tipo_usuario`/`roles === 'SuperAdmin'`) que ningún token emite
+   * (auth.service solo firma `role`), por lo que este helper SIEMPRE devolvía
+   * false y la vía admin quedaba muerta; además, de haberse emitido, un admin
+   * degradado habría conservado el privilegio (claim obsoleto).
+   *
+   * Ahora se usa `role`, que `JwtAuthGuard` (JLP-M06) reescribe desde la BD en
+   * cada request (degradación inmediata), unificando el criterio con
+   * `AdminGuard` en el resto de la app.
+   */
   private esSuperAdmin(user: any): boolean {
-    return (
-      user?.rol === 'SuperAdmin' ||
-      user?.tipo_usuario === 'SuperAdmin' ||
-      (Array.isArray(user?.roles) && user.roles.includes('SuperAdmin'))
-    );
+    return user?.role === 'admin';
   }
 }
