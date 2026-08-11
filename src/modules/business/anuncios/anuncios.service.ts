@@ -25,6 +25,9 @@ import { Membresia } from '../membresias/entities/membresia.entity';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 import { UpdateAnuncioDto } from './dtos/update-anuncio.dto';
 
+/** Identidad del solicitante para verificación de propiedad (JLP-C13). */
+export type RequesterCtx = { sub: number; isAdmin: boolean };
+
 type DashboardResponse = {
   anunciosActivos: number;
   limiteMensual: number;
@@ -91,15 +94,82 @@ export class AnunciosService {
   ) {}
 
   // -----------------------------
+  // OWNERSHIP (JLP-C13)
+  // -----------------------------
+  /**
+   * JLP-C13 — Un anuncio pertenece a un negocio, cuyo suscriptor es el dueño.
+   * Sólo el dueño (o admin) puede crear/editar/gestionar anuncios de ese negocio.
+   */
+  private async assertOwnershipByNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const negocio = await this.negocioRepo.findOne({
+      where: { id: negocioId } as any,
+      relations: ['suscriptor'],
+    });
+    if (!negocio) throw new NotFoundException('Negocio no encontrado.');
+    const ownerId = Number((negocio as any)?.suscriptor?.id);
+    if (!requester.sub || ownerId !== Number(requester.sub)) {
+      throw new ForbiddenException('No eres el dueño de este negocio.');
+    }
+  }
+
+  /** Resuelve el negocio dueño de un anuncio y verifica propiedad. */
+  private async assertOwnershipByAnuncio(
+    anuncioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const anuncio = await this.anuncioRepo.findOne({
+      where: { id: anuncioId, eliminado: false as any } as any,
+      relations: ['negocio', 'negocio.suscriptor'],
+    });
+    if (!anuncio) throw new NotFoundException('Anuncio no encontrado.');
+    const ownerId = Number((anuncio as any)?.negocio?.suscriptor?.id);
+    if (!requester.sub || ownerId !== Number(requester.sub)) {
+      throw new ForbiddenException('No eres el dueño de este anuncio.');
+    }
+  }
+
+  /** Pública: usada por el controller para verificar propiedad ANTES de tocar Cloudinary. */
+  async assertPuedeGestionarAnuncio(
+    anuncioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    return this.assertOwnershipByAnuncio(anuncioId, requester);
+  }
+
+  /** Pública: verifica propiedad de un negocio (upload / destroy de Cloudinary). */
+  async assertPuedeGestionarNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    return this.assertOwnershipByNegocio(negocioId, requester);
+  }
+
+  // -----------------------------
   // DASHBOARD (FIX: programados NO van a historial)
   // -----------------------------
-  async getDashboard(negocioId: number): Promise<DashboardResponse> {
+  async getDashboard(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<DashboardResponse> {
     const negocio = await this.negocioRepo.findOne({
       where: { id: negocioId, eliminado: false as any },
       relations: ['suscriptor', 'suscriptor.membresia'],
     });
 
     if (!negocio) throw new NotFoundException('Negocio no encontrado.');
+
+    // JLP-C13 — Sólo el dueño (o admin) ve el dashboard del negocio.
+    if (requester && !requester.isAdmin) {
+      const ownerId = Number((negocio as any)?.suscriptor?.id);
+      if (!requester.sub || ownerId !== Number(requester.sub)) {
+        throw new ForbiddenException('No eres el dueño de este negocio.');
+      }
+    }
 
     const now = new Date();
     const { year, month } = this.getYearMonth(now);
@@ -184,12 +254,20 @@ export class AnunciosService {
   // -----------------------------
   // CREATE (draft)
   // -----------------------------
-  async create(dto: CreateAnuncioDto) {
+  async create(dto: CreateAnuncioDto, requester?: RequesterCtx) {
     const negocio = await this.negocioRepo.findOne({
       where: { id: dto.negocioId, eliminado: false as any },
       relations: ['suscriptor', 'suscriptor.membresia'],
     });
     if (!negocio) throw new NotFoundException('Negocio no encontrado.');
+
+    // JLP-C13 — Sólo el dueño (o admin) crea anuncios para su negocio.
+    if (requester && !requester.isAdmin) {
+      const ownerId = Number((negocio as any)?.suscriptor?.id);
+      if (!requester.sub || ownerId !== Number(requester.sub)) {
+        throw new ForbiddenException('No eres el dueño de este negocio.');
+      }
+    }
 
     if (dto.sucursalId) {
       const sucursal = await this.sucursalRepo.findOne({
@@ -237,12 +315,24 @@ export class AnunciosService {
   // -----------------------------
   // UPDATE STATUS
   // -----------------------------
-  async updateStatus(anuncioId: number, dto: UpdateAnuncioStatusDto) {
+  async updateStatus(
+    anuncioId: number,
+    dto: UpdateAnuncioStatusDto,
+    requester?: RequesterCtx,
+  ) {
     const anuncio = await this.anuncioRepo.findOne({
       where: { id: anuncioId, eliminado: false as any } as any,
       relations: ['negocio', 'negocio.suscriptor', 'negocio.suscriptor.membresia'],
     });
     if (!anuncio) throw new NotFoundException('Anuncio no encontrado.');
+
+    // JLP-C13 — Sólo el dueño (o admin) cambia el estatus del anuncio.
+    if (requester && !requester.isAdmin) {
+      const ownerId = Number((anuncio as any)?.negocio?.suscriptor?.id);
+      if (!requester.sub || ownerId !== Number(requester.sub)) {
+        throw new ForbiddenException('No eres el dueño de este anuncio.');
+      }
+    }
 
     const prev = anuncio.status;
     const next = dto.status;
@@ -498,13 +588,27 @@ private mapAnuncio(a: Anuncio) {
     };
   }
 
-  async updateAdImage(anuncioId: number, imagenUrl: string, publicId?: string) {
+  async updateAdImage(
+    anuncioId: number,
+    imagenUrl: string,
+    publicId?: string,
+    requester?: RequesterCtx,
+  ) {
     if (!imagenUrl) throw new BadRequestException('imagenUrl es requerida');
 
     const anuncio = await this.anuncioRepo.findOne({
       where: { id: anuncioId, eliminado: false as any } as any,
+      relations: ['negocio', 'negocio.suscriptor'],
     });
     if (!anuncio) throw new NotFoundException('Anuncio no encontrado.');
+
+    // JLP-C13 — Sólo el dueño (o admin) cambia la imagen del anuncio.
+    if (requester && !requester.isAdmin) {
+      const ownerId = Number((anuncio as any)?.negocio?.suscriptor?.id);
+      if (!requester.sub || ownerId !== Number(requester.sub)) {
+        throw new ForbiddenException('No eres el dueño de este anuncio.');
+      }
+    }
 
     const prevPublicId = (anuncio as any).imagenPublicId;
 
@@ -567,9 +671,20 @@ private mapAnuncio(a: Anuncio) {
     };
   }
 
-  async update(id: number, dto: UpdateAnuncioDto) {
-    const ad = await this.anuncioRepo.findOne({ where: { id, eliminado: false } });
+  async update(id: number, dto: UpdateAnuncioDto, requester?: RequesterCtx) {
+    const ad = await this.anuncioRepo.findOne({
+      where: { id, eliminado: false },
+      relations: ['negocio', 'negocio.suscriptor'],
+    });
     if (!ad) throw new NotFoundException('Anuncio no encontrado');
+
+    // JLP-C13 — Sólo el dueño (o admin) edita el anuncio.
+    if (requester && !requester.isAdmin) {
+      const ownerId = Number((ad as any)?.negocio?.suscriptor?.id);
+      if (!requester.sub || ownerId !== Number(requester.sub)) {
+        throw new ForbiddenException('No eres el dueño de este anuncio.');
+      }
+    }
 
     if (dto.titulo       !== undefined) ad.titulo       = dto.titulo;
     if (dto.descripcion  !== undefined) ad.descripcion  = dto.descripcion;

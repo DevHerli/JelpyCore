@@ -8,7 +8,9 @@ import {
   Patch,
   Delete,
   Query,
+  Request,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
   BadRequestException,
 } from '@nestjs/common';
@@ -16,14 +18,22 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Express } from 'express';
 
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CloudinaryService } from '../../../common/cloudinary/cloudinary.service';
-import { PromocionesSucursalesService } from './promociones-sucursales.service';
+import {
+  PromocionesSucursalesService,
+  RequesterCtx,
+} from './promociones-sucursales.service';
 import { CreatePromocionSucursalDto } from './dto/create-promocion-sucursal.dto';
 import { UpdatePromocionSucursalDto } from './dto/update-promocion-sucursal.dto';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
 const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
 
+/**
+ * JLP-C11 — Mutaciones protegidas con JwtAuthGuard + propiedad de la sucursal
+ * (verificada en el servicio). Los GET de catálogo se mantienen públicos.
+ */
 @Controller('promociones-sucursales')
 export class PromocionesSucursalesController {
   constructor(
@@ -31,14 +41,20 @@ export class PromocionesSucursalesController {
     private readonly cloudinary: CloudinaryService,
   ) {}
 
+  private requester(req: any): RequesterCtx {
+    return { sub: Number(req.user?.sub), isAdmin: req.user?.role === 'admin' };
+  }
+
   // =========================================================
   // CREATE
   // =========================================================
   @Post()
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async crear(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreatePromocionSucursalDto,
+    @Request() req: any,
   ) {
     if (file) {
       this.validateImageFile(file);
@@ -51,7 +67,7 @@ export class PromocionesSucursalesController {
       dto.imagenUrl = dto.imagenUrl ?? null;
     }
 
-    return this.promoService.crear(dto);
+    return this.promoService.crear(dto, this.requester(req));
   }
 
   // =========================================================
@@ -145,14 +161,21 @@ export class PromocionesSucursalesController {
   // UPDATE
   // =========================================================
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async actualizar(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UpdatePromocionSucursalDto,
+    @Request() req: any,
   ) {
+    const requester = this.requester(req);
+
     if (file) {
       this.validateImageFile(file);
+
+      // Verifica propiedad ANTES de tocar Cloudinary (evita gasto por atacantes).
+      await this.promoService.assertPuedeGestionarPromocion(id, requester);
 
       const actual = await this.promoService.obtenerPorId(id);
       if (actual?.imagenUrl) {
@@ -166,15 +189,16 @@ export class PromocionesSucursalesController {
       dto.imagenUrl = upload.secure_url;
     }
 
-    return this.promoService.actualizar(id, dto);
+    return this.promoService.actualizar(id, dto, requester);
   }
 
   // =========================================================
   // DELETE
   // =========================================================
   @Delete(':id')
-  eliminar(@Param('id', ParseIntPipe) id: number) {
-    return this.promoService.eliminar(id);
+  @UseGuards(JwtAuthGuard)
+  eliminar(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+    return this.promoService.eliminar(id, this.requester(req));
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -24,7 +24,9 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionFilter());
 
+  // Raw body para webhooks de Stripe — DEBE ir antes del bodyParser.json global
   app.use('/pagos/webhook/stripe', bodyParser.raw({ type: 'application/json' }));
+  app.use('/billing/webhook',      bodyParser.raw({ type: 'application/json' }));
   app.use(bodyParser.json({ limit: '2mb' }));
   app.use(bodyParser.urlencoded({ extended: true, limit: '2mb' }));
 

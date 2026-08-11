@@ -1,5 +1,6 @@
-import { Controller, Post, Body, BadRequestException, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, BadRequestException, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { SucursalLikesService } from './sucursal-likes.service';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 
 @Controller('likes')
 export class SucursalLikesController {
@@ -10,15 +11,19 @@ export class SucursalLikesController {
    * Si ya tiene like → lo quita
    * Si no tiene → lo agrega
    *
+   * JLP-M22: la identidad (usuarioId) se deriva del token, NO del body,
+   * para impedir suplantación de likes en nombre de otros usuarios.
+   *
    * Body:
    * {
-   *   "usuarioId": number,
    *   "sucursalId": number
    * }
    */
+  @UseGuards(JwtAuthGuard)
   @Post('toggle')
-  async toggle(@Body() body: any) {
-    const { usuarioId, sucursalId } = body;
+  async toggle(@Req() req: any, @Body() body: any) {
+    const usuarioId = Number(req.user?.sub);
+    const { sucursalId } = body;
 
     if (!usuarioId || !sucursalId) {
       throw new BadRequestException('usuarioId y sucursalId son obligatorios');

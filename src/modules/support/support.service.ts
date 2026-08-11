@@ -6,10 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtVerifyOptions } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { randomInt } from 'crypto';
 
 import { SupportTicket } from './entities/support-ticket.entity';
 import { Negocio } from '../business/negocios/entities/negocio.entity';
+import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
 import { CreateTicketDto } from './dtos/create-ticket.dto';
 
 // Caracteres base36 en mayúsculas para el folio (sin caracteres ambiguos no aplica aquí)
@@ -24,7 +27,11 @@ export class SupportService {
     @InjectRepository(Negocio)
     private readonly negocioRepo: Repository<Negocio>,
 
+    @InjectRepository(Suscriptor)
+    private readonly suscriptorRepo: Repository<Suscriptor>,
+
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   // ─── Crear ticket ───────────────────────────────────────────────────────────
@@ -35,7 +42,7 @@ export class SupportService {
   ): Promise<{ folio: string; id: number; estado: string; created_at: Date }> {
 
     // 1. Extraer usuario del token (si viene)
-    const usuarioId = this.extraerUsuarioId(authHeader);
+    const usuarioId = await this.extraerUsuarioId(authHeader);
 
     // 2. solicitud_negocio requiere autenticación
     if (dto.tipo === 'solicitud_negocio' && !usuarioId) {
@@ -144,19 +151,47 @@ export class SupportService {
 
   /**
    * Extrae y verifica el JWT del header Authorization.
-   * - Si no hay header → retorna null (usuario anónimo).
+   * - Si no hay header → retorna null (usuario anónimo; flujo reporte_bug).
    * - Si hay token pero es inválido/expirado → lanza 401.
+   *
+   * JLP-M25: este endpoint admite ambos flujos (anónimo y autenticado) en la
+   * misma ruta, por lo que no puede protegerse con `@UseGuards(JwtAuthGuard)`
+   * sin romper el reporte de bugs anónimo. En su lugar, la verificación manual
+   * se endurece para ser CONSISTENTE con JwtAuthGuard (JLP-M06):
+   *   1. algorithms: ['HS256'] → rechaza alg:none / algoritmos no esperados.
+   *   2. issuer/audience opcionales validados si están configurados.
+   *   3. revalidación en BD: la cuenta debe existir y no estar eliminada
+   *      (degradación/baja efectiva de inmediato, no al expirar el token).
    */
-  private extraerUsuarioId(authHeader?: string): number | null {
+  private async extraerUsuarioId(authHeader?: string): Promise<number | null> {
     if (!authHeader?.startsWith('Bearer ')) return null;
 
     const token = authHeader.slice(7);
+
+    const verifyOptions: JwtVerifyOptions = { algorithms: ['HS256'] };
+    const issuer = this.config.get<string>('JWT_ISSUER');
+    const audience = this.config.get<string>('JWT_AUDIENCE');
+    if (issuer) verifyOptions.issuer = issuer;
+    if (audience) verifyOptions.audience = audience;
+
+    let decoded: { sub: number };
     try {
-      const decoded = this.jwtService.verify<{ sub: number }>(token);
-      return decoded.sub;
+      decoded = this.jwtService.verify<{ sub: number }>(token, verifyOptions);
     } catch {
       throw new UnauthorizedException('Token inválido o expirado');
     }
+
+    // Revalida en BD: cuenta existente y no eliminada.
+    const suscriptor = await this.suscriptorRepo.findOne({
+      where: { id: decoded.sub, eliminado: false },
+      select: { id: true } as any,
+    });
+
+    if (!suscriptor) {
+      throw new UnauthorizedException('Cuenta no encontrada o desactivada');
+    }
+
+    return suscriptor.id;
   }
 
   /**
@@ -166,9 +201,12 @@ export class SupportService {
    */
   private async generarFolioUnico(): Promise<string> {
     for (let intento = 0; intento < 10; intento++) {
+      // JLP-M28: CSPRNG (crypto.randomInt) en vez de Math.random() — el folio
+      // es la clave de lectura de GET /support/tickets/:folio; con folios
+      // predecibles el read-IDOR residual sería enumerable.
       const sufijo = Array.from(
         { length: 6 },
-        () => FOLIO_CHARS[Math.floor(Math.random() * FOLIO_CHARS.length)],
+        () => FOLIO_CHARS[randomInt(FOLIO_CHARS.length)],
       ).join('');
 
       const folio = `JLP-${sufijo}`;

@@ -8,8 +8,10 @@ import {
   Post,
   Put,
   Query,
+  Request,
   UploadedFiles,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
   ParseFilePipe,
   FileTypeValidator,
@@ -18,13 +20,26 @@ import {
 import { FilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
-import { SucursalesNegociosService } from './sucursales-negocios.service';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import {
+  SucursalesNegociosService,
+  RequesterCtx,
+} from './sucursales-negocios.service';
 import { CreateSucursalNegocioDto } from './dto/create-sucursal-negocio.dto';
 import { UpdateSucursalNegocioDto } from './dto/update-sucursal-negocio.dto';
 import { AssignCaracteristicaDto } from '../caracteristicas_sucursales/dtos/assign-caracteristica.dto';
 import { SucursalesCaracteristicasService } from '../caracteristicas_sucursales/sucursales-caracteristicas.service';
 import { EstadisticasService } from '../../core/metrics/estadisticas/estadisticas.service';
 
+/**
+ * SucursalesNegociosController
+ *
+ * Modelo de autorización (JLP-C10 — corrección de autorización rota):
+ *  - GET (navegación pública del catálogo) → sin guard.
+ *  - Mutaciones (POST/PUT/DELETE, galería, características) → JwtAuthGuard +
+ *    verificación de propiedad `sucursal → negocio → suscriptor` en el servicio.
+ *    Los admin (role='admin' en el claim) hacen bypass.
+ */
 @Controller('sucursales')
 export class SucursalesNegociosController {
   constructor(
@@ -33,11 +48,18 @@ export class SucursalesNegociosController {
     private readonly estadisticasService: EstadisticasService,
   ) {}
 
+  /** Construye el contexto de propiedad a partir del JWT verificado. */
+  private requester(req: any): RequesterCtx {
+    return { sub: Number(req.user?.sub), isAdmin: req.user?.role === 'admin' };
+  }
+
   @Post()
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async crear(
     @Body() body: any,
     @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
   ) {
     let imagenUrl = null;
 
@@ -94,10 +116,11 @@ export class SucursalesNegociosController {
       imagenUrl,
     };
 
-    return this.service.crear(datosLimpios as any);
+    return this.service.crear(datosLimpios as any, this.requester(req));
   }
 
   @Post(':id/galeria')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FilesInterceptor('fotos', 10, { storage: memoryStorage() }))
   async subirGaleria(
     @Param('id', ParseIntPipe) id: number,
@@ -110,7 +133,11 @@ export class SucursalesNegociosController {
       }),
     )
     files: Express.Multer.File[],
+    @Request() req: any,
   ) {
+    // Verifica propiedad ANTES de subir a Cloudinary (evita gasto de storage por atacantes).
+    await this.service.assertPuedeGestionarSucursal(id, this.requester(req));
+
     const fotosSubidas = [];
 
     for (const file of files) {
@@ -131,7 +158,7 @@ export class SucursalesNegociosController {
       });
     }
 
-    return this.service.agregarImagenes(id, fotosSubidas);
+    return this.service.agregarImagenes(id, fotosSubidas, this.requester(req));
   }
 
   @Get(':id/kpis-light')
@@ -163,12 +190,17 @@ export class SucursalesNegociosController {
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateSucursalNegocioDto,
     @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
   ) {
+    // Verifica propiedad ANTES de subir a Cloudinary.
+    await this.service.assertPuedeGestionarSucursal(id, this.requester(req));
+
     let imagenUrl = undefined;
 
     if (file) {
@@ -201,17 +233,22 @@ export class SucursalesNegociosController {
     }
     if (imagenUrl) datosLimpios.imagenUrl = imagenUrl;
 
-    return this.service.actualizar(id, datosLimpios);
+    return this.service.actualizar(id, datosLimpios, this.requester(req));
   }
 
   @Delete(':id')
-  eliminar(@Param('id', ParseIntPipe) id: number) {
-    return this.service.eliminar(id);
+  @UseGuards(JwtAuthGuard)
+  eliminar(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+    return this.service.eliminar(id, this.requester(req));
   }
 
   @Delete('galeria/:imagenId')
-  async eliminarFoto(@Param('imagenId', ParseIntPipe) imagenId: number) {
-    const publicId = await this.service.eliminarImagen(imagenId);
+  @UseGuards(JwtAuthGuard)
+  async eliminarFoto(
+    @Param('imagenId', ParseIntPipe) imagenId: number,
+    @Request() req: any,
+  ) {
+    const publicId = await this.service.eliminarImagen(imagenId, this.requester(req));
     if (publicId) {
       await cloudinary.uploader.destroy(publicId);
     }
@@ -224,10 +261,13 @@ export class SucursalesNegociosController {
   }
 
   @Post(':id/caracteristicas')
-  assignCaracteristica(
+  @UseGuards(JwtAuthGuard)
+  async assignCaracteristica(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AssignCaracteristicaDto,
+    @Request() req: any,
   ) {
+    await this.service.assertPuedeGestionarSucursal(id, this.requester(req));
     return this.sucCarService.assignCaracteristica(id, dto);
   }
 }

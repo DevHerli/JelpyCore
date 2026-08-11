@@ -1,16 +1,23 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { BookmarksService } from './bookmarks.service';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 
 @Controller('bookmarks')
 export class BookmarksController {
   constructor(private readonly bookmarksService: BookmarksService) {}
 
+  /**
+   * JLP-M22: la identidad (suscriptorId) se deriva del token, NO del body,
+   * para impedir suplantación de favoritos / marcado de lecturas ajenas.
+   */
+  @UseGuards(JwtAuthGuard)
   @Post('toggle')
   toggle(
+    @Req() req: any,
     @Body('sucursalId') sucursalId: number,
-    @Body('suscriptorId') suscriptorId: number,
   ) {
-    return this.bookmarksService.toggle(Number(sucursalId), Number(suscriptorId));
+    const suscriptorId = Number(req.user?.sub);
+    return this.bookmarksService.toggle(Number(sucursalId), suscriptorId);
   }
 
   @Get('user/:suscriptorId')
@@ -47,14 +54,16 @@ export class BookmarksController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('marcar-eventos-leidos')
   marcarEventosFavoritoComoLeidos(
-    @Body('suscriptorId') suscriptorId: number,
+    @Req() req: any,
     @Body('negocioId') negocioId: number,
     @Body('sucursalId') sucursalId?: number,
   ) {
+    const suscriptorId = Number(req.user?.sub);
     return this.bookmarksService.marcarEventosFavoritoComoLeidos(
-      Number(suscriptorId),
+      suscriptorId,
       Number(negocioId),
       sucursalId !== undefined && sucursalId !== null
         ? Number(sucursalId)

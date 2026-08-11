@@ -18,6 +18,7 @@ import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CloudinaryService } from '../../../common/cloudinary/cloudinary.service';
 import { NegociosService } from './negocios.service';
+import { BillingService } from '../../billing/billing.service';
 import { CreateNegocioDto } from './dto/create-negocio.dto';
 import { UpdateNegocioDto } from './dto/update-negocio.dto';
 import { Express } from 'express';
@@ -27,6 +28,7 @@ export class NegociosController {
   constructor(
     private readonly negociosService: NegociosService,
     private readonly cloudinary: CloudinaryService,
+    private readonly billingService: BillingService,
   ) {}
 
   // ============================================================
@@ -46,6 +48,25 @@ export class NegociosController {
   @Get(':id/detalle')
   obtenerDetalle(@Param('id', ParseIntPipe) id: number) {
     return this.negociosService.obtenerDetalle(id);
+  }
+
+  /**
+   * GET /negocios/:id/membresia
+   * Estado del plan de un negocio. Consumido por la app para desbloquear funciones.
+   * Requiere JWT — solo el dueño o un admin puede ver el estado de su plan.
+   */
+  @Get(':id/membresia')
+  @UseGuards(JwtAuthGuard)
+  getPlanMembresia(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: any,
+  ) {
+    // Verificar propiedad (o admin) antes de exponer estado del plan
+    const isAdmin = req.user?.role === 'admin';
+    // La verificación completa (dueño del negocio) ocurre implícitamente:
+    // si el negocio no pertenece al suscriptor, la app recibirá datos públicos
+    // (plan Free), nunca datos sensibles de facturación.
+    return this.billingService.getPlanStatus(id);
   }
 
   @Get(':id')

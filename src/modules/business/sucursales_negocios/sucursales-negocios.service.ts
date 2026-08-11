@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, In } from 'typeorm';
 
@@ -9,6 +9,13 @@ import { UpdateSucursalNegocioDto } from './dto/update-sucursal-negocio.dto';
 import { Street } from '../domicilios/calles/entities/street.entity';
 import { Colonia } from '../domicilios/colonias/entities/colonia.entity';
 import { PostalCode } from '../domicilios/codigos_postal/entities/postal-code.entity';
+import { Negocio } from '../negocios/entities/negocio.entity';
+
+/**
+ * Identidad del solicitante para verificación de propiedad (JLP-C10).
+ * `sub` proviene del JWT; `isAdmin` de role='admin' en el claim.
+ */
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class SucursalesNegociosService {
@@ -27,7 +34,56 @@ export class SucursalesNegociosService {
 
     @InjectRepository(PostalCode)
     private readonly postalCodeRepo: Repository<PostalCode>,
+
+    @InjectRepository(Negocio)
+    private readonly negocioRepo: Repository<Negocio>,
   ) {}
+
+  // ================================================================
+  // PROPIEDAD (JLP-C10) — una sucursal pertenece a un negocio, y el
+  // negocio tiene un suscriptor dueño. Sólo el dueño (o un admin) puede
+  // crear/editar/eliminar sucursales e imágenes.
+  // ================================================================
+
+  /** Verifica que el solicitante sea dueño del negocio (o admin). */
+  private async assertOwnershipByNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const negocio = await this.negocioRepo.findOne({
+      where: { id: negocioId },
+      relations: ['suscriptor'],
+    });
+    if (!negocio) throw new NotFoundException('Negocio no encontrado');
+    if (!requester.sub || Number(negocio.suscriptor?.id) !== Number(requester.sub)) {
+      throw new ForbiddenException('No eres el dueño de este negocio.');
+    }
+  }
+
+  /** Verifica que el solicitante sea dueño de la sucursal (vía su negocio) o admin. */
+  private async assertOwnershipBySucursal(
+    sucursalId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const suc = await this.sucursalRepo.findOne({
+      where: { id: sucursalId, eliminado: false },
+      relations: ['negocio', 'negocio.suscriptor'],
+    });
+    if (!suc) throw new NotFoundException('Sucursal no encontrada');
+    if (!requester.sub || Number(suc.negocio?.suscriptor?.id) !== Number(requester.sub)) {
+      throw new ForbiddenException('No eres el dueño de esta sucursal.');
+    }
+  }
+
+  /** Público: el controller lo usa antes de delegar en otros servicios (p.ej. características). */
+  async assertPuedeGestionarSucursal(
+    sucursalId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    return this.assertOwnershipBySucursal(sucursalId, requester);
+  }
 
   // ================================================================
   // HELPERS
@@ -129,7 +185,10 @@ private toSucursalResumenResponse(item: any): any {
   // ================================================================
   async crear(
     dto: CreateSucursalNegocioDto & { imagenUrl?: string },
+    requester?: RequesterCtx,
   ): Promise<SucursalNegocio> {
+    await this.assertOwnershipByNegocio(dto.negocioId, requester);
+
     const entity = this.sucursalRepo.create({
       nombreSucursal: dto.nombreSucursal,
       calle: dto.calle,
@@ -166,7 +225,10 @@ private toSucursalResumenResponse(item: any): any {
   async agregarImagenes(
     sucursalId: number,
     fotos: { url: string; publicId: string }[],
+    requester?: RequesterCtx,
   ) {
+    await this.assertOwnershipBySucursal(sucursalId, requester);
+
     const entities = fotos.map((foto) =>
       this.imagenRepo.create({
         url: foto.url,
@@ -236,10 +298,16 @@ async listar(params?: {
   async actualizar(
     id: number,
     dto: UpdateSucursalNegocioDto & { imagenUrl?: string },
+    requester?: RequesterCtx,
   ): Promise<SucursalNegocio> {
+    // Propiedad sobre la sucursal existente.
+    await this.assertOwnershipBySucursal(id, requester);
+
     const suc = await this.findSucursalEntityOrFail(id);
 
     if (dto.negocioId !== undefined) {
+      // Reasignar a otro negocio requiere ser dueño del negocio destino.
+      await this.assertOwnershipByNegocio(dto.negocioId, requester);
       suc.negocio = { id: dto.negocioId } as any;
     }
 
@@ -282,18 +350,27 @@ async listar(params?: {
   // ================================================================
   // ELIMINAR
   // ================================================================
-  async eliminar(id: number): Promise<void> {
+  async eliminar(id: number, requester?: RequesterCtx): Promise<void> {
+    await this.assertOwnershipBySucursal(id, requester);
     const suc = await this.findSucursalEntityOrFail(id);
     suc.eliminado = true;
     await this.sucursalRepo.save(suc);
   }
 
-  async eliminarImagen(imagenId: number) {
+  async eliminarImagen(imagenId: number, requester?: RequesterCtx) {
     const img = await this.imagenRepo.findOne({
       where: { id: imagenId },
+      relations: ['sucursal', 'sucursal.negocio', 'sucursal.negocio.suscriptor'],
     });
 
     if (img) {
+      // Propiedad: la imagen pertenece a una sucursal de un negocio con dueño.
+      if (requester && !requester.isAdmin) {
+        const ownerId = Number(img.sucursal?.negocio?.suscriptor?.id);
+        if (!requester.sub || ownerId !== Number(requester.sub)) {
+          throw new ForbiddenException('No eres el dueño de esta imagen.');
+        }
+      }
       await this.imagenRepo.remove(img);
       return img.publicId;
     }

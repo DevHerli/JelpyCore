@@ -7,16 +7,20 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../../common/guards/admin.guard';
 import { ColoniasService } from './colonias.service';
 import { CreateColoniaDto } from './dtos/create-colonia.dto';
 import { UpdateColoniaDto } from './dtos/update-colonia.dto';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @Controller('colonias')
 export class ColoniasController {
   constructor(private readonly coloniasService: ColoniasService) {}
 
   @Post()
+  @UseGuards(AdminGuard)
   create(@Body() createColoniaDto: CreateColoniaDto) {
     return this.coloniasService.create(createColoniaDto);
   }
@@ -57,11 +61,13 @@ export class ColoniasController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   update(@Param('id') id: string, @Body() updateColoniaDto: UpdateColoniaDto) {
     return this.coloniasService.update(id, updateColoniaDto);
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   remove(
     @Param('id') id: string,
     @Query('eliminado_por') eliminado_por?: string,

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -7,6 +7,9 @@ import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negoci
 import { CreatePromocionSucursalDto } from './dto/create-promocion-sucursal.dto';
 import { UpdatePromocionSucursalDto } from './dto/update-promocion-sucursal.dto';
 import { EventosNegociosService } from '../eventos_negocios/eventos-negocios.service';
+
+/** Identidad del solicitante para verificación de propiedad (JLP-C11). */
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class PromocionesSucursalesService {
@@ -19,6 +22,38 @@ export class PromocionesSucursalesService {
 
     private readonly eventosNegociosService: EventosNegociosService,
   ) {}
+
+  // =========================================================
+  // PROPIEDAD (JLP-C11) — una promoción de sucursal pertenece a una
+  // sucursal, cuyo negocio tiene un suscriptor dueño. Sólo el dueño
+  // (o admin) puede crear/editar/eliminar.
+  // =========================================================
+
+  /** Verifica que el solicitante sea dueño de una sucursal ya cargada (con negocio.suscriptor). */
+  private assertOwnerOfSucursal(
+    sucursal: SucursalNegocio | undefined | null,
+    requester?: RequesterCtx,
+  ): void {
+    if (!requester || requester.isAdmin) return;
+    const ownerId = Number((sucursal as any)?.negocio?.suscriptor?.id);
+    if (!requester.sub || ownerId !== Number(requester.sub)) {
+      throw new ForbiddenException('No eres el dueño de esta sucursal.');
+    }
+  }
+
+  /** Público: verifica propiedad por id de promoción (usado por el controller antes de Cloudinary). */
+  async assertPuedeGestionarPromocion(
+    promoId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const promo = await this.promoRepo.findOne({
+      where: { id: Number(promoId), eliminado: false },
+      relations: ['sucursal', 'sucursal.negocio', 'sucursal.negocio.suscriptor'],
+    });
+    if (!promo) throw new NotFoundException('Promoción no encontrada');
+    this.assertOwnerOfSucursal(promo.sucursal, requester);
+  }
 
   // =========================================================
   // HELPERS
@@ -115,7 +150,7 @@ export class PromocionesSucursalesService {
   // =========================================================
   // CREATE
   // =========================================================
-  async crear(dto: CreatePromocionSucursalDto): Promise<PromocionSucursal> {
+  async crear(dto: CreatePromocionSucursalDto, requester?: RequesterCtx): Promise<PromocionSucursal> {
     const sucursalId = Number(dto.sucursalId);
 
     if (!Number.isFinite(sucursalId) || sucursalId <= 0) {
@@ -124,12 +159,14 @@ export class PromocionesSucursalesService {
 
     const sucursal = await this.sucursalRepo.findOne({
       where: { id: sucursalId },
-      relations: ['negocio'],
+      relations: ['negocio', 'negocio.suscriptor'],
     });
 
     if (!sucursal) {
       throw new NotFoundException('Sucursal no encontrada');
     }
+
+    this.assertOwnerOfSucursal(sucursal, requester);
 
     const diasVigenciaNormalizados = this.normalizeDiasVigencia(dto.diasVigencia);
 
@@ -540,7 +577,7 @@ export class PromocionesSucursalesService {
   // =========================================================
   // UPDATE
   // =========================================================
-  async actualizar(id: number, dto: UpdatePromocionSucursalDto): Promise<PromocionSucursal> {
+  async actualizar(id: number, dto: UpdatePromocionSucursalDto, requester?: RequesterCtx): Promise<PromocionSucursal> {
     const promoId = Number(id);
 
     if (!Number.isFinite(promoId) || promoId <= 0) {
@@ -549,12 +586,14 @@ export class PromocionesSucursalesService {
 
     const promo = await this.promoRepo.findOne({
       where: { id: promoId, eliminado: false },
-      relations: ['sucursal', 'sucursal.negocio'],
+      relations: ['sucursal', 'sucursal.negocio', 'sucursal.negocio.suscriptor'],
     });
 
     if (!promo) {
       throw new NotFoundException('Promoción no encontrada');
     }
+
+    this.assertOwnerOfSucursal(promo.sucursal, requester);
 
     if (dto.titulo !== undefined) promo.titulo = dto.titulo;
     if (dto.descripcion !== undefined) promo.descripcion = dto.descripcion;
@@ -596,7 +635,7 @@ export class PromocionesSucursalesService {
   // =========================================================
   // DELETE (SOFT)
   // =========================================================
-  async eliminar(id: number): Promise<PromocionSucursal> {
+  async eliminar(id: number, requester?: RequesterCtx): Promise<PromocionSucursal> {
     const promoId = Number(id);
 
     if (!Number.isFinite(promoId) || promoId <= 0) {
@@ -605,12 +644,14 @@ export class PromocionesSucursalesService {
 
     const promo = await this.promoRepo.findOne({
       where: { id: promoId, eliminado: false },
-      relations: ['sucursal', 'sucursal.negocio'],
+      relations: ['sucursal', 'sucursal.negocio', 'sucursal.negocio.suscriptor'],
     });
 
     if (!promo) {
       throw new NotFoundException('Promoción no encontrada');
     }
+
+    this.assertOwnerOfSucursal(promo.sucursal, requester);
 
     promo.eliminado = true;
     promo.activa = false;

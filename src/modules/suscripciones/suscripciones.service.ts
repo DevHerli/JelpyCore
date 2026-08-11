@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, Repository } from 'typeorm';
 import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
@@ -796,9 +796,25 @@ async consumirCuota(params: {
   // CANCELAR SUSCRIPCIÓN
   // =============================================
 
-  async cancelarSuscripcion(suscripcionId: number): Promise<SuscriptorSuscripcion> {
-    const suscripcion = await this.susRepo.findOne({ where: { id: suscripcionId } });
+  async cancelarSuscripcion(
+    suscripcionId: number,
+    requester?: { sub: number; isAdmin: boolean },
+  ): Promise<SuscriptorSuscripcion> {
+    const suscripcion = await this.susRepo.findOne({
+      where: { id: suscripcionId },
+      relations: ['suscriptor'],
+    });
     if (!suscripcion) throw new NotFoundException(`Suscripción no existe: id=${suscripcionId}`);
+
+    // JLP-C: verificación de propiedad — un usuario solo cancela su propia suscripción.
+    // requester se omite en llamadas internas (server-to-server) que ya son de confianza.
+    if (requester && !requester.isAdmin) {
+      const ownerId = Number(suscripcion.suscriptor?.id);
+      if (!requester.sub || ownerId !== Number(requester.sub)) {
+        throw new ForbiddenException('Solo puedes cancelar tu propia suscripción.');
+      }
+    }
+
     if (suscripcion.estatus === 'cancelada') throw new BadRequestException('La suscripción ya está cancelada.');
 
     suscripcion.estatus = 'cancelada';

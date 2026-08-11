@@ -28,14 +28,70 @@ import { MailService } from '../../common/mail/mail.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
+import { randomInt } from 'crypto';
 
 // ── Constantes de tiempo de vida de tokens ────────────────────────────────────
 export const ACCESS_TOKEN_TTL  = '15m';   // corto por seguridad — el interceptor renueva
 export const REFRESH_TOKEN_TTL = '30d';   // larga — rotación en cada uso
 
+// JLP-M28: máximo de intentos fallidos por código OTP antes de bloquearlo.
+// Un código de 6 dígitos tiene 10^6 combinaciones; sin límite, con ventana de
+// 5 min es forzable. Al 5º fallo el código se marca usado (hay que pedir otro).
+const MAX_OTP_ATTEMPTS = 5;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+
+  /**
+   * JLP-M28: genera un OTP de 6 dígitos con CSPRNG (`crypto.randomInt`).
+   * Reemplaza `Math.random()` (CWE-338): PRNG no criptográfico, predecible a
+   * partir de salidas previas → riesgo de adivinar códigos / account takeover.
+   * `randomInt(100000, 1000000)` cubre 100000–999999 de forma uniforme.
+   */
+  private generarCodigoOtp(): string {
+    return randomInt(100000, 1000000).toString();
+  }
+
+  /**
+   * JLP-M28: busca el OTP activo más reciente para el identificador, aplica el
+   * límite de intentos y valida el código en un solo lugar. En cada fallo
+   * incrementa `intentos`; al alcanzar el máximo marca el código como usado
+   * (bloqueo) para frenar fuerza bruta. Devuelve el OTP (sin marcar usado) si
+   * el código es correcto; el caller decide cuándo consumirlo.
+   */
+  private async validarOtp(
+    where: { telefonoCelular?: string; correoElectronico?: string },
+    codigo: string,
+  ): Promise<CodigoOtp> {
+    const now = new Date();
+
+    const otp = await this.otpRepo.findOne({
+      where: { ...where, usado: false, expiracion: MoreThan(now) } as any,
+      order: { id: 'DESC' } as any,
+    });
+
+    if (!otp) {
+      throw new UnauthorizedException('Código inválido o expirado.');
+    }
+
+    if (otp.intentos >= MAX_OTP_ATTEMPTS) {
+      otp.usado = true;
+      await this.otpRepo.save(otp);
+      throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
+    }
+
+    if (otp.codigo !== codigo) {
+      otp.intentos += 1;
+      if (otp.intentos >= MAX_OTP_ATTEMPTS) {
+        otp.usado = true; // bloquear el código tras el último intento fallido
+      }
+      await this.otpRepo.save(otp);
+      throw new UnauthorizedException('Código inválido o expirado.');
+    }
+
+    return otp;
+  }
 
   constructor(
     @InjectRepository(CodigoOtp)
@@ -128,8 +184,18 @@ export class AuthService {
       throw new BadRequestException('El teléfono ya está registrado.');
     }
 
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo = this.generarCodigoOtp(); // JLP-M28: CSPRNG
     const expiracion = new Date(Date.now() + 5 * 60 * 1000);
+
+    // JLP-M28: invalidar códigos activos anteriores → un solo OTP vigente por
+    // teléfono (hace efectivo el límite de intentos, evita códigos huérfanos).
+    await this.otpRepo
+      .createQueryBuilder()
+      .update(CodigoOtp)
+      .set({ usado: true } as any)
+      .where('telefono_celular = :tel', { tel: dto.telefonoCelular })
+      .andWhere('usado = 0')
+      .execute();
 
     const otp = this.otpRepo.create({
       telefonoCelular: dto.telefonoCelular,
@@ -145,20 +211,11 @@ export class AuthService {
   }
 
   async verifyOtpRegister(dto: VerifyOtpRegisterDto) {
-    const now = new Date();
-
-    const otp = await this.otpRepo.findOne({
-      where: {
-        telefonoCelular: dto.telefonoCelular,
-        codigo: dto.codigo,
-        usado: false,
-        expiracion: MoreThan(now),
-      } as any,
-    });
-
-    if (!otp) {
-      throw new UnauthorizedException('Código inválido o expirado.');
-    }
+    // JLP-M28: validación con límite de intentos centralizada.
+    const otp = await this.validarOtp(
+      { telefonoCelular: dto.telefonoCelular },
+      dto.codigo,
+    );
 
     otp.usado = true;
     await this.otpRepo.save(otp);
@@ -184,8 +241,17 @@ export class AuthService {
   }
 
   async sendOtp(dto: SendOtpDto) {
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo = this.generarCodigoOtp(); // JLP-M28: CSPRNG
     const expiracion = new Date(Date.now() + 5 * 60 * 1000);
+
+    // JLP-M28: invalidar códigos activos anteriores para este teléfono.
+    await this.otpRepo
+      .createQueryBuilder()
+      .update(CodigoOtp)
+      .set({ usado: true } as any)
+      .where('telefono_celular = :tel', { tel: dto.phoneNumber })
+      .andWhere('usado = 0')
+      .execute();
 
     await this.otpRepo.save(
       this.otpRepo.create({
@@ -196,25 +262,16 @@ export class AuthService {
       }),
     );
 
-    console.log(`OTP (simulado): ${codigo}`);
+    // JLP-M28: no registrar el código OTP en logs (evita fuga de credenciales).
     return { success: true, message: 'OTP generado.' };
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    const now = new Date();
-
-    const otp = await this.otpRepo.findOne({
-      where: {
-        telefonoCelular: dto.phoneNumber,
-        codigo: dto.code,
-        usado: false,
-        expiracion: MoreThan(now),
-      } as any,
-    });
-
-    if (!otp) {
-      throw new UnauthorizedException('Código inválido o expirado.');
-    }
+    // JLP-M28: validación con límite de intentos centralizada.
+    const otp = await this.validarOtp(
+      { telefonoCelular: dto.phoneNumber },
+      dto.code,
+    );
 
     otp.usado = true;
     await this.otpRepo.save(otp);
@@ -282,7 +339,7 @@ export class AuthService {
       throw new NotFoundException('No existe una cuenta con ese correo.');
     }
 
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo = this.generarCodigoOtp(); // JLP-M28: CSPRNG
     const expiracion = new Date(Date.now() + 5 * 60 * 1000);
 
     // invalidar anteriores activos
@@ -317,31 +374,9 @@ export class AuthService {
       throw new BadRequestException('Correo y código son obligatorios.');
     }
 
-    const now = new Date();
-
-    const otp = await this.otpRepo.findOne({
-      where: {
-        correoElectronico,
-        codigo,
-        usado: false,
-        expiracion: MoreThan(now),
-      } as any,
-      order: { id: 'DESC' } as any,
-    });
-
-    if (!otp) {
-      // incrementar intentos de forma segura (si tu columna existe)
-      await this.otpRepo
-        .createQueryBuilder()
-        .update(CodigoOtp)
-        .set({} as any)
-        .where('correo_electronico = :correo', { correo: correoElectronico })
-        .andWhere('codigo = :codigo', { codigo })
-        .andWhere('usado = 0')
-        .execute();
-
-      throw new UnauthorizedException('Código inválido o expirado.');
-    }
+    // JLP-M28: validación con límite de intentos centralizada. No se marca
+    // usado: es un paso previo a verifyOtpEmail (reset de contraseña).
+    await this.validarOtp({ correoElectronico }, codigo);
 
     return { success: true, message: 'Código válido.' };
   }
@@ -355,20 +390,8 @@ export class AuthService {
       );
     }
 
-    const now = new Date();
-
-    const otp = await this.otpRepo.findOne({
-      where: {
-        correoElectronico,
-        codigo,
-        usado: false,
-        expiracion: MoreThan(now),
-      } as any,
-    });
-
-    if (!otp) {
-      throw new UnauthorizedException('Código inválido o expirado.');
-    }
+    // JLP-M28: validación con límite de intentos centralizada.
+    const otp = await this.validarOtp({ correoElectronico }, codigo);
 
     const suscriptor = await this.suscriptorRepo.findOne({
       where: { correoElectronico, eliminado: false },

@@ -1,4 +1,6 @@
-import { Controller, Post, Body, Req } from '@nestjs/common';
+import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { JelpyAssistantService } from './jelpy-assistant.service';
 import { OrthographyCheckUseCase } from '../use-cases/orthography-check.usecase';
 import { ProfanityCheckUseCase } from '../use-cases/profanity-check.usecase';
@@ -11,6 +13,8 @@ import { TrackMetricsUseCase } from '../use-cases/track-metrics.usecase';
  * - Interpreta intención
  * - Registra métricas
  */
+// JLP-H21 — Endpoint LLM (costo/abuso): requiere autenticación + rate-limit
+// dedicado. La identidad (suscriptorId) proviene del token, no del body.
 @Controller('jelpy-assistant')
 export class JelpyAssistantController {
   constructor(
@@ -25,14 +29,18 @@ export class JelpyAssistantController {
    * Acepta también latitud y longitud para búsquedas "cerca de mí"
    */
   @Post('interpretar')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 15, ttl: 60 } })
   async interpretar(
     @Body('mensaje') mensaje: string,
-    @Body('suscriptorId') suscriptorId: number,
     @Req() req: any,
     @Body('latitud') latitud?: number,
     @Body('longitud') longitud?: number,
     @Body('filtersApplied') filtersApplied?: string[],
   ) {
+    // La identidad se toma del token, ignorando cualquier suscriptorId del body.
+    const suscriptorId = Number(req.user?.sub);
+
     if (!mensaje || mensaje.trim().length === 0) {
       return {
         status: 'error',

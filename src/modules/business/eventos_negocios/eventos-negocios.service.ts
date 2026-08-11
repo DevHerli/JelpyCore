@@ -1,27 +1,65 @@
 import {
     BadRequestException,
+    ForbiddenException,
     Injectable,
     NotFoundException,
   } from '@nestjs/common';
   import { InjectRepository } from '@nestjs/typeorm';
   import { In, Repository } from 'typeorm';
-  
+
   import { EventoNegocio } from './entities/evento-negocio.entity';
   import { LecturaEventoNegocio } from './entities/lectura-evento-negocio.entity';
+  import { Negocio } from '../negocios/entities/negocio.entity';
   import { CrearEventoNegocioDto } from './dtos/crear-evento-negocio.dto';
   import { MarcarEventosLeidosDto } from './dtos/marcar-eventos-leidos.dto';
-  
+
+  // JLP-M23: contexto del solicitante para verificar propiedad del negocio.
+  export type RequesterCtx = { sub: number; isAdmin: boolean };
+
   @Injectable()
   export class EventosNegociosService {
     constructor(
       @InjectRepository(EventoNegocio)
       private readonly eventoNegocioRepository: Repository<EventoNegocio>,
-  
+
       @InjectRepository(LecturaEventoNegocio)
       private readonly lecturaEventoNegocioRepository: Repository<LecturaEventoNegocio>,
+
+      @InjectRepository(Negocio)
+      private readonly negocioRepository: Repository<Negocio>,
     ) {}
-  
-    async crear(crearEventoNegocioDto: CrearEventoNegocioDto): Promise<EventoNegocio> {
+
+    /**
+     * JLP-M23: verifica que el solicitante sea dueño del negocio (o admin).
+     * `requester` opcional → los llamadores internos (p.ej. emisión de eventos
+     * desde promociones) omiten la verificación conservando su comportamiento.
+     */
+    private async assertOwnershipByNegocio(
+      negocioId: number,
+      requester?: RequesterCtx,
+    ): Promise<void> {
+      if (!requester || requester.isAdmin) return;
+
+      const negocio = await this.negocioRepository.findOne({
+        where: { id: negocioId },
+        relations: ['suscriptor'],
+      });
+
+      if (!negocio) {
+        throw new NotFoundException('Negocio no encontrado');
+      }
+
+      if (negocio.suscriptor?.id !== requester.sub) {
+        throw new ForbiddenException('No tienes permiso sobre este negocio');
+      }
+    }
+
+    async crear(
+      crearEventoNegocioDto: CrearEventoNegocioDto,
+      requester?: RequesterCtx,
+    ): Promise<EventoNegocio> {
+      await this.assertOwnershipByNegocio(crearEventoNegocioDto.negocioId, requester);
+
       const nuevoEvento = this.eventoNegocioRepository.create({
         negocioId: crearEventoNegocioDto.negocioId,
         sucursalId: crearEventoNegocioDto.sucursalId ?? null,
@@ -145,12 +183,18 @@ import {
         .getMany();
     }
   
-    async desactivar(id: number): Promise<{ message: string }> {
+    async desactivar(
+      id: number,
+      requester?: RequesterCtx,
+    ): Promise<{ message: string }> {
       const evento = await this.obtenerUno(id);
-  
+
+      // JLP-M23: solo el dueño del negocio del evento (o admin) puede desactivarlo.
+      await this.assertOwnershipByNegocio(evento.negocioId, requester);
+
       evento.activo = false;
       await this.eventoNegocioRepository.save(evento);
-  
+
       return { message: 'Evento de negocio desactivado correctamente' };
     }
   }

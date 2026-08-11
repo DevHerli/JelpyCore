@@ -8,16 +8,20 @@ import {
   Delete,
   Query,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../common/guards/admin.guard';
 import { CaracteristicasSucursalService } from './caracteristicas-sucursal.service';
 import { CreateCaracteristicaDto } from './dtos/create-caracteristica.dto';
 import { UpdateCaracteristicaDto } from './dtos/update-caracteristica.dto';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @Controller('caracteristicas-sucursal')
 export class CaracteristicasSucursalController {
   constructor(private readonly service: CaracteristicasSucursalService) {}
 
   @Post()
+  @UseGuards(AdminGuard)
   create(@Body() dto: CreateCaracteristicaDto) {
     return this.service.create(dto);
   }
@@ -69,6 +73,7 @@ export class CaracteristicasSucursalController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCaracteristicaDto,
@@ -77,6 +82,7 @@ export class CaracteristicasSucursalController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.service.remove(id);
   }

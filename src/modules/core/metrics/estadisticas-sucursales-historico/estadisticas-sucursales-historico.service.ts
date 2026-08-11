@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { EstadisticaSucursalHistorico } from './entities/estadistica-sucursal-historico.entity';
 import { CreateEstadisticaSucursalDto } from './dto/create-estadistica-sucursal.dto';
+
+// JLP-M24: contexto del solicitante para verificar propiedad.
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class EstadisticasSucursalesHistoricoService {
@@ -10,6 +13,41 @@ export class EstadisticasSucursalesHistoricoService {
     @InjectRepository(EstadisticaSucursalHistorico)
     private readonly estRepo: Repository<EstadisticaSucursalHistorico>,
   ) {}
+
+  // JLP-M24: dueño del negocio (o admin).
+  private async assertOwnershipNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const rows = await this.estRepo.manager.query(
+      `SELECT suscriptor_id FROM negocios WHERE id = ? LIMIT 1`,
+      [negocioId],
+    );
+    if (!rows.length) throw new NotFoundException('Negocio no encontrado');
+    if (Number(rows[0].suscriptor_id) !== requester.sub) {
+      throw new ForbiddenException('No tienes permiso sobre este negocio');
+    }
+  }
+
+  // JLP-M24: dueño de la sucursal vía negocio (o admin).
+  private async assertOwnershipSucursal(
+    sucursalId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const rows = await this.estRepo.manager.query(
+      `SELECT n.suscriptor_id AS suscriptor_id
+         FROM sucursales_negocios s
+         JOIN negocios n ON n.id = s.negocio_id
+        WHERE s.id = ? LIMIT 1`,
+      [sucursalId],
+    );
+    if (!rows.length) throw new NotFoundException('Sucursal no encontrada');
+    if (Number(rows[0].suscriptor_id) !== requester.sub) {
+      throw new ForbiddenException('No tienes permiso sobre esta sucursal');
+    }
+  }
 
   async registrar(dto: CreateEstadisticaSucursalDto) {
     const nueva = this.estRepo.create({
@@ -25,14 +63,21 @@ export class EstadisticasSucursalesHistoricoService {
     return this.estRepo.save(nueva);
   }
 
-  async obtenerPorSucursal(sucursalId: number) {
+  async obtenerPorSucursal(sucursalId: number, requester?: RequesterCtx) {
+    await this.assertOwnershipSucursal(sucursalId, requester);
     return this.estRepo.find({
       where: { sucursal: { id: sucursalId } },
       order: { fecha: 'DESC' },
     });
   }
 
-  async obtenerPorNegocio(negocioId: number, fechaInicio?: string, fechaFin?: string) {
+  async obtenerPorNegocio(
+    negocioId: number,
+    fechaInicio?: string,
+    fechaFin?: string,
+    requester?: RequesterCtx,
+  ) {
+    await this.assertOwnershipNegocio(negocioId, requester);
     const where: any = { negocio: { id: negocioId } };
     if (fechaInicio && fechaFin)
       where.fecha = Between(fechaInicio, fechaFin);

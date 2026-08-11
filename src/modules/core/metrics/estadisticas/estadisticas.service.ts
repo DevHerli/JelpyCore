@@ -1,9 +1,33 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Connection } from 'typeorm';
+
+// JLP-M24: contexto del solicitante para verificar propiedad del negocio.
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class EstadisticasService {
   constructor(private readonly connection: Connection) {}
+
+  /**
+   * JLP-M24: verifica que el solicitante sea dueño del negocio (o admin)
+   * antes de exponer métricas (evita que un competidor lea el tráfico ajeno).
+   */
+  private async assertOwnershipNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const rows = await this.connection.query(
+      `SELECT suscriptor_id FROM negocios WHERE id = ? LIMIT 1`,
+      [negocioId],
+    );
+    if (!rows.length) {
+      throw new NotFoundException('Negocio no encontrado');
+    }
+    if (Number(rows[0].suscriptor_id) !== requester.sub) {
+      throw new ForbiddenException('No tienes permiso sobre este negocio');
+    }
+  }
 
   /**
    * Registrar evento genérico (vistas, clics, búsqueda)
@@ -221,7 +245,10 @@ export class EstadisticasService {
    * Métricas globales de un negocio — usado en la sección business/global-metrics/:id
    * Agrega: info del negocio, estadísticas por sucursal, likes, promociones, tendencia mensual
    */
-  async getGlobalMetricsNegocio(negocioId: number) {
+  async getGlobalMetricsNegocio(negocioId: number, requester?: RequesterCtx) {
+    // JLP-M24: solo el dueño del negocio (o admin) puede ver sus métricas.
+    await this.assertOwnershipNegocio(negocioId, requester);
+
     // 1. Info básica del negocio
     const negocioInfo = await this.connection.query(
       `SELECT

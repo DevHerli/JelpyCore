@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -10,7 +11,9 @@ import {
   Post,
   Put,
   Query,
+  Request,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -21,15 +24,25 @@ import {
   MaxFileSizeValidator,
 } from '@nestjs/common';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
-import { AnunciosService } from './anuncios.service';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { AnunciosService, RequesterCtx } from './anuncios.service';
 import { CreateAnuncioDto } from './dtos/create-anuncio.dto';
 import { UpdateAnuncioStatusDto } from './dtos/update-anuncio-status.dto';
 import { TrackAnuncioEventDto } from './dtos/track-anuncio-event.dto';
 import { UpdateAnuncioDto } from './dtos/update-anuncio.dto';
 
+/**
+ * JLP-C13 — Mutaciones protegidas con JwtAuthGuard + propiedad del negocio
+ * (verificada en el servicio vía negocio.suscriptor). El feed público, el
+ * tracking y findOne se mantienen públicos.
+ */
 @Controller('ads')
 export class AnunciosController {
   constructor(private readonly anunciosService: AnunciosService) {}
+
+  private requester(req: any): RequesterCtx {
+    return { sub: Number(req.user?.sub), isAdmin: req.user?.role === 'admin' };
+  }
 
   // -----------------------------------------------------------------------
   // RUTAS ESTÁTICAS — deben ir ANTES de :id para que no sean interceptadas
@@ -60,8 +73,12 @@ export class AnunciosController {
 
   /** Dashboard del negocio */
   @Get('dashboard/:negocioId')
-  dashboard(@Param('negocioId', ParseIntPipe) negocioId: number) {
-    return this.anunciosService.getDashboard(negocioId);
+  @UseGuards(JwtAuthGuard)
+  dashboard(
+    @Param('negocioId', ParseIntPipe) negocioId: number,
+    @Request() req: any,
+  ) {
+    return this.anunciosService.getDashboard(negocioId, this.requester(req));
   }
 
   // -----------------------------------------------------------------------
@@ -88,6 +105,7 @@ export class AnunciosController {
   }
 
   @Post('upload/:negocioId')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async uploadImagenAnuncio(
     @Param('negocioId', ParseIntPipe) negocioId: number,
@@ -100,7 +118,15 @@ export class AnunciosController {
       }),
     )
     file: Express.Multer.File,
+    @Request() req: any,
   ) {
+    // JLP-C13 — Verifica propiedad del negocio ANTES de subir a Cloudinary
+    // (evita gasto de almacenamiento por atacantes autenticados).
+    await this.anunciosService.assertPuedeGestionarNegocio(
+      negocioId,
+      this.requester(req),
+    );
+
     const upload = await new Promise<UploadApiResponse>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         { folder: `jelpy/anuncios/${negocioId}` },
@@ -116,16 +142,19 @@ export class AnunciosController {
   }
 
   @Post()
-  create(@Body() dto: CreateAnuncioDto) {
-    return this.anunciosService.create(dto);
+  @UseGuards(JwtAuthGuard)
+  create(@Body() dto: CreateAnuncioDto, @Request() req: any) {
+    return this.anunciosService.create(dto, this.requester(req));
   }
 
   @Patch(':id/status')
+  @UseGuards(JwtAuthGuard)
   updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAnuncioStatusDto,
+    @Request() req: any,
   ) {
-    return this.anunciosService.updateStatus(id, dto);
+    return this.anunciosService.updateStatus(id, dto, this.requester(req));
   }
 
   @Post(':id/track')
@@ -137,25 +166,51 @@ export class AnunciosController {
   }
 
   @Delete('upload')
-  async deleteCloudinary(@Body() body: { publicId: string }) {
+  @UseGuards(JwtAuthGuard)
+  async deleteCloudinary(
+    @Body() body: { publicId: string },
+    @Request() req: any,
+  ) {
     if (!body?.publicId) throw new BadRequestException('publicId requerido');
+
+    // JLP-C13 — El publicId arbitrario permitía borrar CUALQUIER asset de
+    // Cloudinary. Los anuncios se suben a `jelpy/anuncios/{negocioId}/...`;
+    // sólo permitimos destruir assets dentro de un negocio que el solicitante
+    // posea (o admin). Cualquier otro path se rechaza.
+    const requester = this.requester(req);
+    const match = /^jelpy\/anuncios\/(\d+)\//.exec(body.publicId);
+    if (!match) {
+      throw new ForbiddenException('publicId fuera del ámbito de anuncios.');
+    }
+    const negocioId = Number(match[1]);
+    await this.anunciosService.assertPuedeGestionarNegocio(negocioId, requester);
+
     await cloudinary.uploader.destroy(body.publicId);
     return { success: true };
   }
 
   @Patch(':id/image')
+  @UseGuards(JwtAuthGuard)
   updateImage(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { imagenUrl: string; publicId?: string },
+    @Request() req: any,
   ) {
-    return this.anunciosService.updateAdImage(id, body.imagenUrl, body.publicId);
+    return this.anunciosService.updateAdImage(
+      id,
+      body.imagenUrl,
+      body.publicId,
+      this.requester(req),
+    );
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard)
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAnuncioDto,
+    @Request() req: any,
   ) {
-    return this.anunciosService.update(id, dto);
+    return this.anunciosService.update(id, dto, this.requester(req));
   }
 }

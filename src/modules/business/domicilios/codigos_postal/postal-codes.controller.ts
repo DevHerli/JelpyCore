@@ -7,16 +7,20 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../../common/guards/admin.guard';
 import { PostalCodesService } from './postal-codes.service';
 import { CreatePostalCodeDto } from './dtos/create-postal-code.dto';
 import { UpdatePostalCodeDto } from './dtos/update-postal-code.dto';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @Controller('postal-codes')
 export class PostalCodesController {
   constructor(private readonly postalCodesService: PostalCodesService) {}
 
   @Post()
+  @UseGuards(AdminGuard)
   create(@Body() createPostalCodeDto: CreatePostalCodeDto) {
     return this.postalCodesService.create(createPostalCodeDto);
   }
@@ -50,6 +54,7 @@ export class PostalCodesController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   update(
     @Param('id') id: string,
     @Body() updatePostalCodeDto: UpdatePostalCodeDto,
@@ -58,6 +63,7 @@ export class PostalCodesController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   remove(
     @Param('id') id: string,
     @Query('eliminado_por') eliminado_por?: string,

@@ -62,6 +62,7 @@ import { PublicSucursalesModule } from './modules/public/sucursales/public-sucur
 import { PublicAdsModule } from './modules/public/ads/public-ads.module';
 import { DataRetentionModule } from './modules/core/data-retention/data-retention.module';
 import { LegalModule } from './modules/core/legal/legal.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { LegalModule } from './modules/core/legal/legal.module';
     PublicAdsModule,
     DataRetentionModule,
     LegalModule,
+    BillingModule,
 
     // Guards globales (JwtAuthGuard + ApiKeyGuard disponibles en toda la app)
     GuardsModule,

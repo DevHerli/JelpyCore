@@ -1,6 +1,9 @@
-import { Controller, Get, Post, Body, Param, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, UseGuards } from '@nestjs/common';
 import { ReportesModeracionService } from './reportes-moderacion.service';
+import { AdminGuard } from '../../../../common/guards/admin.guard';
 
+// JLP-M26: los reportes de moderación son datos internos de moderación → solo admin.
+@UseGuards(AdminGuard)
 @Controller('reportes-moderacion')
 export class ReportesModeracionController {
   constructor(private readonly service: ReportesModeracionService) {}

@@ -1,10 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HorarioSucursal } from './entities/horarios-sucursal.entity';
 import { CreateHorarioSucursalDto } from './dto/create-horario-sucursal.dto';
 import { UpdateHorarioSucursalDto } from './dto/update-horario-sucursal.dto';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
+
+/** Identidad del solicitante para verificación de propiedad (JLP-C12). */
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class HorariosSucursalService {
@@ -15,9 +18,29 @@ export class HorariosSucursalService {
     private readonly sucursalRepo: Repository<SucursalNegocio>,
   ) {}
 
-  async crear(dto: CreateHorarioSucursalDto): Promise<HorarioSucursal> {
-    const sucursal = await this.sucursalRepo.findOne({ where: { id: dto.sucursalId } });
+  /**
+   * JLP-C12 — Un horario pertenece a una sucursal, cuyo negocio tiene un
+   * suscriptor dueño. Sólo el dueño (o admin) puede crear/editar/eliminar.
+   */
+  private assertOwnerOfSucursal(
+    sucursal: SucursalNegocio | undefined | null,
+    requester?: RequesterCtx,
+  ): void {
+    if (!requester || requester.isAdmin) return;
+    const ownerId = Number((sucursal as any)?.negocio?.suscriptor?.id);
+    if (!requester.sub || ownerId !== Number(requester.sub)) {
+      throw new ForbiddenException('No eres el dueño de esta sucursal.');
+    }
+  }
+
+  async crear(dto: CreateHorarioSucursalDto, requester?: RequesterCtx): Promise<HorarioSucursal> {
+    const sucursal = await this.sucursalRepo.findOne({
+      where: { id: dto.sucursalId },
+      relations: ['negocio', 'negocio.suscriptor'],
+    });
     if (!sucursal) throw new NotFoundException('Sucursal no encontrada');
+
+    this.assertOwnerOfSucursal(sucursal, requester);
 
     // INSERT ... ON DUPLICATE KEY UPDATE: MySQL resuelve el conflicto del índice
     // único (sucursal_id, dia_semana) a nivel de motor — nunca puede lanzar
@@ -67,17 +90,27 @@ export class HorariosSucursalService {
     });
   }
 
-  async actualizar(id: number, dto: UpdateHorarioSucursalDto) {
-    const horario = await this.horarioRepo.findOne({ where: { id } });
+  async actualizar(id: number, dto: UpdateHorarioSucursalDto, requester?: RequesterCtx) {
+    const horario = await this.horarioRepo.findOne({
+      where: { id },
+      relations: ['sucursal', 'sucursal.negocio', 'sucursal.negocio.suscriptor'],
+    });
     if (!horario) throw new NotFoundException('Horario no encontrado');
+
+    this.assertOwnerOfSucursal(horario.sucursal, requester);
 
     Object.assign(horario, dto);
     return this.horarioRepo.save(horario);
   }
 
-  async eliminar(id: number) {
-    const horario = await this.horarioRepo.findOne({ where: { id } });
+  async eliminar(id: number, requester?: RequesterCtx) {
+    const horario = await this.horarioRepo.findOne({
+      where: { id },
+      relations: ['sucursal', 'sucursal.negocio', 'sucursal.negocio.suscriptor'],
+    });
     if (!horario) throw new NotFoundException('Horario no encontrado');
+
+    this.assertOwnerOfSucursal(horario.sucursal, requester);
     // Hard-delete: elimina la fila físicamente para que el índice único
     // (sucursal_id, dia_semana) quede libre y no bloquee futuros inserts.
     await this.horarioRepo.remove(horario);

@@ -9,7 +9,9 @@ import {
   Query,
   BadRequestException,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../common/guards/admin.guard';
 import { CategoriasService } from './categorias.service';
 import { CreateCategoriaDto } from './dtos/create-categoria.dto';
 import { UpdateCategoriaDto } from './dtos/update-categoria.dto';
@@ -17,12 +19,14 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Categoria } from './entities/categorias.entity';
 import { QueryCategoriasDto } from './dtos/query-categorias.dto';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @ApiTags('Categorias')
 @Controller('categorias')
 export class CategoriasController {
   constructor(private readonly categoriasService: CategoriasService) {}
 
   @Post()
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Crear nueva categoría' })
   @ApiResponse({ status: 201, type: Categoria })
   create(@Body() dto: CreateCategoriaDto) {
@@ -80,6 +84,7 @@ export class CategoriasController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Actualizar una categoría por ID' })
   @ApiResponse({ status: 200, type: Categoria })
   update(
@@ -90,6 +95,7 @@ export class CategoriasController {
   }
 
   @Patch(':id/desactivar')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Desactivar (borrado lógico) una categoría' })
   @ApiResponse({
     status: 200,
@@ -124,6 +130,7 @@ export class CategoriasController {
   }
 
   @Delete(':id/permanente')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Eliminar una categoría permanentemente (hard delete)' })
   @ApiResponse({
     status: 200,

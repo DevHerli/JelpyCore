@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -10,6 +11,11 @@ import { SucursalCaracteristica } from './entities/sucursal-caracteristica.entit
 import { CaracteristicaSucursal } from './entities/caracteristica-sucursal.entity';
 import { AssignCaracteristicaDto } from './dtos/assign-caracteristica.dto';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
+
+// JLP-H18B — Propiedad: solo el dueño de la sucursal (o un admin) puede
+// asignar/editar/quitar características. requester opcional para no romper
+// llamadas internas.
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 interface SucursalGiroContext {
   sucursalId: number;
@@ -33,10 +39,42 @@ export class SucursalesCaracteristicasService {
     private readonly caracteristicaRepo: Repository<CaracteristicaSucursal>,
   ) {}
 
+  /**
+   * Verifica que el solicitante sea dueño de la sucursal (vía
+   * sucursal → negocio → suscriptor) o un administrador. Se salta la
+   * verificación cuando no se pasa `requester` (llamadas internas) o cuando
+   * es admin.
+   */
+  private async assertOwnershipBySucursal(
+    sucursalId: number,
+    requester?: RequesterCtx,
+  ) {
+    if (!requester || requester.isAdmin) return;
+
+    const sucursal = await this.sucursalRepo.findOne({
+      where: { id: sucursalId },
+      relations: ['negocio', 'negocio.suscriptor'],
+    });
+
+    if (!sucursal) {
+      throw new NotFoundException('Sucursal no encontrada');
+    }
+
+    const ownerId = Number(sucursal.negocio?.suscriptor?.id);
+    if (!ownerId || ownerId !== Number(requester.sub)) {
+      throw new ForbiddenException(
+        'No tienes permiso para gestionar esta sucursal',
+      );
+    }
+  }
+
   async assignCaracteristica(
     sucursal_id: number,
     dto: AssignCaracteristicaDto,
+    requester?: RequesterCtx,
   ) {
+    await this.assertOwnershipBySucursal(sucursal_id, requester);
+
     const sucursal = await this.sucursalRepo.findOne({
       where: { id: sucursal_id },
       relations: ['negocio'],
@@ -122,7 +160,11 @@ export class SucursalesCaracteristicasService {
     return registro;
   }
 
-  async update(id: number, dto: AssignCaracteristicaDto) {
+  async update(
+    id: number,
+    dto: AssignCaracteristicaDto,
+    requester?: RequesterCtx,
+  ) {
     const existente = await this.repo.findOne({
       where: { id },
       relations: ['sucursal', 'caracteristica'],
@@ -131,6 +173,8 @@ export class SucursalesCaracteristicasService {
     if (!existente) {
       throw new NotFoundException('Asignación de característica no encontrada');
     }
+
+    await this.assertOwnershipBySucursal(existente.sucursal.id, requester);
 
     const contexto = await this.getSucursalGiroContext(existente.sucursal.id);
 
@@ -170,14 +214,17 @@ export class SucursalesCaracteristicasService {
     });
   }
 
-  async remove(id: number) {
+  async remove(id: number, requester?: RequesterCtx) {
     const existente = await this.repo.findOne({
       where: { id },
+      relations: ['sucursal'],
     });
 
     if (!existente) {
       throw new NotFoundException('Asignación de característica no encontrada');
     }
+
+    await this.assertOwnershipBySucursal(existente.sucursal.id, requester);
 
     await this.repo.delete(id);
 

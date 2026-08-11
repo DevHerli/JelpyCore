@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -32,6 +33,9 @@ type ListPaymentsQuery = {
   limit?: number;
   offset?: number;
 };
+
+/** Identidad del solicitante para verificación de propiedad (JLP-H15). */
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class PagosService {
@@ -153,8 +157,20 @@ export class PagosService {
     negocioId?: number;
     suscriptorId?: number;
     limit: number;
+    requester?: RequesterCtx;
   }) {
-    const { negocioId, suscriptorId, limit } = params;
+    const { negocioId, limit, requester } = params;
+    let { suscriptorId } = params;
+
+    // JLP-H15 — Un usuario no-admin sólo puede listar SUS propios pagos.
+    // Forzamos el suscriptorId al del token para impedir IDOR por query param.
+    if (requester && !requester.isAdmin) {
+      if (!requester.sub) throw new ForbiddenException('Sesión inválida.');
+      if (suscriptorId != null && Number(suscriptorId) !== Number(requester.sub)) {
+        throw new ForbiddenException('No puedes consultar pagos de otro usuario.');
+      }
+      suscriptorId = Number(requester.sub);
+    }
 
     // where dinámico
     const where: any = {};
@@ -511,10 +527,44 @@ async markAsFailed(
   }
 
   /**
+   * JLP-H15 — Verifica que la tarjeta (paymentMethodId) pertenezca al customer
+   * de Stripe del suscriptor autenticado. Sin esto, un usuario podía desvincular
+   * o marcar como default tarjetas de CUALQUIER otro customer (IDOR sobre Stripe).
+   * Devuelve el stripeCustomerId validado.
+   */
+  private async assertPaymentMethodOwnedBySuscriptor(
+    paymentMethodId: string,
+    suscriptorId: number,
+  ): Promise<string> {
+    if (!paymentMethodId) throw new BadRequestException('paymentMethodId requerido');
+
+    const sus = await this.suscriptoresRepo.findOne({ where: { id: suscriptorId as any } });
+    if (!sus?.stripeCustomerId) {
+      throw new BadRequestException(
+        'El suscriptor no tiene customer de Stripe. Llama primero a /pagos/stripe/customer.',
+      );
+    }
+
+    const pm = await this.stripeService.client.paymentMethods.retrieve(paymentMethodId);
+    const pmCustomer =
+      typeof pm.customer === 'string' ? pm.customer : (pm.customer as any)?.id ?? null;
+
+    if (!pmCustomer || pmCustomer !== sus.stripeCustomerId) {
+      throw new ForbiddenException('Esta tarjeta no pertenece a tu cuenta.');
+    }
+
+    return sus.stripeCustomerId;
+  }
+
+  /**
    * 1.4 DELETE /pagos/metodos/:paymentMethodId
    * Desvincula la tarjeta del customer en Stripe.
    */
-  async deletePaymentMethod(paymentMethodId: string) {
+  async deletePaymentMethod(paymentMethodId: string, requester?: RequesterCtx) {
+    // JLP-H15 — Sólo el dueño (o admin) puede desvincular la tarjeta.
+    if (requester && !requester.isAdmin) {
+      await this.assertPaymentMethodOwnedBySuscriptor(paymentMethodId, requester.sub);
+    }
     await this.stripeService.client.paymentMethods.detach(paymentMethodId);
     return { ok: true };
   }
@@ -523,13 +573,25 @@ async markAsFailed(
    * 1.5 PATCH /pagos/metodos/:paymentMethodId/default
    * Establece la tarjeta como método por defecto del customer.
    */
-  async setDefaultPaymentMethod(paymentMethodId: string, suscriptorId: number) {
-    const sus = await this.suscriptoresRepo.findOne({ where: { id: suscriptorId as any } });
-    if (!sus?.stripeCustomerId) {
-      throw new BadRequestException('El suscriptor no tiene customer de Stripe. Llama primero a /pagos/stripe/customer.');
+  async setDefaultPaymentMethod(
+    paymentMethodId: string,
+    suscriptorId: number,
+    requester?: RequesterCtx,
+  ) {
+    // JLP-H15 — El suscriptorId debe coincidir con el token (salvo admin) y la
+    // tarjeta debe pertenecer a ese customer.
+    if (requester && !requester.isAdmin) {
+      if (!requester.sub || Number(suscriptorId) !== Number(requester.sub)) {
+        throw new ForbiddenException('No puedes operar en nombre de otro usuario.');
+      }
     }
 
-    await this.stripeService.client.customers.update(sus.stripeCustomerId, {
+    const customerId = await this.assertPaymentMethodOwnedBySuscriptor(
+      paymentMethodId,
+      suscriptorId,
+    );
+
+    await this.stripeService.client.customers.update(customerId, {
       invoice_settings: { default_payment_method: paymentMethodId },
     });
 

@@ -5,13 +5,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 
 import { SupportTicket } from './entities/support-ticket.entity';
 import { Negocio } from '../business/negocios/entities/negocio.entity';
+import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
 
 import { SupportService } from './support.service';
 import { SupportController } from './support.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([SupportTicket, Negocio]),
+    TypeOrmModule.forFeature([SupportTicket, Negocio, Suscriptor]),
 
     // JWT con el mismo secret que AuthModule para verificar tokens existentes
     JwtModule.registerAsync({

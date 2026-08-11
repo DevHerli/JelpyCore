@@ -1,8 +1,13 @@
-import { Controller, Post, Get, Delete, Param, Body, Query, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Body, Query, Req, UseGuards, Logger, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { AiService } from './ai.service';
 import { TrackMetricsUseCase } from '../ai/use-cases/track-metrics.usecase';
 import { ConversationService } from '../conversation/conversation.service';
 
+// JLP-H21 — Endpoints LLM/conversación: autenticación + rate-limit. La
+// identidad proviene del token y el historial/cierre de sesión se restringe
+// al dueño de la sesión (o admin).
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);
@@ -12,6 +17,10 @@ export class AiController {
     private readonly metricsUseCase: TrackMetricsUseCase,
     private readonly conversationService: ConversationService,
   ) {}
+
+  private requester(req: any): { sub: number; isAdmin: boolean } {
+    return { sub: Number(req.user?.sub), isAdmin: req.user?.role === 'admin' };
+  }
 
   /**
    * Endpoint principal para procesar mensajes con memoria de sesión.
@@ -35,10 +44,12 @@ export class AiController {
    * }
    */
   @Post('process')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 15, ttl: 60 } })
   async procesarMensaje(
+    @Req() req: any,
     @Body('mensaje') mensaje: string,
     @Body('sessionId') sessionId?: string,
-    @Body('usuarioId') usuarioId?: number,
     @Body('contexto') contexto?: {
       latitud?: number;
       longitud?: number;
@@ -50,6 +61,9 @@ export class AiController {
     if (!mensaje) {
       throw new BadRequestException('El campo "mensaje" es obligatorio');
     }
+
+    // La identidad se toma del token, ignorando cualquier usuarioId del body.
+    const usuarioId = Number(req.user?.sub);
 
     this.logger.log(`[Session: ${sessionId ?? 'sin sesión'}] Mensaje: "${mensaje}"`);
 
@@ -97,7 +111,11 @@ export class AiController {
    * GET /ai/historial/:sessionId
    */
   @Get('historial/:sessionId')
-  async obtenerHistorial(@Param('sessionId') sessionId: string) {
+  @UseGuards(JwtAuthGuard)
+  async obtenerHistorial(
+    @Param('sessionId') sessionId: string,
+    @Req() req: any,
+  ) {
     if (!sessionId) {
       throw new BadRequestException('El sessionId es obligatorio');
     }
@@ -106,6 +124,16 @@ export class AiController {
 
     if (!sesion) {
       throw new NotFoundException('Sesión no encontrada o expirada');
+    }
+
+    // Solo el dueño de la sesión (o un admin) puede leer su historial.
+    const requester = this.requester(req);
+    if (
+      !requester.isAdmin &&
+      (sesion.usuarioId == null ||
+        Number(sesion.usuarioId) !== requester.sub)
+    ) {
+      throw new ForbiddenException('No tienes acceso a esta sesión');
     }
 
     const turnos = await this.conversationService.obtenerHistorial(sessionId);
@@ -135,12 +163,28 @@ export class AiController {
    * DELETE /ai/sesion/:sessionId
    */
   @Delete('sesion/:sessionId')
-  async cerrarSesion(@Param('sessionId') sessionId: string) {
+  @UseGuards(JwtAuthGuard)
+  async cerrarSesion(
+    @Param('sessionId') sessionId: string,
+    @Req() req: any,
+  ) {
     if (!sessionId) {
       throw new BadRequestException('El sessionId es obligatorio');
     }
 
-    await this.conversationService.cerrarSesion(sessionId);
+    // Verificar propiedad antes de cerrar (evita cerrar sesiones ajenas).
+    const sesion = await this.conversationService.obtenerContextoSesion(sessionId);
+    if (sesion) {
+      const requester = this.requester(req);
+      if (
+        !requester.isAdmin &&
+        (sesion.usuarioId == null ||
+          Number(sesion.usuarioId) !== requester.sub)
+      ) {
+        throw new ForbiddenException('No tienes acceso a esta sesión');
+      }
+      await this.conversationService.cerrarSesion(sessionId);
+    }
 
     return {
       exito: true,
@@ -168,6 +212,8 @@ export class AiController {
    * Solo interpretar (sin pipeline completo, sin sesión)
    */
   @Post('interpret')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 15, ttl: 60 } })
   async interpretarQuery(@Body('query') query: string) {
     if (!query) {
       throw new BadRequestException('El campo "query" es obligatorio');

@@ -1,29 +1,38 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Body, 
-  Param, 
-  Put, 
-  UploadedFile, 
-  UseInterceptors, 
-  Query, 
-  Delete
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Put,
+  UploadedFile,
+  UseInterceptors,
+  Query,
+  Delete,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { CatalogoProductosService } from './catalogo-productos.service';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { CatalogoProductosService, RequesterCtx } from './catalogo-productos.service';
 import { CreateCategoriaDto, CreateItemNegocioDto, UpdateItemSucursalDto } from './dtos/create-update-catalogo.dto';
 import { v2 as cloudinary } from 'cloudinary';
 
+// JLP-H19 — Escritura del catálogo restringida al dueño del negocio (o admin).
 @Controller('catalogo-productos')
 export class CatalogoProductosController {
   constructor(private readonly catalogoService: CatalogoProductosService) {}
 
+  private requester(req: any): RequesterCtx {
+    return { sub: Number(req.user?.sub), isAdmin: req.user?.role === 'admin' };
+  }
+
   // ================= CATEGORÍAS =================
   @Post('categorias')
-  crearCategoria(@Body() dto: CreateCategoriaDto) {
-    return this.catalogoService.crearCategoria(dto);
+  @UseGuards(JwtAuthGuard)
+  crearCategoria(@Body() dto: CreateCategoriaDto, @Req() req: any) {
+    return this.catalogoService.crearCategoria(dto, this.requester(req));
   }
 
   @Get('categorias/:negocioId')
@@ -33,8 +42,19 @@ export class CatalogoProductosController {
 
   // ================= ITEMS (PRODUCTOS/SERVICIOS) =================
   @Post('items')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
-  async crearItem(@Body() body: any, @UploadedFile() file: Express.Multer.File) {
+  async crearItem(
+    @Body() body: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    const requester = this.requester(req);
+    const negocioId = Number(body.negocioId);
+
+    // Validar propiedad ANTES de subir a Cloudinary (evita cargas no autorizadas).
+    await this.catalogoService.assertPuedeGestionarNegocio(negocioId, requester);
+
     let imagenUrl = null;
 
     // Subida a Cloudinary
@@ -62,7 +82,7 @@ export class CatalogoProductosController {
       duracionMinutos: body.duracionMinutos ? Number(body.duracionMinutos) : undefined
     };
 
-    return this.catalogoService.crearItem({ ...dto, imagenUrl });
+    return this.catalogoService.crearItem({ ...dto, imagenUrl }, requester);
   }
 
   @Get('items/:negocioId')
@@ -71,12 +91,19 @@ export class CatalogoProductosController {
   }
 
   @Put('items/:id')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('imagen', { storage: memoryStorage() }))
   async editarItem(
     @Param('id') id: number,
     @Body() body: any,
-    @UploadedFile() file: Express.Multer.File
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
   ) {
+    const requester = this.requester(req);
+
+    // Validar propiedad ANTES de subir a Cloudinary (evita cargas no autorizadas).
+    await this.catalogoService.assertPuedeGestionarItem(id, requester);
+
     let imagenUrl = undefined; // Undefined para que el servicio sepa si no se cambió
 
     if (file) {
@@ -103,13 +130,14 @@ export class CatalogoProductosController {
       ...(imagenUrl && { imagenUrl }) // Solo agregamos imagen si se subió nueva
     };
 
-    return this.catalogoService.actualizarItem(id, updateData);
+    return this.catalogoService.actualizarItem(id, updateData, requester);
   }
 
   // ================= DISPONIBILIDAD (SUCURSAL) =================
   @Put('disponibilidad')
-  setDisponibilidad(@Body() dto: UpdateItemSucursalDto) {
-    return this.catalogoService.setDisponibilidad(dto);
+  @UseGuards(JwtAuthGuard)
+  setDisponibilidad(@Body() dto: UpdateItemSucursalDto, @Req() req: any) {
+    return this.catalogoService.setDisponibilidad(dto, this.requester(req));
   }
 
   // ================= MENÚ PÚBLICO (FINAL) =================
@@ -124,8 +152,9 @@ export class CatalogoProductosController {
 
   // ELIMINAR ITEM
   @Delete('items/:id')
-  eliminarItem(@Param('id') id: number) {
-    return this.catalogoService.eliminarItem(id);
+  @UseGuards(JwtAuthGuard)
+  eliminarItem(@Param('id') id: number, @Req() req: any) {
+    return this.catalogoService.eliminarItem(id, this.requester(req));
   }
   
 }

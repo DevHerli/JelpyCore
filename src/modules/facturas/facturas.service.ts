@@ -1,10 +1,18 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Factura } from './entities/factura.entity';
 import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
 import { Pago } from '../pagos/entities/pago.entity';
 import { SolicitarFacturaDto } from './dtos/solicitar-factura.dto';
+
+/** Identidad del solicitante para verificación de propiedad (JLP-H14). */
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class FacturasService {
@@ -19,9 +27,29 @@ export class FacturasService {
     private readonly pagoRepo: Repository<Pago>,
   ) {}
 
+  /**
+   * JLP-H14 — Una factura pertenece a un suscriptor. Sólo ese suscriptor
+   * (o un admin) puede listarla, leerla, descargar PDF/XML o cancelarla.
+   */
+  private assertOwnerSuscriptor(
+    ownerSuscriptorId: number | undefined | null,
+    requester?: RequesterCtx,
+  ): void {
+    if (!requester || requester.isAdmin) return;
+    if (!requester.sub || Number(ownerSuscriptorId) !== Number(requester.sub)) {
+      throw new ForbiddenException('No tienes acceso a esta factura.');
+    }
+  }
+
   // ── Listar facturas de un suscriptor ─────────────────────────────────────
 
-  async listar(suscriptorId: number, limit = 50): Promise<Factura[]> {
+  async listar(
+    suscriptorId: number,
+    limit = 50,
+    requester?: RequesterCtx,
+  ): Promise<Factura[]> {
+    // JLP-H14 — Un usuario sólo puede listar SUS propias facturas.
+    this.assertOwnerSuscriptor(suscriptorId, requester);
     return this.facturaRepo.find({
       where: { suscriptorId },
       order: { fecha: 'DESC', id: 'DESC' },
@@ -31,9 +59,10 @@ export class FacturasService {
 
   // ── Obtener una factura ───────────────────────────────────────────────────
 
-  async obtener(id: number): Promise<Factura> {
+  async obtener(id: number, requester?: RequesterCtx): Promise<Factura> {
     const factura = await this.facturaRepo.findOne({ where: { id } });
     if (!factura) throw new NotFoundException(`Factura no encontrada: id=${id}`);
+    this.assertOwnerSuscriptor(factura.suscriptorId, requester);
     return factura;
   }
 
@@ -43,7 +72,10 @@ export class FacturasService {
    * Aquí se haría la llamada al PAC (Facturapi, etc.) en producción real.
    * Por ahora se guarda el snapshot de datos fiscales y queda pendiente de emisión.
    */
-  async solicitar(dto: SolicitarFacturaDto): Promise<Factura> {
+  async solicitar(dto: SolicitarFacturaDto, requester?: RequesterCtx): Promise<Factura> {
+    // JLP-H14 — Sólo puedes solicitar facturas a tu propio nombre.
+    this.assertOwnerSuscriptor(dto.suscriptorId, requester);
+
     // Validar suscriptor y datos fiscales
     const suscriptor = await this.suscriptorRepo.findOne({
       where: { id: dto.suscriptorId, eliminado: false },
@@ -90,22 +122,28 @@ export class FacturasService {
 
   // ── URL de PDF ────────────────────────────────────────────────────────────
 
-  async getPdfUrl(id: number): Promise<{ id: number; pdfUrl: string | null }> {
-    const factura = await this.obtener(id);
+  async getPdfUrl(
+    id: number,
+    requester?: RequesterCtx,
+  ): Promise<{ id: number; pdfUrl: string | null }> {
+    const factura = await this.obtener(id, requester);
     return { id: factura.id, pdfUrl: factura.pdfUrl ?? null };
   }
 
   // ── URL de XML ────────────────────────────────────────────────────────────
 
-  async getXmlUrl(id: number): Promise<{ id: number; xmlUrl: string | null }> {
-    const factura = await this.obtener(id);
+  async getXmlUrl(
+    id: number,
+    requester?: RequesterCtx,
+  ): Promise<{ id: number; xmlUrl: string | null }> {
+    const factura = await this.obtener(id, requester);
     return { id: factura.id, xmlUrl: factura.xmlUrl ?? null };
   }
 
   // ── Cancelar factura ──────────────────────────────────────────────────────
 
-  async cancelar(id: number): Promise<Factura> {
-    const factura = await this.obtener(id);
+  async cancelar(id: number, requester?: RequesterCtx): Promise<Factura> {
+    const factura = await this.obtener(id, requester);
     if (factura.estatus === 'cancelada') {
       throw new BadRequestException('La factura ya está cancelada.');
     }

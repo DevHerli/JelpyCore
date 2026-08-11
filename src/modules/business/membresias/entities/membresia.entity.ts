@@ -39,5 +39,12 @@ anunciosSimultaneos: number;
 @Column({ name: 'anuncios_ilimitados', type: 'tinyint', width: 1, default: 0 })
 anunciosIlimitados: boolean;
 
+/**
+ * ID del Price recurrente mensual en Stripe (price_xxx).
+ * NULL en el plan Free (sin cobro).
+ * Configurar manualmente en BD tras crear los Products en el dashboard de Stripe.
+ */
+@Column({ name: 'stripe_price_id', type: 'varchar', length: 100, nullable: true })
+stripePriceId?: string;
 
 }

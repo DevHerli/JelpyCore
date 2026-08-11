@@ -97,14 +97,18 @@ export class AuthController {
     return this.authService.sendOtpEmail(dto);
   }
 
+  /** JLP-M28: 10 intentos cada 5 minutos — frena fuerza bruta de códigos OTP */
   @Post('otp/email/check')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 300 } })
   checkOtpEmail(@Body() dto: CheckOtpEmailDto) {
     return this.authService.checkOtpEmail(dto);
   }
 
+  /** JLP-M28: 10 intentos cada 5 minutos — frena fuerza bruta de códigos OTP */
   @Post('otp/email/verify')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 300 } })
   verifyOtpEmail(@Body() dto: VerifyOtpEmailDto) {
     return this.authService.verifyOtpEmail(dto);
   }

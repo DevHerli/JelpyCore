@@ -8,11 +8,14 @@ import {
   Delete,
   ParseIntPipe,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../common/guards/admin.guard';
 import { CiudadesService } from './ciudades.service';
 import { CreateCiudadDto } from './dtos/create-ciudad.dto';
 import { UpdateCiudadDto } from './dtos/update-ciudad.dto';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @Controller('ciudades')
 export class CiudadesController {
   constructor(private readonly ciudadesService: CiudadesService) {}
@@ -31,11 +34,13 @@ export class CiudadesController {
   }
 
   @Post()
+  @UseGuards(AdminGuard)
   crear(@Body() body: CreateCiudadDto) {
     return this.ciudadesService.crear(body);
   }
 
   @Put(':id')
+  @UseGuards(AdminGuard)
   actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateCiudadDto,
@@ -44,6 +49,7 @@ export class CiudadesController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   eliminar(@Param('id', ParseIntPipe) id: number) {
     return this.ciudadesService.eliminar(id);
   }

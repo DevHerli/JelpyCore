@@ -7,13 +7,16 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../../common/guards/admin.guard';
 import { StreetsService } from './streets.service';
 import { CreateStreetDto } from './dtos/create-street.dto';
 import { UpdateStreetDto } from './dtos/update-street.dto';
 import { CreateStreetColonyDto } from './dtos/create-street-colony.dto';
 import { UpdateStreetColonyDto } from './dtos/update-street-colony.dto';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @Controller('streets')
 export class StreetsController {
   constructor(private readonly streetsService: StreetsService) {}
@@ -22,6 +25,7 @@ export class StreetsController {
 
   /** Crear una nueva calle */
   @Post()
+  @UseGuards(AdminGuard)
   create(@Body() createStreetDto: CreateStreetDto) {
     return this.streetsService.create(createStreetDto);
   }
@@ -61,6 +65,7 @@ export class StreetsController {
    * Body: { calle_id, colonia_id, activo?, creado_por? }
    */
   @Post('street-colonies')
+  @UseGuards(AdminGuard)
   createStreetColony(@Body() createStreetColonyDto: CreateStreetColonyDto) {
     return this.streetsService.createStreetColony(createStreetColonyDto);
   }
@@ -124,6 +129,7 @@ export class StreetsController {
 
   /** Actualizar datos de una calle */
   @Patch(':id')
+  @UseGuards(AdminGuard)
   update(@Param('id') id: string, @Body() updateStreetDto: UpdateStreetDto) {
     return this.streetsService.update(id, updateStreetDto);
   }
@@ -133,6 +139,7 @@ export class StreetsController {
    * Permite cambiar calle_id, colonia_id o activo.
    */
   @Patch('street-colonies/:id')
+  @UseGuards(AdminGuard)
   updateStreetColony(
     @Param('id') id: string,
     @Body() updateStreetColonyDto: UpdateStreetColonyDto,
@@ -142,6 +149,7 @@ export class StreetsController {
 
   /** Borrado lógico de una calle (activo = false) */
   @Delete(':id')
+  @UseGuards(AdminGuard)
   remove(
     @Param('id') id: string,
     @Query('eliminado_por') eliminado_por?: string,
@@ -153,6 +161,7 @@ export class StreetsController {
    * Desactivar (borrado lógico) una asignación calle-colonia.
    */
   @Delete('street-colonies/:id')
+  @UseGuards(AdminGuard)
   removeStreetColony(
     @Param('id') id: string,
     @Query('eliminado_por') eliminado_por?: string,

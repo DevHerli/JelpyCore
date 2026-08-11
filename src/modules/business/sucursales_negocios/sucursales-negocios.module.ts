@@ -12,6 +12,7 @@ import { EstadisticasModule } from '../../core/metrics/estadisticas/estadisticas
 import { Street } from '../domicilios/calles/entities/street.entity';
 import { Colonia } from '../domicilios/colonias/entities/colonia.entity';
 import { PostalCode } from '../domicilios/codigos_postal/entities/postal-code.entity';
+import { Negocio } from '../negocios/entities/negocio.entity';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { PostalCode } from '../domicilios/codigos_postal/entities/postal-code.en
       Street,
       Colonia,
       PostalCode,
+      Negocio,
     ]),
     CaracteristicasSucursalModule,
     EstadisticasModule,

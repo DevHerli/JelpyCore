@@ -1,13 +1,17 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { PromotionBusiness } from './entities/promotion-business.entity';
 import { PromotionBusinessBranch } from './entities/promotion-business-branch.entity';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
+import { Negocio } from '../negocios/entities/negocio.entity';
 import { CreatePromotionBusinessDto } from './dtos/create-promotion-business.dto';
 import { UpdatePromotionBusinessDto } from './dtos/update-promotion-business.dto';
 import { EventosNegociosService } from '../eventos_negocios/eventos-negocios.service';
+
+/** Identidad del solicitante para verificación de propiedad (JLP-C11). */
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class PromocionesNegociosService {
@@ -21,18 +25,56 @@ export class PromocionesNegociosService {
     @InjectRepository(SucursalNegocio)
     private readonly sucursalRepo: Repository<SucursalNegocio>,
 
+    @InjectRepository(Negocio)
+    private readonly negocioRepo: Repository<Negocio>,
+
     private readonly eventosNegociosService: EventosNegociosService,
   ) {}
+
+  /**
+   * JLP-C11 — Una promoción de negocio pertenece a un negocio (businessId),
+   * y el negocio tiene un suscriptor dueño. Sólo el dueño (o admin) puede
+   * crear/editar/eliminar promociones de ese negocio.
+   */
+  private async assertOwnershipByNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const negocio = await this.negocioRepo.findOne({
+      where: { id: negocioId },
+      relations: ['suscriptor'],
+    });
+    if (!negocio) throw new NotFoundException('Negocio no encontrado');
+    if (!requester.sub || Number(negocio.suscriptor?.id) !== Number(requester.sub)) {
+      throw new ForbiddenException('No eres el dueño de este negocio.');
+    }
+  }
+
+  /** Público: verifica propiedad por id de promoción (usado por el controller antes de subir a Cloudinary). */
+  async assertPuedeGestionarPromocion(
+    promoId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+    const promo = await this.promoRepo.findOne({
+      where: { id: Number(promoId), eliminado: false },
+    });
+    if (!promo) throw new NotFoundException('Promoción global no encontrada.');
+    await this.assertOwnershipByNegocio(promo.businessId, requester);
+  }
 
   // =========================================================
   // CREATE
   // =========================================================
-  async create(dto: CreatePromotionBusinessDto) {
+  async create(dto: CreatePromotionBusinessDto, requester?: RequesterCtx) {
     const negocioId = Number(dto.negocioId);
 
     if (!Number.isFinite(negocioId) || negocioId <= 0) {
       throw new BadRequestException('negocioId inválido.');
     }
+
+    await this.assertOwnershipByNegocio(negocioId, requester);
 
     const sucursalIdsInput = Array.isArray(dto.sucursalIds)
       ? dto.sucursalIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
@@ -168,7 +210,7 @@ export class PromocionesNegociosService {
   // =========================================================
   // UPDATE
   // =========================================================
-  async update(id: number, dto: UpdatePromotionBusinessDto) {
+  async update(id: number, dto: UpdatePromotionBusinessDto, requester?: RequesterCtx) {
     const promoId = Number(id);
     if (!Number.isFinite(promoId) || promoId <= 0) {
       throw new BadRequestException('id inválido.');
@@ -181,6 +223,8 @@ export class PromocionesNegociosService {
     if (!promo) {
       throw new NotFoundException('Promoción global no encontrada.');
     }
+
+    await this.assertOwnershipByNegocio(promo.businessId, requester);
 
     // Campos editables
     if (dto.titulo !== undefined) promo.titulo = dto.titulo;
@@ -252,7 +296,7 @@ export class PromocionesNegociosService {
   // =========================================================
   // DELETE (soft)
   // =========================================================
-  async remove(id: number) {
+  async remove(id: number, requester?: RequesterCtx) {
     const promoId = Number(id);
     if (!Number.isFinite(promoId) || promoId <= 0) {
       throw new BadRequestException('id inválido.');
@@ -265,6 +309,8 @@ export class PromocionesNegociosService {
     if (!promo) {
       throw new NotFoundException('Promoción global no encontrada.');
     }
+
+    await this.assertOwnershipByNegocio(promo.businessId, requester);
 
     promo.eliminado = true;
     await this.promoRepo.save(promo);

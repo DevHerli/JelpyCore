@@ -1,10 +1,20 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SucursalReview } from './entities/sucursal-review.entity';
 import { CreateSucursalReviewDto } from './dtos/create-sucursal-review.dto';
 import { UpdateSucursalReviewDto } from './dtos/update-sucursal-review.dto';
 import { Suscriptor } from '../suscriptores/entities/suscriptores.entity';
+
+// JLP-H20 — Identidad y autoridad de reseñas:
+//  · La autoría se toma del token, nunca del body (evita spoofing).
+//  · Responder una reseña queda restringido al dueño del negocio (o admin).
+//  · La moderación de estado la controla AdminGuard en el controlador.
+export type RequesterCtx = { sub: number; isAdmin: boolean };
 
 @Injectable()
 export class SucursalReviewService {
@@ -17,12 +27,12 @@ export class SucursalReviewService {
   ) {}
 
 
-  // Crear reseña
-async create(dto: CreateSucursalReviewDto) {
+  // Crear reseña — la autoría (suscriptorId) proviene del token, no del body.
+async create(dto: CreateSucursalReviewDto, suscriptorId: number) {
   const existe = await this.reviewRepo.findOne({
     where: {
       sucursal: { id: dto.sucursalId },
-      suscriptor: { id: dto.suscriptorId },
+      suscriptor: { id: suscriptorId },
     },
   });
 
@@ -33,7 +43,7 @@ async create(dto: CreateSucursalReviewDto) {
   }
 
   const suscriptor = await this.suscriptorRepo.findOne({
-    where: { id: dto.suscriptorId },
+    where: { id: suscriptorId },
   });
 
   if (!suscriptor) {
@@ -58,13 +68,28 @@ async create(dto: CreateSucursalReviewDto) {
 
 
 
-async responderReview(reviewId: number, respuesta: string) {
+async responderReview(
+  reviewId: number,
+  respuesta: string,
+  requester?: RequesterCtx,
+) {
   const review = await this.reviewRepo.findOne({
     where: { id: reviewId },
+    relations: ['sucursal', 'sucursal.negocio', 'sucursal.negocio.suscriptor'],
   });
 
   if (!review) {
     throw new BadRequestException('Reseña no encontrada');
+  }
+
+  // Solo el dueño del negocio (o un admin) puede responder.
+  if (requester && !requester.isAdmin) {
+    const ownerId = Number(review.sucursal?.negocio?.suscriptor?.id);
+    if (!ownerId || ownerId !== Number(requester.sub)) {
+      throw new ForbiddenException(
+        'No tienes permiso para responder esta reseña',
+      );
+    }
   }
 
   review.respuestaNegocio = respuesta;

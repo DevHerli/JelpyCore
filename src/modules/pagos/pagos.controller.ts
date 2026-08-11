@@ -20,7 +20,7 @@ import Stripe from 'stripe';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 import { StripeService } from './stripe/stripe.service';
-import { PagosService } from './pagos.service';
+import { PagosService, RequesterCtx } from './pagos.service';
 
 @Controller('pagos')
 export class PagosController {
@@ -29,12 +29,17 @@ export class PagosController {
     private readonly pagosService: PagosService,
   ) {}
 
+  private requester(req: any): RequesterCtx {
+    return { sub: Number(req.user?.sub), isAdmin: req.user?.role === 'admin' };
+  }
+
   // ──────────────────────────────────────────────────────────────
   // LISTADO
   // ──────────────────────────────────────────────────────────────
   @Get()
   @UseGuards(JwtAuthGuard)
   async listPagos(
+    @Req() req: any,
     @Query('negocioId') negocioId?: string,
     @Query('suscriptorId') suscriptorId?: string,
     @Query('limit') limit?: string,
@@ -51,6 +56,7 @@ export class PagosController {
       negocioId:    parsedNegocioId,
       suscriptorId: parsedSuscriptorId,
       limit:        parsedLimit,
+      requester:    this.requester(req),
     });
   }
 
@@ -103,19 +109,27 @@ export class PagosController {
   /** 1.4 Elimina una tarjeta guardada */
   @Delete('metodos/:paymentMethodId')
   @UseGuards(JwtAuthGuard)
-  deletePaymentMethod(@Param('paymentMethodId') paymentMethodId: string) {
-    return this.pagosService.deletePaymentMethod(paymentMethodId);
+  deletePaymentMethod(
+    @Req() req: any,
+    @Param('paymentMethodId') paymentMethodId: string,
+  ) {
+    return this.pagosService.deletePaymentMethod(paymentMethodId, this.requester(req));
   }
 
   /** 1.5 Establece tarjeta por defecto */
   @Patch('metodos/:paymentMethodId/default')
   @UseGuards(JwtAuthGuard)
   setDefaultPaymentMethod(
+    @Req() req: any,
     @Param('paymentMethodId') paymentMethodId: string,
     @Body() body: { suscriptorId: number },
   ) {
     if (!body?.suscriptorId) throw new BadRequestException('suscriptorId requerido');
-    return this.pagosService.setDefaultPaymentMethod(paymentMethodId, Number(body.suscriptorId));
+    return this.pagosService.setDefaultPaymentMethod(
+      paymentMethodId,
+      Number(body.suscriptorId),
+      this.requester(req),
+    );
   }
 
   // ──────────────────────────────────────────────────────────────

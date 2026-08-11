@@ -8,7 +8,9 @@ import {
   ParseIntPipe,
   Query,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../common/guards/admin.guard';
 import { SubcategoriasService } from './subcategorias.service';
 import { CreateSubcategoriaDto } from './dto/create-subcategoria.dto';
 import { UpdateSubcategoriaDto } from './dto/update-subcategoria.dto';
@@ -16,12 +18,14 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Subcategoria } from './entities/subcategorias.entity';
 import { Especialidad } from '../especialidades/entities/especialidades.entity';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @ApiTags('Subcategorias')
 @Controller('subcategorias')
 export class SubcategoriasController {
   constructor(private readonly subcategoriasService: SubcategoriasService) {}
 
   @Post()
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Crear nueva subcategoría' })
   @ApiResponse({ status: 201, type: Subcategoria })
   crear(@Body() dto: CreateSubcategoriaDto) {
@@ -57,6 +61,7 @@ export class SubcategoriasController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Actualizar una subcategoría' })
   @ApiResponse({ status: 200, type: Subcategoria })
   actualizar(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSubcategoriaDto) {
@@ -65,6 +70,7 @@ export class SubcategoriasController {
 
   // BORRADO LÓGICO
   @Patch(':id/desactivar')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Desactivar (borrado lógico) una subcategoría' })
   @ApiResponse({ status: 200, description: 'Subcategoría desactivada correctamente' })
   eliminar(@Param('id', ParseIntPipe) id: number) {
@@ -73,6 +79,7 @@ export class SubcategoriasController {
 
   // BORRADO FÍSICO
   @Delete(':id')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Eliminar una subcategoría permanentemente (solo si ya está desactivada)' })
   @ApiResponse({ status: 200, description: 'Subcategoría eliminada definitivamente' })
   borrarFisico(@Param('id', ParseIntPipe) id: number) {

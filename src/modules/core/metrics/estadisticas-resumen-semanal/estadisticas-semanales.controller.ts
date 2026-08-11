@@ -1,6 +1,10 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { EstadisticasSemanalesService } from './estadisticas-semanales.service';
+import { AdminGuard } from '../../../../common/guards/admin.guard';
 
+// JLP-M24: resúmenes semanales y rankings son BI de plataforma (incluyen desglose
+// por membresía/ciudad) → todo el controlador exige admin.
+@UseGuards(AdminGuard)
 @Controller('estadisticas/semanales')
 export class EstadisticasSemanalesController {
   constructor(private readonly estadisticasService: EstadisticasSemanalesService) {}

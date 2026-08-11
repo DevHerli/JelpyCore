@@ -8,13 +8,16 @@ import {
     Body,
     ParseIntPipe,
     Query,
+    UseGuards,
   } from '@nestjs/common';
   import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+  import { AdminGuard } from '../../../common/guards/admin.guard';
   import { KeywordsTaxonomiaService } from './keywords-taxonomia.service';
   import { CreateKeywordDto } from './dtos/create-keyword.dto';
   import { UpdateKeywordDto } from './dtos/update-keyword.dto';
   import { KeywordTaxonomia } from './entities/keyword-taxonomia.entity';
-  
+
+  // JLP-H18 — Catálogo maestro: escritura restringida a administradores.
   @ApiTags('Keywords Taxonomía')
   @Controller('keywords-taxonomia')
   export class KeywordsTaxonomiaController {
@@ -23,6 +26,7 @@ import {
     ) {}
   
     @Post()
+    @UseGuards(AdminGuard)
     @ApiOperation({ summary: 'Crear nueva keyword' })
     @ApiResponse({ status: 201, type: KeywordTaxonomia })
     create(@Body() dto: CreateKeywordDto) {
@@ -52,6 +56,7 @@ import {
     }
   
     @Patch(':id')
+    @UseGuards(AdminGuard)
     @ApiOperation({ summary: 'Actualizar keyword' })
     update(
       @Param('id', ParseIntPipe) id: number,
@@ -61,6 +66,7 @@ import {
     }
   
     @Delete(':id')
+    @UseGuards(AdminGuard)
     @ApiOperation({ summary: 'Eliminar keyword' })
     remove(@Param('id', ParseIntPipe) id: number) {
       return this.keywordsService.remove(id);

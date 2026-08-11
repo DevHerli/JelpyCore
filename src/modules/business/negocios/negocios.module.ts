@@ -5,9 +5,13 @@ import { NegociosService } from './negocios.service';
 import { NegociosController } from './negocios.controller';
 import { Suscriptor } from '../suscriptores/entities/suscriptores.entity';
 import { KeywordTaxonomia } from '../../core/taxonomia/entities/keyword-taxonomia.entity';
+import { BillingModule } from '../../billing/billing.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Negocio, Suscriptor, KeywordTaxonomia])],
+  imports: [
+    TypeOrmModule.forFeature([Negocio, Suscriptor, KeywordTaxonomia]),
+    BillingModule,
+  ],
   controllers: [NegociosController],
   providers: [NegociosService],
   exports: [NegociosService],

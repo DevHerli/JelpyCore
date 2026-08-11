@@ -78,6 +78,11 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.3"
   },
+  "overrides": {
+    "@nestjs/swagger": {
+      "js-yaml": "5.2.3"
+    }
+  },
   "jest": {
     "moduleFileExtensions": [
       "js",

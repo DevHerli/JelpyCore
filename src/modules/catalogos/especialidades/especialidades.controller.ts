@@ -8,19 +8,23 @@ import {
   ParseIntPipe,
   Query,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../../../common/guards/admin.guard';
 import { EspecialidadesService } from './especialidades.service';
 import { CreateEspecialidadDto } from './dto/create-especialidad.dto';
 import { UpdateEspecialidadDto } from './dto/update-especialidad.dto';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Especialidad } from './entities/especialidades.entity';
 
+// JLP-H18 — Catálogo maestro: escritura restringida a administradores.
 @ApiTags('Especialidades')
 @Controller('especialidades')
 export class EspecialidadesController {
   constructor(private readonly especialidadesService: EspecialidadesService) {}
 
   @Post()
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Crear nueva especialidad' })
   @ApiResponse({ status: 201, type: Especialidad })
   crear(@Body() dto: CreateEspecialidadDto) {
@@ -49,6 +53,7 @@ export class EspecialidadesController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Actualizar una especialidad' })
   @ApiResponse({ status: 200, type: Especialidad })
   actualizar(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEspecialidadDto) {
@@ -57,6 +62,7 @@ export class EspecialidadesController {
 
   // BORRADO LÓGICO
   @Patch(':id/desactivar')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Desactivar (borrado lógico) una especialidad' })
   @ApiResponse({
     status: 200,
@@ -71,6 +77,7 @@ export class EspecialidadesController {
 
   // BORRADO FÍSICO
   @Delete(':id')
+  @UseGuards(AdminGuard)
   @ApiOperation({
     summary:
       'Eliminar una especialidad permanentemente (solo si ya está desactivada)',
