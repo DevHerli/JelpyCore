@@ -16,6 +16,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import {
@@ -85,11 +86,18 @@ export class AnunciosController {
   // TRACKING
   // -----------------------------------------------------------------------
 
+  /**
+   * JLP-M13 — El tracking es intencionalmente público (se activa desde el feed
+   * sin requerir sesión) pero se limita a 20 req/min por IP para impedir
+   * inflado artificial de métricas de manera coordinada.
+   */
+  @Throttle({ default: { limit: 20, ttl: 60 } })
   @Post(':id/impression')
   impression(@Param('id', ParseIntPipe) id: number) {
     return this.anunciosService.impression(id);
   }
 
+  @Throttle({ default: { limit: 20, ttl: 60 } })
   @Post(':id/click')
   click(@Param('id', ParseIntPipe) id: number) {
     return this.anunciosService.click(id);
@@ -157,6 +165,7 @@ export class AnunciosController {
     return this.anunciosService.updateStatus(id, dto, this.requester(req));
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60 } })
   @Post(':id/track')
   track(
     @Param('id', ParseIntPipe) id: number,

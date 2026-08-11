@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -109,7 +110,26 @@ export class SupportService {
 
   // ─── Listar tickets de un negocio ───────────────────────────────────────────
 
-  async listarPorNegocio(negocioId: number) {
+  /**
+   * JLP-C11 — Ownership check: el negocio debe pertenecer al suscriptor
+   * autenticado (o ser admin) antes de exponer la lista de tickets.
+   */
+  async listarPorNegocio(negocioId: number, sub: number, isAdmin: boolean) {
+    if (!isAdmin) {
+      const negocio = await this.negocioRepo.findOne({
+        where: { id: negocioId, eliminado: false },
+        relations: { suscriptor: true },
+      });
+
+      if (!negocio) {
+        throw new NotFoundException(`El negocio con id ${negocioId} no existe`);
+      }
+
+      if (Number(negocio.suscriptor.id) !== sub) {
+        throw new ForbiddenException('No tienes acceso a los tickets de este negocio.');
+      }
+    }
+
     const tickets = await this.ticketRepo.find({
       where: { negocioId },
       order: { createdAt: 'DESC' },
@@ -128,11 +148,21 @@ export class SupportService {
 
   // ─── Detalle de un ticket por folio ─────────────────────────────────────────
 
-  async obtenerPorFolio(folio: string) {
+  /**
+   * JLP-C11 — Ownership check:
+   *   - Si el ticket tiene usuarioId (solicitud_negocio), solo ese usuario o admin.
+   *   - Si no tiene usuarioId (reporte_bug anónimo), cualquier usuario autenticado
+   *     puede acceder con el folio — el folio CSPRNG actúa como bearer token.
+   */
+  async obtenerPorFolio(folio: string, sub: number, isAdmin: boolean) {
     const ticket = await this.ticketRepo.findOne({ where: { folio } });
 
     if (!ticket) {
       throw new NotFoundException(`No se encontró el ticket con folio ${folio}`);
+    }
+
+    if (!isAdmin && ticket.usuarioId !== null && Number(ticket.usuarioId) !== sub) {
+      throw new ForbiddenException('No tienes acceso a este ticket.');
     }
 
     return {
