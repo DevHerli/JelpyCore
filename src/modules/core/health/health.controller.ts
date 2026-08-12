@@ -1,4 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { AdminGuard } from '../../../common/guards/admin.guard';
 import { HealthService } from './health.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -30,8 +31,14 @@ export class HealthController {
     };
   }
 
-  //Health extendido
+  /**
+   * JLP-H17 — Health extendido: expone nombres de tablas de la BD, versión y
+   * uptime. Restringido a administradores para evitar reconocimiento del esquema
+   * por parte de atacantes.
+   * El endpoint básico GET /health permanece público (requerido por Render/uptime).
+   */
   @Get('deep')
+  @UseGuards(AdminGuard)
   async deepCheck() {
     const dbStatus = await this.healthService.checkTables();
     const info = this.healthService.getStatusInfo();

@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -9,9 +11,8 @@ import {
   Put,
   Req,
   UploadedFile,
-  UseInterceptors,
   UseGuards,
-  BadRequestException,
+  UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -54,18 +55,28 @@ export class NegociosController {
    * GET /negocios/:id/membresia
    * Estado del plan de un negocio. Consumido por la app para desbloquear funciones.
    * Requiere JWT — solo el dueño o un admin puede ver el estado de su plan.
+   *
+   * JLP-C16 — La respuesta incluye `gestionUrl` (URL del portal de Stripe para
+   * gestionar la suscripción), que es un enlace con acceso directo a los datos
+   * de facturación. Se añade un ownership check explícito para impedir que un
+   * usuario autenticado consulte el plan (y el portal de Stripe) de un negocio ajeno.
    */
   @Get(':id/membresia')
   @UseGuards(JwtAuthGuard)
-  getPlanMembresia(
+  async getPlanMembresia(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: any,
   ) {
-    // Verificar propiedad (o admin) antes de exponer estado del plan
+    const sub     = Number(req.user?.sub);
     const isAdmin = req.user?.role === 'admin';
-    // La verificación completa (dueño del negocio) ocurre implícitamente:
-    // si el negocio no pertenece al suscriptor, la app recibirá datos públicos
-    // (plan Free), nunca datos sensibles de facturación.
+
+    if (!isAdmin) {
+      const negocio = await this.negociosService.obtenerPorId(id);
+      if (Number(negocio?.suscriptor?.id) !== sub) {
+        throw new ForbiddenException('No tienes acceso al plan de este negocio.');
+      }
+    }
+
     return this.billingService.getPlanStatus(id);
   }
 
