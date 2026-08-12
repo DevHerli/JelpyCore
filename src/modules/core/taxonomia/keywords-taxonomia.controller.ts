@@ -40,12 +40,12 @@ import {
       return this.keywordsService.findAll();
     }
   
-    @Get(':id')
-    @ApiOperation({ summary: 'Obtener keyword por ID' })
-    findOne(@Param('id', ParseIntPipe) id: number) {
-      return this.keywordsService.findOne(id);
-    }
-  
+    /**
+     * JLP-B15 — Bug de orden de rutas: GET /:id estaba declarado ANTES que
+     * GET /buscar, por lo que NestJS capturaba /buscar como id='buscar' y
+     * ParseIntPipe lanzaba 400 antes de llegar al handler correcto.
+     * Fix: /buscar siempre debe ir ANTES de /:id.
+     */
     @Get('buscar')
     @ApiOperation({ summary: 'Buscar por tipo y referencia' })
     findByReferencia(
@@ -53,6 +53,12 @@ import {
       @Query('referenciaId', ParseIntPipe) referenciaId: number,
     ) {
       return this.keywordsService.findByReferencia(tipo, referenciaId);
+    }
+
+    @Get(':id')
+    @ApiOperation({ summary: 'Obtener keyword por ID' })
+    findOne(@Param('id', ParseIntPipe) id: number) {
+      return this.keywordsService.findOne(id);
     }
   
     @Patch(':id')

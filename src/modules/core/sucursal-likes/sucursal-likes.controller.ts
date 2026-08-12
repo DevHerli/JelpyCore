@@ -55,30 +55,42 @@ export class SucursalLikesController {
     };
   }
 
-
   // ============================================================
-// CHECK LIKE
-// ============================================================
-@Get('check')
-async check(
-  @Query('usuarioId') usuarioId: number,
-  @Query('sucursalId') sucursalId: number,
-) {
-  if (!usuarioId || !sucursalId) {
-    throw new BadRequestException('usuarioId y sucursalId son obligatorios');
+  // CHECK LIKE
+  // ============================================================
+
+  /**
+   * JLP-C14 — IDOR corregido: antes el `usuarioId` venía como query param
+   * (cualquier atacante podía consultar el historial de likes de cualquier usuario).
+   * Ahora se deriva del token JWT — el caller solo puede consultar su propio estado.
+   *
+   * GET /likes/check?sucursalId=42
+   * Requiere: Authorization: Bearer <token>
+   * Response: { liked: boolean, totalLikes: number }
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('check')
+  async check(
+    @Query('sucursalId') sucursalId: number,
+    @Req() req: any,
+  ) {
+    if (!sucursalId) {
+      throw new BadRequestException('sucursalId es obligatorio');
+    }
+
+    // La identidad viene del token — nunca del query param.
+    const usuarioId = Number(req.user?.sub);
+
+    const liked = await this.likesService.usuarioHaDadoLike(
+      usuarioId,
+      Number(sucursalId),
+    );
+
+    const totalLikes = await this.likesService.contar(Number(sucursalId));
+
+    return {
+      liked,
+      totalLikes,
+    };
   }
-
-  const liked = await this.likesService.usuarioHaDadoLike(
-    Number(usuarioId),
-    Number(sucursalId),
-  );
-
-  const totalLikes = await this.likesService.contar(Number(sucursalId));
-
-  return {
-    liked,
-    totalLikes,
-  };
-}
-
 }
