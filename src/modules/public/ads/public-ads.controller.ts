@@ -1,4 +1,5 @@
 import { BadRequestException, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AnunciosService } from '../../business/anuncios/anuncios.service';
 
 /**
@@ -34,13 +35,17 @@ export class PublicAdsController {
     return this.anunciosService.getPlacementsPermitidos(negocioId);
   }
 
-  /** Registrar impresión */
+  /**
+   * JLP-M13 (alias público) — mismo rate limit que en /ads/:id/impression.
+   * El tracking es público por diseño pero se acota a 20 req/min por IP.
+   */
+  @Throttle({ default: { limit: 20, ttl: 60 } })
   @Post(':id/impression')
   impression(@Param('id', ParseIntPipe) id: number) {
     return this.anunciosService.impression(id);
   }
 
-  /** Registrar clic */
+  @Throttle({ default: { limit: 20, ttl: 60 } })
   @Post(':id/click')
   click(@Param('id', ParseIntPipe) id: number) {
     return this.anunciosService.click(id);
