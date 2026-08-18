@@ -66,6 +66,11 @@ import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
+    // GuardsModule PRIMERO: es @Global() y provee SuscriptorRepository a AdminGuard
+    // y JwtAuthGuard. Debe inicializarse antes que cualquier módulo que use esos guards.
+    GuardsModule,
+    CloudinaryModule,
+
     SuscriptoresModule,
     CiudadesModule,
     EspecialidadesModule,
@@ -114,12 +119,6 @@ import { BillingModule } from './modules/billing/billing.module';
     DataRetentionModule,
     LegalModule,
     BillingModule,
-
-    // Guards globales (JwtAuthGuard + ApiKeyGuard disponibles en toda la app)
-    GuardsModule,
-
-    // Cloudinary global (CloudinaryService disponible en toda la app)
-    CloudinaryModule,
 
     // Módulos de configuración y utilidades
     ScheduleModule.forRoot(),
