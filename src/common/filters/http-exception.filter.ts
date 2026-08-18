@@ -98,8 +98,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     // 5xx → log con stack completo; 4xx → warning ligero
     if (status >= 500) {
+      // Para errores de TypeORM/MySQL el driverError contiene el errno y sqlMessage
+      // reales (ej: ER_NO_SUCH_TABLE 1146), que de otro modo quedan enterrados en el stack.
+      const dbInfo = (exception as any)?.driverError
+        ? ` | DB errno=${(exception as any).driverError.errno} sqlMessage="${(exception as any).driverError.sqlMessage}"`
+        : '';
+
       this.logger.error(
-        `[${status}] ${request.method} ${request.url}`,
+        `[${status}] ${request.method} ${request.url}${dbInfo}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     } else {
