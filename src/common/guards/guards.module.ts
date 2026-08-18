@@ -1,7 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { Suscriptor } from '../../modules/business/suscriptores/entities/suscriptores.entity';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ApiKeyGuard } from './api-key.guard';
 import { AdminGuard } from './admin.guard';
@@ -15,13 +13,15 @@ import { AdminGuard } from './admin.guard';
  *  - JwtAuthGuard  → valida Bearer JWT (suscriptores / app móvil)
  *  - ApiKeyGuard   → valida X-API-Key (comunicación inter-backend)
  *  - AdminGuard    → JWT + verifica role='admin' en BD
+ *
+ * Nota: NO se importa TypeOrmModule.forFeature([Suscriptor]) aquí
+ * porque ambos guards usan DataSource (global) en lugar de
+ * @InjectRepository, evitando UnknownDependenciesException en los
+ * módulos consumidores.
  */
 @Global()
 @Module({
-  imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([Suscriptor]),
-  ],
+  imports: [ConfigModule],
   providers: [JwtAuthGuard, ApiKeyGuard, AdminGuard],
   exports: [JwtAuthGuard, ApiKeyGuard, AdminGuard],
 })

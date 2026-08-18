@@ -6,8 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import * as jwt from 'jsonwebtoken';
 import { Suscriptor } from '../../modules/business/suscriptores/entities/suscriptores.entity';
 
@@ -15,13 +14,16 @@ import { Suscriptor } from '../../modules/business/suscriptores/entities/suscrip
  * Guard de rol admin: verifica el JWT y consulta la BD para confirmar
  * que el suscriptor tiene role = 'admin'. Se hace lookup en BD (no en
  * el claim del token) para evitar datos stale.
+ *
+ * Usa DataSource (registrado globalmente por TypeOrmModule.forRootAsync)
+ * en lugar de @InjectRepository para evitar UnknownDependenciesException
+ * en módulos que no importan TypeOrmModule.forFeature([Suscriptor]).
  */
 @Injectable()
 export class AdminGuard implements CanActivate {
   constructor(
     private readonly config: ConfigService,
-    @InjectRepository(Suscriptor)
-    private readonly suscriptorRepo: Repository<Suscriptor>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -42,10 +44,12 @@ export class AdminGuard implements CanActivate {
       throw new UnauthorizedException('Token inválido o expirado');
     }
 
-    const suscriptor = await this.suscriptorRepo.findOne({
-      where: { id: decoded.sub, eliminado: false },
-      select: { id: true, role: true } as any,
-    });
+    const suscriptor = await this.dataSource
+      .getRepository(Suscriptor)
+      .findOne({
+        where: { id: decoded.sub, eliminado: false },
+        select: { id: true, role: true } as any,
+      });
 
     if (!suscriptor) {
       throw new UnauthorizedException('Usuario no encontrado');
