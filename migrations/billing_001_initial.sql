@@ -7,16 +7,21 @@
 -- ============================================================
 -- Ejecutar en orden. Idempotente: usa IF NOT EXISTS / IF EXISTS.
 
--- ── 1. membresías: mapeo con Stripe Price ──────────────────────────────────
-ALTER TABLE membresías
+-- ── 1. membresias: mapeo con Stripe Price ──────────────────────────────────
+-- NOTA: el nombre real de la tabla es `membresias` SIN acento (ver
+-- @Entity('membresias') en membresia.entity.ts). Una versión previa de esta
+-- migración usaba `membresías` con acento y fallaba con ER_NO_SUCH_TABLE,
+-- dejando la columna sin crear y provocando ER_BAD_FIELD_ERROR (1054)
+-- "Unknown column 'Suscriptor__membresia.stripe_price_id'" en runtime.
+ALTER TABLE membresias
   ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(100) NULL
     COMMENT 'ID del Price recurrente mensual en Stripe (price_xxx). NULL = plan Free.'
   AFTER anuncios_ilimitados;
 
 -- NOTA: Configurar stripe_price_id manualmente tras crear los Products en Stripe:
---   UPDATE membresías SET stripe_price_id = 'price_xxx' WHERE nombre = 'Delux';
---   UPDATE membresías SET stripe_price_id = 'price_yyy' WHERE nombre = 'Premium';
---   UPDATE membresías SET stripe_price_id = 'price_zzz' WHERE nombre = 'Empresarial';
+--   UPDATE membresias SET stripe_price_id = 'price_xxx' WHERE nombre = 'Delux';
+--   UPDATE membresias SET stripe_price_id = 'price_yyy' WHERE nombre = 'Premium';
+--   UPDATE membresias SET stripe_price_id = 'price_zzz' WHERE nombre = 'Empresarial';
 
 
 -- ── 2. billing_subscriptions: estado de facturación por negocio ───────────
@@ -54,7 +59,7 @@ CREATE TABLE IF NOT EXISTS billing_subscriptions (
   CONSTRAINT fk_bs_suscriptor
     FOREIGN KEY (suscriptor_id) REFERENCES suscriptores(id) ON DELETE CASCADE,
   CONSTRAINT fk_bs_membresia
-    FOREIGN KEY (membresia_id)  REFERENCES membresías(id)  ON DELETE RESTRICT
+    FOREIGN KEY (membresia_id)  REFERENCES membresias(id)  ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='Estado de la suscripción de Stripe por negocio';
 
@@ -96,9 +101,9 @@ WHERE TABLE_NAME = 'stripe_processed_events'
 UNION ALL
 
 SELECT
-  'membresías.stripe_price_id' AS tabla,
+  'membresias.stripe_price_id' AS tabla,
   COUNT(*)                     AS columnas
 FROM information_schema.COLUMNS
-WHERE TABLE_NAME   = 'membresías'
+WHERE TABLE_NAME   = 'membresias'
   AND COLUMN_NAME  = 'stripe_price_id'
   AND TABLE_SCHEMA = DATABASE();
