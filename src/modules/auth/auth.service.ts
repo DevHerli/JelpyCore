@@ -25,6 +25,8 @@ import { CheckOtpEmailDto } from './dtos/check-otp-email.dto';
 // servicio de correo
 import { MailService } from '../../common/mail/mail.service';
 
+import { ESTADOS_SUSCRIPTOR } from '../../common/constants/estados.constants';
+
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -231,6 +233,11 @@ export class AuthService {
       telefonoCelular: datos.telefonoCelular,
       aceptoTerminos: datos.aceptoTerminos,
       ciudad: { id: datos.ciudadId } as any,
+      // Este alta (registro por OTP desde la app) nunca asignaba estado, por lo
+      // que el suscriptor nacía con `estado_id` en NULL. Es el origen de los
+      // registros 11, 12 y 13 de producción, que podían iniciar sesión pero no
+      // tenían status. Se fija Activo del lado del servidor.
+      estado: { id: ESTADOS_SUSCRIPTOR.ACTIVO } as any,
       registroCompleto: false,
       tieneNegocios: false,
     });
@@ -288,6 +295,9 @@ export class AuthService {
           telefonoCelular: dto.phoneNumber,
           registroCompleto: false,
           ciudad: { id: 1 } as any,
+          // Tercer camino de alta (login por OTP que crea la cuenta al vuelo).
+          // También nacía sin estado; se fija Activo para no reintroducir NULLs.
+          estado: { id: ESTADOS_SUSCRIPTOR.ACTIVO } as any,
         }),
       );
     }

@@ -16,6 +16,22 @@ import { UpdatePermisosDto } from './dto/update-permisos.dto';
 import * as bcrypt from 'bcryptjs';
 import { Membresia } from '../membresias/entities/membresia.entity';
 import { JwtService } from '@nestjs/jwt';
+import { ESTADOS_SUSCRIPTOR } from '../../../common/constants/estados.constants';
+
+/**
+ * Estado por defecto de un suscriptor recién creado → `estados.id = 1` ("Activo").
+ *
+ * Antes el alta hacía  `dto.estadoId ? { id: dto.estadoId } : null`, es decir,
+ * delegaba el status en el cliente. Si la app no mandaba `estadoId` (que es lo
+ * que ocurre en el registro móvil), el suscriptor quedaba con `estado_id NULL`.
+ * En producción los ids 11, 12 y 13 entraron así: NULL a pesar de tener login.
+ *
+ * Hoy no rompe nada porque ningún guard lee esta columna (usan `eliminado` y
+ * `role`), pero en cuanto exista un `WHERE estado_id = 1` en un reporte o en un
+ * filtro, esos usuarios se vuelven invisibles. El default va del lado del
+ * servidor precisamente para que no dependa de lo que mande —u omita— el cliente.
+ */
+const ESTADO_ACTIVO_ID = ESTADOS_SUSCRIPTOR.ACTIVO;
 
 @Injectable()
 export class SuscriptoresService {
@@ -80,7 +96,8 @@ export class SuscriptoresService {
       registroCompleto: false,
       tieneNegocios: false,
       ciudad: { id: dto.ciudadId } as any,
-      estado: dto.estadoId ? ({ id: dto.estadoId } as any) : null,
+      // Default server-side: si el cliente no manda estadoId, queda Activo.
+      estado: { id: dto.estadoId ?? ESTADO_ACTIVO_ID } as any,
     });
 
     const guardado = await this.suscriptorRepo.save(nuevo);
@@ -136,7 +153,12 @@ export class SuscriptoresService {
     Object.assign(suscriptor, {
       ...rest,
       ciudad: ciudadId ? ({ id: ciudadId } as any) : suscriptor.ciudad,
-      estado: estadoId ? ({ id: estadoId } as any) : suscriptor.estado,
+      // Se respeta el estadoId explícito; si no viene, se conserva el actual.
+      // El `?? ESTADO_ACTIVO_ID` sanea de paso las filas históricas que quedaron
+      // en NULL: al editarlas dejan de estar sin status.
+      estado: estadoId
+        ? ({ id: estadoId } as any)
+        : (suscriptor.estado ?? ({ id: ESTADO_ACTIVO_ID } as any)),
     });
 
     await this.suscriptorRepo.save(suscriptor);
@@ -163,6 +185,13 @@ export class SuscriptoresService {
     }
 
     suscriptor.registroCompleto = true;
+
+    // Red de seguridad: quien completa el registro está activo por definición.
+    // Cubre a los suscriptores creados antes del default en `crear()`.
+    if (!suscriptor.estado) {
+      suscriptor.estado = { id: ESTADO_ACTIVO_ID } as any;
+    }
+
     await this.suscriptorRepo.save(suscriptor);
 
     return {
