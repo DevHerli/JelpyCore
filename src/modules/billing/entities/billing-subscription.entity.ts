@@ -35,18 +35,22 @@ export class BillingSubscription {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
+  // Las tres relaciones llevan nullable:false porque sus columnas son NOT NULL.
+  // Son lo que ata un cobro de Stripe a quién paga, por qué negocio y bajo qué
+  // plan; sin cualquiera de las tres el registro no sirve para conciliar.
+
   /** Negocio al que aplica este plan. */
-  @ManyToOne(() => Negocio, { onDelete: 'CASCADE', eager: false })
+  @ManyToOne(() => Negocio, { nullable: false, onDelete: 'CASCADE', eager: false })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
 
   /** Suscriptor dueño del negocio (denormalizado para queries rápidos). */
-  @ManyToOne(() => Suscriptor, { onDelete: 'CASCADE', eager: false })
+  @ManyToOne(() => Suscriptor, { nullable: false, onDelete: 'CASCADE', eager: false })
   @JoinColumn({ name: 'suscriptor_id' })
   suscriptor: Suscriptor;
 
   /** Membresía/plan activo (Delux, Premium, Empresarial). */
-  @ManyToOne(() => Membresia, { eager: true })
+  @ManyToOne(() => Membresia, { eager: true, nullable: false })
   @JoinColumn({ name: 'membresia_id' })
   membresia: Membresia;
 

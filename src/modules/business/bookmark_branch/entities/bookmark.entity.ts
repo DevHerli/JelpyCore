@@ -16,11 +16,14 @@ export class Bookmark {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => Suscriptor, { onDelete: 'CASCADE' })
+  // nullable:false — ambas son NOT NULL y además forman el UNIQUE de la tabla.
+  // Si TypeORM las cree opcionales, un NULL rompe la unicidad (en SQL NULL no
+  // colisiona con NULL) y se pueden colar favoritos duplicados.
+  @ManyToOne(() => Suscriptor, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'suscriptor_id' })
   suscriptor: Suscriptor;
 
-  @ManyToOne(() => SucursalNegocio, { onDelete: 'CASCADE' })
+  @ManyToOne(() => SucursalNegocio, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sucursal_id' })
   sucursal: SucursalNegocio;
 

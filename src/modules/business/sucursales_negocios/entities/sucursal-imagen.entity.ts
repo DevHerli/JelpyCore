@@ -18,8 +18,13 @@ export class SucursalImagen {
   @Column({ name: 'fecha_registro', type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   fechaRegistro: Date;
 
-  // Relación Muchos a Uno: Muchas imágenes pertenecen a una sucursal
-  @ManyToOne(() => SucursalNegocio, (sucursal) => sucursal.imagenes, { onDelete: 'CASCADE' })
+  // Relación Muchos a Uno: Muchas imágenes pertenecen a una sucursal.
+  // nullable:false — `sucursal_id` es NOT NULL; una imagen sin sucursal no
+  // tiene dónde mostrarse.
+  @ManyToOne(() => SucursalNegocio, (sucursal) => sucursal.imagenes, {
+    nullable: false,
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'sucursal_id' })
   sucursal: SucursalNegocio;
 

@@ -16,11 +16,13 @@ export class SucursalReview {
   id: number;
 
   // ---------- RELACIONES ----------
-  @ManyToOne(() => SucursalNegocio, (s) => s.reseñas, { onDelete: 'CASCADE' })
+  // nullable:false — `sucursal_id` y `suscriptor_id` son NOT NULL. Una reseña
+  // sin sucursal o sin autor no se puede atribuir ni moderar.
+  @ManyToOne(() => SucursalNegocio, (s) => s.reseñas, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sucursal_id' })
   sucursal: SucursalNegocio;
 
-  @ManyToOne(() => Suscriptor, { eager: true, onDelete: 'CASCADE' })
+  @ManyToOne(() => Suscriptor, { eager: true, nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'suscriptor_id' })
   suscriptor: Suscriptor;
 

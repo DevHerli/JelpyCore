@@ -12,7 +12,8 @@ export class HorarioSucursal {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => SucursalNegocio, { onDelete: 'CASCADE' })
+  // nullable:false — `sucursal_id` es NOT NULL; un horario huérfano no existe.
+  @ManyToOne(() => SucursalNegocio, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sucursal_id' })
   sucursal: SucursalNegocio;
 

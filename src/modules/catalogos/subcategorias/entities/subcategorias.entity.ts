@@ -16,8 +16,10 @@ export class Subcategoria {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
+  // nullable:false — `categoria_id` es NOT NULL en la base.
   @ManyToOne(() => Categoria, (categoria) => categoria.subcategorias, {
     eager: true,
+    nullable: false,
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   })

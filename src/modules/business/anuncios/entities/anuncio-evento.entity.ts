@@ -17,7 +17,9 @@ export class AnuncioEvento {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Anuncio, { onDelete: 'CASCADE' })
+  // nullable:false — `anuncio_id` es NOT NULL: un evento mide un anuncio
+  // concreto. (`suscriptor_id` sí es opcional: un anónimo también puede verlo.)
+  @ManyToOne(() => Anuncio, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'anuncio_id' })
   anuncio: Anuncio;
 

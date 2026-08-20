@@ -21,7 +21,10 @@ export class SucursalNegocio {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Negocio, { onDelete: 'CASCADE' })
+  // nullable:false en negocio, ciudad y estado: las tres columnas son NOT NULL
+  // en la base. Una sucursal sin negocio, sin ciudad o sin estado no se puede
+  // ubicar ni mostrar en el mapa.
+  @ManyToOne(() => Negocio, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
 
@@ -61,11 +64,11 @@ export class SucursalNegocio {
   @Column({ name: 'codigo_postal', length: 10 })
   codigoPostal: string;
 
-  @ManyToOne(() => Ciudad, { eager: true })
+  @ManyToOne(() => Ciudad, { eager: true, nullable: false })
   @JoinColumn({ name: 'ciudad_id' })
   ciudad: Ciudad;
 
-  @ManyToOne(() => Estado, { eager: true })
+  @ManyToOne(() => Estado, { eager: true, nullable: false })
   @JoinColumn({ name: 'estado_id' })
   estado: Estado;
 

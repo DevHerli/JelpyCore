@@ -14,8 +14,12 @@ export class Especialidad {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
+  // nullable:false — la columna `subcategoria_id` es NOT NULL en la base.
+  // Sin esto TypeORM la asume opcional y una especialidad sin subcategoría
+  // sólo falla al llegar al INSERT (ER_NO_DEFAULT_FOR_FIELD 1364).
   @ManyToOne(() => Subcategoria, (subcategoria) => subcategoria.especialidades, {
     eager: true,
+    nullable: false,
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   })

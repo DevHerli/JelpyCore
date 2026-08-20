@@ -26,11 +26,13 @@ export class SuscriptorSuscripcion {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Suscriptor, { onDelete: 'CASCADE', eager: false })
+  // nullable:false — ambas columnas son NOT NULL. Una suscripción sin titular
+  // o sin plan no se puede cobrar ni renovar.
+  @ManyToOne(() => Suscriptor, { nullable: false, onDelete: 'CASCADE', eager: false })
   @JoinColumn({ name: 'suscriptor_id' })
   suscriptor: Suscriptor;
 
-  @ManyToOne(() => Membresia, { eager: true })
+  @ManyToOne(() => Membresia, { eager: true, nullable: false })
   @JoinColumn({ name: 'membresia_id' })
   membresia: Membresia;
 

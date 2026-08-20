@@ -18,7 +18,9 @@ export class MembresiaCuotas {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Membresia, { onDelete: 'CASCADE', eager: true })
+  // nullable:false — `membresia_id` es NOT NULL y además UNIQUE: las cuotas
+  // son la configuración de un plan concreto.
+  @ManyToOne(() => Membresia, { nullable: false, onDelete: 'CASCADE', eager: true })
   @JoinColumn({ name: 'membresia_id' })
   membresia: Membresia;
 

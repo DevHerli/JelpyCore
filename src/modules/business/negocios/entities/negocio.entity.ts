@@ -20,7 +20,11 @@ export class Negocio {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Suscriptor, { onDelete: 'CASCADE' })
+  // nullable:false en suscriptor, ciudad y categoria: esas tres columnas son
+  // NOT NULL en la base. TypeORM da por opcional toda @ManyToOne que no lo
+  // declare, así que sin esto un negocio sin dueño pasa la capa de la entity
+  // y sólo revienta al llegar al INSERT (ER_NO_DEFAULT_FOR_FIELD 1364).
+  @ManyToOne(() => Suscriptor, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'suscriptor_id' })
   suscriptor: Suscriptor;
 
@@ -33,11 +37,11 @@ export class Negocio {
   @Column({ name: 'logo_url', length: 255, nullable: true })
   logoUrl?: string;
 
-  @ManyToOne(() => Ciudad, { eager: true })
+  @ManyToOne(() => Ciudad, { eager: true, nullable: false })
   @JoinColumn({ name: 'ciudad_id' })
   ciudad: Ciudad;
 
-  @ManyToOne(() => Categoria)
+  @ManyToOne(() => Categoria, { nullable: false })
   @JoinColumn({ name: 'categoria_id' })
   categoria: Categoria;
 

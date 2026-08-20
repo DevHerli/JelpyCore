@@ -19,7 +19,9 @@ export class SuscripcionCiclo {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => SuscriptorSuscripcion, { onDelete: 'CASCADE', eager: false })
+  // nullable:false — `suscripcion_id` es NOT NULL; un ciclo mide el consumo de
+  // una suscripción concreta, sin ella no significa nada.
+  @ManyToOne(() => SuscriptorSuscripcion, { nullable: false, onDelete: 'CASCADE', eager: false })
   @JoinColumn({ name: 'suscripcion_id' })
   suscripcion: SuscriptorSuscripcion;
 

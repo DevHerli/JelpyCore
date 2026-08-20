@@ -15,7 +15,9 @@ export class VentaMembresia {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Suscriptor, { eager: true })
+  // nullable:false — `suscriptor_id` y `membresia_id` son NOT NULL: una venta
+  // sin comprador o sin plan vendido no se puede reportar.
+  @ManyToOne(() => Suscriptor, { eager: true, nullable: false })
   @JoinColumn({ name: 'suscriptor_id' })
   suscriptor: Suscriptor;
 
@@ -23,7 +25,7 @@ export class VentaMembresia {
   @JoinColumn({ name: 'negocio_id' })
   negocio?: Negocio;
 
-  @ManyToOne(() => Membresia, { eager: true })
+  @ManyToOne(() => Membresia, { eager: true, nullable: false })
   @JoinColumn({ name: 'membresia_id' })
   membresia: Membresia;
 

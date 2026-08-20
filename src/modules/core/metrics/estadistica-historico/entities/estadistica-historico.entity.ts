@@ -17,11 +17,13 @@ export class EstadisticaHistorico {
   @Column({ type: 'date' })
   fecha: string;
 
-  @ManyToOne(() => Negocio)
+  // nullable:false — `negocio_id` y `ciudad_id` son NOT NULL: el histórico se
+  // reporta siempre por negocio y por plaza.
+  @ManyToOne(() => Negocio, { nullable: false })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
 
-  @ManyToOne(() => Ciudad)
+  @ManyToOne(() => Ciudad, { nullable: false })
   @JoinColumn({ name: 'ciudad_id' })
   ciudad: Ciudad;
 

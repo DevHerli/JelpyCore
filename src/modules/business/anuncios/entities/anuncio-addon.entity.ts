@@ -8,7 +8,8 @@ export class AnuncioAddon {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Negocio, { onDelete: 'CASCADE' })
+  // nullable:false — `negocio_id` es NOT NULL: el addon se factura a un negocio.
+  @ManyToOne(() => Negocio, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
 

@@ -12,7 +12,10 @@ export class Anuncio {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => Negocio, { onDelete: 'CASCADE', eager: false })
+  // nullable:false — `negocio_id` es NOT NULL: todo anuncio se cobra y se
+  // limita por cuota contra un negocio. (`sucursal_id` sí es opcional: un
+  // anuncio puede ser de la marca completa, no de una sucursal.)
+  @ManyToOne(() => Negocio, { nullable: false, onDelete: 'CASCADE', eager: false })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
 

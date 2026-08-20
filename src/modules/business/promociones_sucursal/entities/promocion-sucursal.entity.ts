@@ -14,7 +14,9 @@ export class PromocionSucursal {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => SucursalNegocio, { onDelete: 'CASCADE' })
+  // nullable:false — `sucursal_id` es NOT NULL; una promoción se canjea en una
+  // sucursal concreta.
+  @ManyToOne(() => SucursalNegocio, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sucursal_id' })
   sucursal: SucursalNegocio;
 

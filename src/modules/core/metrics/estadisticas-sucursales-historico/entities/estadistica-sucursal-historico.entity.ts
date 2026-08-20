@@ -14,11 +14,13 @@ export class EstadisticaSucursalHistorico {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;
 
-  @ManyToOne(() => SucursalNegocio, { onDelete: 'CASCADE', eager: true })
+  // nullable:false — `sucursal_id` y `negocio_id` son NOT NULL: una fila de
+  // histórico sin sujeto no se puede agregar en ningún reporte.
+  @ManyToOne(() => SucursalNegocio, { nullable: false, onDelete: 'CASCADE', eager: true })
   @JoinColumn({ name: 'sucursal_id' })
   sucursal: SucursalNegocio;
 
-  @ManyToOne(() => Negocio, { onDelete: 'CASCADE', eager: true })
+  @ManyToOne(() => Negocio, { nullable: false, onDelete: 'CASCADE', eager: true })
   @JoinColumn({ name: 'negocio_id' })
   negocio: Negocio;
 

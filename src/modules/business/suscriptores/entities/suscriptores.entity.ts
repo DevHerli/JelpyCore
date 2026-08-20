@@ -34,7 +34,10 @@ reseñas: SucursalReview[];
   fechaNacimiento?: Date;
 
   // --- Relaciones ---
-  @ManyToOne(() => Ciudad, { eager: true })
+  // nullable:false — `ciudad_id` es NOT NULL en la base y todas las altas la
+  // exigen (SendOtpRegisterDto la valida con @IsNotEmpty). La app es local:
+  // sin ciudad no hay a qué plaza asignar al usuario.
+  @ManyToOne(() => Ciudad, { eager: true, nullable: false })
   @JoinColumn({ name: 'ciudad_id' })
   ciudad: Ciudad;
 
@@ -50,24 +53,30 @@ reseñas: SucursalReview[];
   @Column({ name: 'telefono_celular', length: 20, unique: true, nullable: true })
   telefonoCelular?: string | null;
 
+  // NULL (no cadena vacía) cuando el alta fue por teléfono + OTP: el usuario
+  // nunca dio correo. En un índice UNIQUE los NULL no colisionan entre sí, así
+  // que puede haber tantas cuentas sin correo como haga falta; con '' sólo
+  // cabría una. Ver migrations/data_004_suscriptores_login_telefono.sql.
   @Column({
     name: 'correo_electronico',
     length: 150,
     unique: true,
     nullable: true,
-    comment: 'Opcional pero recomendado para comunicación con el usuario',
+    comment: 'NULL = alta por teléfono, el usuario nunca dio correo.',
   })
-  correoElectronico?: string;
+  correoElectronico?: string | null;
 
   // --- Autenticación ---
   // select: false — nunca se incluye en SELECT por defecto; se lee sólo con QB + addSelect
+  // NULL = cuenta sin contraseña (entra sólo por OTP). auth.service ya corta
+  // con `if (!suscriptor.contrasena)` antes de llegar a bcrypt.compare.
   @Column({
     length: 255,
     nullable: true,
     select: false,
     comment: 'Hash bcrypt. select:false evita exposición accidental en cualquier find()',
   })
-  contrasena?: string;
+  contrasena?: string | null;
 
   @Column({
     name: 'refresh_token',

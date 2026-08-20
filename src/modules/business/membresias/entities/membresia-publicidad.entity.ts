@@ -12,7 +12,9 @@ export class MembresiaPublicidad {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => Membresia, { onDelete: 'CASCADE' })
+  // nullable:false — `membresia_id` es NOT NULL: esta fila es la configuración
+  // de publicidad de un plan concreto.
+  @ManyToOne(() => Membresia, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'membresia_id' })
   membresia: Membresia;
 
