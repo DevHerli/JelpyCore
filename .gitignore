@@ -56,3 +56,6 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .env
+
+# Copia local de la especificación de la API (no debe publicarse)
+.local/

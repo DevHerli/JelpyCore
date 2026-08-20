@@ -2,7 +2,6 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import { ValidationPipe, Logger } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as bodyParser from 'body-parser';
 import * as express from 'express';
 import { join } from 'path';
@@ -11,7 +10,21 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 export const serverStartedAt = new Date();
 
-const isProd = process.env.NODE_ENV === 'production';
+/**
+ * Detección de entorno con política fail-closed.
+ *
+ * Antes: `isProd = NODE_ENV === 'production'`. Si NODE_ENV no estaba definido
+ * (el caso real en Render), isProd quedaba en false y el servidor exponía
+ * Swagger en /docs y /docs-json públicamente: 237 rutas, 309 operaciones y
+ * 78 DTOs con nombres de parámetros y reglas de validación, sin autenticación.
+ *
+ * Ahora se invierte la carga de la prueba: solo los entornos locales conocidos
+ * se consideran no-producción. Cualquier otro valor —incluido NODE_ENV ausente
+ * o mal escrito— se trata como producción y por tanto se endurece.
+ */
+const LOCAL_ENVS = ['development', 'dev', 'local', 'test', 'qa'];
+const nodeEnv = (process.env.NODE_ENV ?? '').trim().toLowerCase();
+const isProd = !LOCAL_ENVS.includes(nodeEnv);
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -117,22 +130,23 @@ async function bootstrap() {
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
-  if (!isProd) {
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('Jelpy Core API')
-      .setDescription('Corazón de Jelpy: búsqueda semántica + datos')
-      .setVersion('0.1.0')
-      .addBearerAuth()
-      .build();
-
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
-
-    SwaggerModule.setup('docs', app, document, {
-      swaggerOptions: { persistAuthorization: true },
-    });
-
-    Logger.log('Swagger disponible en /docs', 'Bootstrap');
-  }
+  // ── Swagger: ELIMINADO ────────────────────────────────────────────────────
+  // La UI y el spec se servían en /docs y /docs-json SIN autenticación,
+  // exponiendo públicamente 237 rutas, 309 operaciones y 78 DTOs con nombres
+  // de parámetros y reglas de validación (reconocimiento gratis para un
+  // atacante). El bloque dependía de `NODE_ENV`, que en Render no está
+  // definido, por lo que quedaba activo en producción.
+  //
+  // Se elimina la ruta por completo en lugar de condicionarla: así no puede
+  // reactivarse por una variable de entorno mal configurada.
+  //
+  // Los decoradores @ApiOperation / @ApiProperty siguen en el código (18
+  // archivos) y son inertes: solo son metadata, nadie la lee si no se llama
+  // a SwaggerModule.createDocument().
+  //
+  // Copia local del spec (git-ignorada): .local/api-spec/openapi.json
+  // Para regenerarla, reinstaurar temporalmente el bloque en local.
+  // ──────────────────────────────────────────────────────────────────────────
 
   const port = process.env.PORT || 3001;
 
