@@ -143,7 +143,7 @@ export class BillingService {
       metadataRaw['negocio_data'] = serialized;
     }
 
-    const webUrl = this.config.get<string>('WEB_URL') ?? 'https://jelpy.mx';
+    const webUrl = this.config.get<string>('WEB_URL') ?? this.config.get<string>('FRONTEND_URL') ?? 'https://jelpy.mx';
 
     // ── Crear Checkout Session ──
     const session = await this.stripe.checkout.sessions.create({
@@ -176,9 +176,19 @@ export class BillingService {
    * Idempotente: si el evento ya fue procesado, devuelve 200 sin hacer nada.
    */
   async handleWebhookEvent(rawBody: Buffer, signature: string): Promise<void> {
-    const webhookSecret = this.config.get<string>('STRIPE_BILLING_WEBHOOK_SECRET');
+    // Se aceptan los dos nombres: la documentación de integración usa
+    // STRIPE_WEBHOOK_SECRET y el código original STRIPE_BILLING_WEBHOOK_SECRET.
+    // Si sólo se reconociera uno, configurar el otro dejaría el webhook muerto
+    // y los pagos no activarían nada (el cobro sí ocurre en Stripe).
+    const webhookSecret =
+      this.config.get<string>('STRIPE_BILLING_WEBHOOK_SECRET') ??
+      this.config.get<string>('STRIPE_WEBHOOK_SECRET');
+
     if (!webhookSecret) {
-      throw new Error('STRIPE_BILLING_WEBHOOK_SECRET no configurada');
+      throw new Error(
+        'Falta el secreto del webhook: define STRIPE_WEBHOOK_SECRET ' +
+          '(o STRIPE_BILLING_WEBHOOK_SECRET) con el valor whsec_... de Stripe.',
+      );
     }
 
     let event: Stripe.Event;
@@ -207,7 +217,17 @@ export class BillingService {
           await this.onCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
           break;
 
+        // Stripe emite AMBOS eventos al cobrar una factura. Se escuchan los dos
+        // porque el webhook del dashboard puede tener suscrito sólo uno; si
+        // fuera `invoice.payment_succeeded` (el que se suele elegir) y aquí
+        // sólo existiera `invoice.paid`, las RENOVACIONES se ignorarían en
+        // silencio y los planes vencerían pese a estar pagados.
+        //
+        // OJO: los dos eventos traen event.id distinto, así que la idempotencia
+        // por evento NO los deduplica. onInvoicePaid deduplica además por id de
+        // factura; sin eso se emitirían DOS CFDI por el mismo cobro.
         case 'invoice.paid':
+        case 'invoice.payment_succeeded':
           await this.onInvoicePaid(event.data.object as Stripe.Invoice);
           break;
 
@@ -262,7 +282,7 @@ export class BillingService {
       relations: ['membresia'],
     });
 
-    const webUrl   = this.config.get<string>('WEB_URL') ?? 'https://jelpy.mx';
+    const webUrl   = this.config.get<string>('WEB_URL') ?? this.config.get<string>('FRONTEND_URL') ?? 'https://jelpy.mx';
     const gestionUrl = `${webUrl}/cuenta`;
 
     if (!billing || billing.planEstatus === 'vencido') {
@@ -375,6 +395,27 @@ export class BillingService {
 
     if (!subId) return;
 
+    // ── Idempotencia a nivel FACTURA ──
+    // `invoice.paid` e `invoice.payment_succeeded` describen el mismo cobro con
+    // event.id distinto, así que ambos llegan hasta aquí. Se marca la factura
+    // como procesada usando la misma tabla (tiene índice único en
+    // stripe_event_id): el segundo evento choca contra el UNIQUE y se descarta.
+    // Sin esto se emitiría un CFDI duplicado por cada renovación.
+    const invoiceKey = `invoice:${invoice.id}`;
+    try {
+      await this.eventsRepo.insert(
+        this.eventsRepo.create({
+          stripeEventId: invoiceKey,
+          eventType:     'invoice.paid.dedupe',
+          status:        'success',
+        }),
+      );
+    } catch {
+      // Violación de UNIQUE → esta factura ya se procesó. Salir sin duplicar.
+      this.logger.debug(`[BILLING] Factura ya procesada, se omite: ${invoice.id}`);
+      return;
+    }
+
     // Extender vigencia al próximo periodo
     const sub = await this.stripe.subscriptions.retrieve(subId);
     const cpe = (sub as any).current_period_end ?? (sub as any).items?.data?.[0]?.current_period_end;
@@ -395,7 +436,14 @@ export class BillingService {
       ultimoMontoMxn:   montoMxn > 0 ? montoMxn : billing.ultimoMontoMxn,
     } as any);
 
-    this.logger.log(`[BILLING] Renovación OK: sub=${subId} vigente hasta ${periodEnd.toISOString().split('T')[0]}`);
+    // `periodEnd` es undefined si Stripe no devolvió current_period_end.
+    // Antes se llamaba periodEnd.toISOString() directo: eso lanzaba
+    // TypeError justo DESPUÉS de haber actualizado la BD, así que la
+    // renovación quedaba aplicada pero el evento se registraba como 'error'.
+    const vigencia = periodEnd
+      ? periodEnd.toISOString().split('T')[0]
+      : 'sin cambio';
+    this.logger.log(`[BILLING] Renovación OK: sub=${subId} vigente hasta ${vigencia}`);
 
     // CFDI en renovación
     if (montoMxn > 0 && billing) {
