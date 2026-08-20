@@ -120,27 +120,50 @@ export class EstadisticasService {
   async resumenGlobal(filtros?: { ciudadId?: number; fechaInicio?: string; fechaFin?: string }) {
     const { ciudadId, fechaInicio, fechaFin } = filtros || {};
 
-    // Filtros dinámicos
-    const filtroCiudadNegocios = ciudadId ? `AND n.ciudad_id = ${ciudadId}` : '';
-    const filtroCiudadSucursales = ciudadId ? `AND s.ciudad_id = ${ciudadId}` : '';
-    const filtroFecha = fechaInicio && fechaFin 
-      ? `AND DATE(e.fecha_registro) BETWEEN '${fechaInicio}' AND '${fechaFin}'` 
-      : '';
+    // JLP-SEC: fechaInicio/fechaFin llegaban del querystring y se
+    // concatenaban crudas en el SQL (`BETWEEN '${fechaInicio}' AND
+    // '${fechaFin}'`) — inyección SQL confirmada contra producción con una
+    // prueba inerte (comilla simple → error de sintaxis, errno 1064, sin
+    // extraer datos). Invisible hasta hoy porque este endpoint exige
+    // AdminGuard y no existía ningún admin en producción. ciudadId ya llegaba
+    // como Number() desde el controller y no era inyectable, pero se
+    // parametriza también por consistencia.
+    const filtroCiudadNegocios = ciudadId ? `AND n.ciudad_id = ?` : '';
+    const filtroCiudadSucursales = ciudadId ? `AND s.ciudad_id = ?` : '';
+    const paramsFecha = fechaInicio && fechaFin ? [fechaInicio, fechaFin] : [];
+    // Bug preexistente (independiente de la inyección): el filtro de fecha
+    // estaba hardcodeado a `e.fecha_registro`, pero cada query usa un alias
+    // distinto para su tabla de estadísticas (`e` en negociosMasBuscados,
+    // `ep` en promocionesMasVistas). Con el alias equivocado, CUALQUIER
+    // llamada con fecha_inicio+fecha_fin válidas —sin inyectar nada— tronaba
+    // con 1054 Unknown column. Nunca se detectó por la misma razón que las
+    // demás: sin admin en producción, nadie llegaba a probarlo. Se separa un
+    // filtro por alias real.
+    const filtroFechaNegocios = fechaInicio && fechaFin ? `AND DATE(e.fecha_registro) BETWEEN ? AND ?` : '';
+    const filtroFechaPromos = fechaInicio && fechaFin ? `AND DATE(ep.fecha_registro) BETWEEN ? AND ?` : '';
 
     // Totales generales (respetando filtros)
-    const totales = await this.connection.query(`
-      SELECT 
+    const totales = await this.connection.query(
+      `
+      SELECT
         (SELECT COUNT(*) FROM suscriptores WHERE eliminado = 0) AS totalSuscriptores,
         (SELECT COUNT(*) FROM negocios n WHERE eliminado = 0 ${filtroCiudadNegocios}) AS totalNegocios,
         (SELECT COUNT(*) FROM sucursales_negocios s WHERE eliminado = 0 ${filtroCiudadSucursales}) AS totalSucursales,
-        (SELECT COUNT(*) FROM promociones_sucursales p 
+        (SELECT COUNT(*) FROM promociones_sucursales p
             INNER JOIN sucursales_negocios s ON s.id = p.sucursal_id
             WHERE p.eliminado = 0 AND p.activa = 1 ${filtroCiudadSucursales}) AS totalPromociones
-    `);
+    `,
+      [
+        ...(ciudadId ? [ciudadId] : []),
+        ...(ciudadId ? [ciudadId] : []),
+        ...(ciudadId ? [ciudadId] : []),
+      ],
+    );
 
     // Negocios más buscados
-    const negociosMasBuscados = await this.connection.query(`
-      SELECT 
+    const negociosMasBuscados = await this.connection.query(
+      `
+      SELECT
         n.id,
         n.nombre_negocio,
         c.nombre AS categoria,
@@ -148,15 +171,18 @@ export class EstadisticasService {
       FROM negocios n
       LEFT JOIN estadisticas_negocios e ON e.negocio_id = n.id
       LEFT JOIN categorias c ON c.id = n.categoria_id
-      WHERE n.eliminado = 0 ${filtroCiudadNegocios} ${filtroFecha}
+      WHERE n.eliminado = 0 ${filtroCiudadNegocios} ${filtroFechaNegocios}
       GROUP BY n.id, n.nombre_negocio, c.nombre
       ORDER BY busquedas DESC
       LIMIT 5
-    `);
+    `,
+      [...(ciudadId ? [ciudadId] : []), ...paramsFecha],
+    );
 
     // Promociones más vistas
-    const promocionesMasVistas = await this.connection.query(`
-      SELECT 
+    const promocionesMasVistas = await this.connection.query(
+      `
+      SELECT
         p.id,
         p.titulo,
         s.nombre_sucursal AS sucursal,
@@ -166,15 +192,18 @@ export class EstadisticasService {
       LEFT JOIN estadisticas_promociones ep ON ep.promocion_id = p.id
       LEFT JOIN sucursales_negocios s ON p.sucursal_id = s.id
       LEFT JOIN negocios n ON s.negocio_id = n.id
-      WHERE p.eliminado = 0 ${filtroCiudadSucursales} ${filtroFecha}
+      WHERE p.eliminado = 0 ${filtroCiudadSucursales} ${filtroFechaPromos}
       GROUP BY p.id, p.titulo, s.nombre_sucursal, n.nombre_negocio
       ORDER BY vistas DESC
       LIMIT 5
-    `);
+    `,
+      [...(ciudadId ? [ciudadId] : []), ...paramsFecha],
+    );
 
     // Sucursales más activas
-    const sucursalesMasActivas = await this.connection.query(`
-      SELECT 
+    const sucursalesMasActivas = await this.connection.query(
+      `
+      SELECT
         s.id,
         s.nombre_sucursal,
         n.nombre_negocio,
@@ -187,19 +216,37 @@ export class EstadisticasService {
       GROUP BY s.id, s.nombre_sucursal, n.nombre_negocio
       ORDER BY totalPromociones DESC
       LIMIT 5
-    `);
+    `,
+      ciudadId ? [ciudadId] : [],
+    );
 
     // Métricas agrupadas por tipo de membresía
+    // JLP-SEC: `negocios` no tiene columna `membresia_id` — nunca la tuvo.
+    // Este JOIN tiraba ER_BAD_FIELD_ERROR (1054) desde siempre; era invisible
+    // porque este endpoint exige AdminGuard y, hasta data_005, no existía
+    // ningún admin en producción para llegar a probarlo.
+    //
+    // La membresía de un negocio NO se guarda en el negocio: se deriva del
+    // suscriptor dueño, vía su suscripción activa (igual que en
+    // suscripciones.service.ts / negocio.entity.ts). Existe también una tabla
+    // `membresias_negocios` (negocio_id, membresia_id, activa) que parecía la
+    // candidata obvia, pero se verificó contra producción que tiene 0 filas y
+    // ningún código la escribe (sólo la leen, en dos sitios) — es una tabla
+    // muerta, probablemente un intento de diseño abandonado. Usarla habría
+    // dejado el reporte corriendo sin error pero vacío para siempre. Se
+    // confirmó contra producción que el JOIN por suscripción sí trae datos
+    // reales (17 negocios en Cortesía, 1 en Deluxe).
     const resumenPorMembresia = await this.connection.query(`
-      SELECT 
+      SELECT
         m.id,
         m.nombre AS nombre_membresia,
-        COUNT(n.id) AS total_negocios,
+        COUNT(DISTINCT n.id) AS total_negocios,
         COALESCE(SUM(e.vistas), 0) AS vistas,
         COALESCE(SUM(e.clics), 0) AS clics,
         COALESCE(SUM(e.busquedas), 0) AS busquedas
       FROM membresias m
-      LEFT JOIN negocios n ON n.membresia_id = m.id AND n.eliminado = 0
+      LEFT JOIN suscriptor_suscripciones ss ON ss.membresia_id = m.id AND ss.estatus = 'activa'
+      LEFT JOIN negocios n ON n.suscriptor_id = ss.suscriptor_id AND n.eliminado = 0
       LEFT JOIN estadisticas_negocios e ON e.negocio_id = n.id
       GROUP BY m.id, m.nombre
       ORDER BY m.id ASC

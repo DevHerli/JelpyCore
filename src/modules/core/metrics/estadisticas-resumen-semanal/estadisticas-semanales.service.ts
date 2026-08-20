@@ -52,14 +52,26 @@ export class EstadisticasSemanalesService {
   }) {
     const { ciudadId, membresiaId, fechaInicio, fechaFin, limite = 5, tipo = 'vistas' } = filtros;
 
-    let where = `WHERE 1=1 `;
-    if (ciudadId) where += `AND eh.ciudad_id = ${ciudadId} `;
-    if (membresiaId) where += `AND eh.membresia_id = ${membresiaId} `;
-    if (fechaInicio && fechaFin)
-      where += `AND eh.fecha BETWEEN '${fechaInicio}' AND '${fechaFin}' `;
+    // JLP-SEC: antes las fechas se concatenaban crudas en el SQL
+    // (`fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'`), lo que permitía
+    // inyección SQL vía querystring. Probado con una comilla simple contra
+    // producción: rompía la sintaxis (errno 1064). ciudadId/membresiaId/limite
+    // ya llegan como Number() desde el controller y no eran inyectables, pero
+    // se parametrizan también por consistencia y para no depender de esa
+    // coerción previa como única defensa.
+    const where: string[] = ['1=1'];
+    const params: (string | number)[] = [];
+    if (ciudadId) { where.push('eh.ciudad_id = ?'); params.push(ciudadId); }
+    if (membresiaId) { where.push('eh.membresia_id = ?'); params.push(membresiaId); }
+    if (fechaInicio && fechaFin) {
+      where.push('eh.fecha BETWEEN ? AND ?');
+      params.push(fechaInicio, fechaFin);
+    }
+    const limiteSeguro = Number.isFinite(Number(limite)) ? Number(limite) : 5;
+    params.push(limiteSeguro);
 
     const query = `
-      SELECT 
+      SELECT
         n.id AS negocio_id,
         n.nombre_negocio,
         n.logo_url,
@@ -71,13 +83,13 @@ export class EstadisticasSemanalesService {
       INNER JOIN negocios n ON n.id = eh.negocio_id
       LEFT JOIN ciudades c ON c.id = eh.ciudad_id
       LEFT JOIN membresias m ON m.id = eh.membresia_id
-      ${where}
+      WHERE ${where.join(' AND ')}
       GROUP BY n.id, n.nombre_negocio, c.nombre, m.nombre
       ORDER BY ${tipo === 'clics' ? 'total_clics' : 'total_vistas'} DESC
-      LIMIT ${limite};
+      LIMIT ?;
     `;
 
-    return this.resumenRepo.query(query);
+    return this.resumenRepo.query(query, params);
   }
 
   async obtenerTopSucursales(filtros: {
@@ -90,14 +102,20 @@ export class EstadisticasSemanalesService {
   }) {
     const { negocioId, ciudadId, fechaInicio, fechaFin, tipo = 'vistas', limite = 5 } = filtros;
 
-    let where = `WHERE 1=1 `;
-    if (negocioId) where += `AND esh.negocio_id = ${negocioId} `;
-    if (ciudadId) where += `AND esh.ciudad_id = ${ciudadId} `;
-    if (fechaInicio && fechaFin)
-      where += `AND esh.fecha BETWEEN '${fechaInicio}' AND '${fechaFin}' `;
+    // JLP-SEC: mismo fix que obtenerTopNegocios — fechas parametrizadas.
+    const where: string[] = ['1=1'];
+    const params: (string | number)[] = [];
+    if (negocioId) { where.push('esh.negocio_id = ?'); params.push(negocioId); }
+    if (ciudadId) { where.push('esh.ciudad_id = ?'); params.push(ciudadId); }
+    if (fechaInicio && fechaFin) {
+      where.push('esh.fecha BETWEEN ? AND ?');
+      params.push(fechaInicio, fechaFin);
+    }
+    const limiteSeguro = Number.isFinite(Number(limite)) ? Number(limite) : 5;
+    params.push(limiteSeguro);
 
     const query = `
-      SELECT 
+      SELECT
         sn.id AS sucursal_id,
         sn.nombre_sucursal,
         sn.calle,
@@ -107,12 +125,12 @@ export class EstadisticasSemanalesService {
         SUM(esh.clics) AS total_clics
       FROM estadisticas_sucursales_historico esh
       INNER JOIN sucursales_negocios sn ON sn.id = esh.sucursal_id
-      ${where}
+      WHERE ${where.join(' AND ')}
       GROUP BY sn.id, sn.nombre_sucursal, sn.calle, sn.colonia, sn.codigo_postal
       ORDER BY ${tipo === 'clics' ? 'total_clics' : 'total_vistas'} DESC
-      LIMIT ${limite};
+      LIMIT ?;
     `;
 
-    return this.resumenRepo.query(query);
+    return this.resumenRepo.query(query, params);
   }
 }
