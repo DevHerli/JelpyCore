@@ -5,6 +5,57 @@ import { VentaMembresia } from './entities/ventas-membresia.entity';
 import { Membresia } from '../../business/membresias/entities/membresia.entity';
 import { CreateVentaMembresiaDto } from './dto/create-venta-membresia.dto';
 
+/**
+ * Construye el WHERE de los reportes con marcadores `?`, nunca concatenando
+ * los valores.
+ *
+ * ── POR QUÉ EXISTE ESTA FUNCIÓN ───────────────────────────────────────────
+ * Los cinco reportes de este servicio armaban el SQL así:
+ *
+ *   where += `AND v.fecha_compra BETWEEN '${fechaInicio}' AND '${fechaFin}' `;
+ *   where += `AND v.ciudad_id = ${ciudadId} `;
+ *
+ * `fechaInicio` y `fechaFin` llegan como string crudo desde la query string
+ * (@Query('fechaInicio') fechaInicio?: string) y se metían tal cual en la
+ * consulta: inyección SQL de manual. Basta con
+ *
+ *   GET /ventas/membresias/resumen?fechaInicio=1' OR '1'='1
+ *
+ * para alterar la consulta. `ciudadId` y `anio` van declarados como number,
+ * pero eso es sólo el tipo de TypeScript: en runtime un query param es string
+ * y no hay DTO que lo valide, así que tampoco protegían.
+ *
+ * Los endpoints están detrás de ApiKeyGuard, lo que reduce la exposición pero
+ * no la elimina: quien tenga la API key del panel de admin —o la filtre— podría
+ * leer o destruir cualquier tabla de la base.
+ */
+function construirFiltros(f: {
+  fechaInicio?: string;
+  fechaFin?: string;
+  ciudadId?: number;
+  anio?: number;
+}): { clausula: string; params: any[] } {
+  const condiciones: string[] = [`v.estatus = 'pagado'`];
+  const params: any[] = [];
+
+  if (f.anio != null && Number.isFinite(Number(f.anio))) {
+    condiciones.push('YEAR(v.fecha_compra) = ?');
+    params.push(Number(f.anio));
+  }
+
+  if (f.fechaInicio && f.fechaFin) {
+    condiciones.push('v.fecha_compra BETWEEN ? AND ?');
+    params.push(f.fechaInicio, f.fechaFin);
+  }
+
+  if (f.ciudadId != null && Number.isFinite(Number(f.ciudadId))) {
+    condiciones.push('v.ciudad_id = ?');
+    params.push(Number(f.ciudadId));
+  }
+
+  return { clausula: `WHERE ${condiciones.join(' AND ')} `, params };
+}
+
 @Injectable()
 export class VentasMembresiasService {
   constructor(
@@ -41,25 +92,22 @@ export class VentasMembresiasService {
   }
 
   async resumen(fechaInicio?: string, fechaFin?: string, ciudadId?: number) {
-    let where = `WHERE v.estatus = 'pagado' `;
-    if (fechaInicio && fechaFin)
-      where += `AND v.fecha_compra BETWEEN '${fechaInicio}' AND '${fechaFin}' `;
-    if (ciudadId)
-      where += `AND v.ciudad_id = ${ciudadId} `;
+    // JLP-SQLI — los filtros se pasan como parámetros, nunca interpolados.
+    const { clausula, params } = construirFiltros({ fechaInicio, fechaFin, ciudadId });
 
     const query = `
-      SELECT 
+      SELECT
         m.nombre AS membresia,
         COUNT(v.id) AS total_vendidas,
         SUM(v.monto) AS total_recaudado
       FROM ventas_membresias v
       INNER JOIN membresias m ON m.id = v.membresia_id
-      ${where}
+      ${clausula}
       GROUP BY m.nombre
       ORDER BY total_recaudado DESC;
     `;
 
-    return this.ventasRepo.query(query);
+    return this.ventasRepo.query(query, params);
   }
 
   async porSuscriptor(suscriptorId: number) {
@@ -80,12 +128,10 @@ export class VentasMembresiasService {
 
 // REPORTE POR CIUDAD Y MEMBRESÍA
 async reportePorCiudad(fechaInicio?: string, fechaFin?: string) {
-  let where = `WHERE v.estatus = 'pagado' `;
-  if (fechaInicio && fechaFin)
-    where += `AND v.fecha_compra BETWEEN '${fechaInicio}' AND '${fechaFin}' `;
+  const { clausula, params } = construirFiltros({ fechaInicio, fechaFin });
 
   const query = `
-    SELECT 
+    SELECT
       c.nombre AS ciudad,
       m.nombre AS membresia,
       COUNT(v.id) AS total_vendidas,
@@ -93,32 +139,31 @@ async reportePorCiudad(fechaInicio?: string, fechaFin?: string) {
     FROM ventas_membresias v
     LEFT JOIN ciudades c ON c.id = v.ciudad_id
     INNER JOIN membresias m ON m.id = v.membresia_id
-    ${where}
+    ${clausula}
     GROUP BY c.nombre, m.nombre
     ORDER BY c.nombre ASC, total_recaudado DESC;
   `;
 
-  return this.ventasRepo.query(query);
+  return this.ventasRepo.query(query, params);
 }
 
 // REPORTE DE VENTAS MENSUAL (POR AÑO Y CIUDAD OPCIONAL)
 async reporteMensual(anio?: number, ciudadId?: number) {
   const year = anio ?? new Date().getFullYear();
-  let where = `WHERE YEAR(v.fecha_compra) = ${year} AND v.estatus = 'pagado' `;
-  if (ciudadId) where += `AND v.ciudad_id = ${ciudadId} `;
+  const { clausula, params } = construirFiltros({ anio: year, ciudadId });
 
   const query = `
-    SELECT 
+    SELECT
       MONTH(v.fecha_compra) AS mes,
       COUNT(v.id) AS total_vendidas,
       SUM(v.monto) AS total_recaudado
     FROM ventas_membresias v
-    ${where}
+    ${clausula}
     GROUP BY MONTH(v.fecha_compra)
     ORDER BY mes ASC;
   `;
 
-  const resultados = await this.ventasRepo.query(query);
+  const resultados = await this.ventasRepo.query(query, params);
 
   // 🔹 Calcula crecimiento mes a mes
   const reporte = resultados.map((r, i) => {
@@ -150,21 +195,20 @@ private obtenerNombreMes(numero: number): string {
 
 // 🔹 REPORTE DE VENTAS ANUAL (COMPARATIVO)
 async reporteAnual(ciudadId?: number) {
-  let where = `WHERE v.estatus = 'pagado' `;
-  if (ciudadId) where += `AND v.ciudad_id = ${ciudadId} `;
+  const { clausula, params } = construirFiltros({ ciudadId });
 
   const query = `
-    SELECT 
+    SELECT
       YEAR(v.fecha_compra) AS anio,
       COUNT(v.id) AS total_vendidas,
       SUM(v.monto) AS total_recaudado
     FROM ventas_membresias v
-    ${where}
+    ${clausula}
     GROUP BY YEAR(v.fecha_compra)
     ORDER BY anio ASC;
   `;
 
-  const resultados = await this.ventasRepo.query(query);
+  const resultados = await this.ventasRepo.query(query, params);
 
   // 🔹 Calcular crecimiento año a año
   const reporte = resultados.map((r, i) => {
