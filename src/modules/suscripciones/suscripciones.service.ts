@@ -558,7 +558,7 @@ async consumirCuota(params: {
     // Importante: bloquea la fila para evitar inconsistencias si al mismo tiempo cambian plan.
     const susRepoTx = runner.manager.getRepository(SuscriptorSuscripcion);
 
-    const suscripcion = await susRepoTx
+    let suscripcion = await susRepoTx
       .createQueryBuilder('s')
       .setLock('pessimistic_write')
       .leftJoinAndSelect('s.membresia', 'm') // necesitamos membresia para anunciosIlimitados/anunciosMensuales
@@ -567,10 +567,19 @@ async consumirCuota(params: {
       .orderBy('s.id', 'DESC')
       .getOne();
 
+    // JLP-QUOTA — auto-provisión perezosa. Antes, si el suscriptor no tenía
+    // ninguna fila activa en suscriptor_suscripciones, aquí se tronaba con
+    // NotFoundException. En producción se detectó que la mayoría de las
+    // cuentas (altas previas a que existiera este flujo) nunca tuvieron una
+    // suscripción provisionada, por lo que al conectar consumirCuota() a
+    // negocios/promociones esas cuentas quedarían bloqueadas para crear su
+    // primer negocio/promoción — una regresión, no una cuota legítimamente
+    // agotada. Ver autoProvisionarSuscripcionActiva() para el detalle.
     if (!suscripcion) {
-      throw new NotFoundException(
-        `No se encontró suscripción activa para suscriptor_id=${params.suscriptorId}`,
-      );
+      suscripcion = await this.autoProvisionarSuscripcionActiva({
+        runner,
+        suscriptorId: params.suscriptorId,
+      });
     }
 
     // 2) cuotas de la membresía (sin joins)
@@ -637,6 +646,92 @@ async consumirCuota(params: {
     await runner.release();
   }
 }
+
+  /**
+   * JLP-QUOTA — Auto-provisión perezosa de suscripción activa.
+   *
+   * Antes de este fix, consumirCuota() exigía una fila activa en
+   * suscriptor_suscripciones y tronaba con NotFoundException si no existía.
+   * Una revisión en producción encontró que 10 de 13 suscriptores no-admin
+   * (incluidos algunos que YA tienen suscriptores.membresia_id=1 asignado
+   * directo) no tienen ninguna suscripción activa — no existe ningún flujo
+   * de registro que la cree. Con la cuota recién conectada a
+   * negocios/promociones, esto bloqueaba por completo la creación del
+   * primer negocio/promoción para cuentas legítimas del plan Gratuito.
+   *
+   * Fix: si no hay suscripción activa al momento de consumir cuota, se crea
+   * aquí mismo — dentro de la MISMA transacción/lock de consumirCuota(), así
+   * que es atómico y no puede duplicarse por una carrera — usando la
+   * membresía ya asignada al suscriptor (suscriptores.membresia_id) o, si no
+   * tiene ninguna, la Gratuita (id=1) por default. Queda sin fecha_fin /
+   * próximo corte (indefinida, consistente con que el plan Gratuito no se
+   * factura) y con renovacion_automatica=false. Así cualquier cuenta obtiene
+   * su cupo Gratuito la primera vez que lo usa, sin importar si el alta
+   * original (antes de este cambio) nunca provisionó una suscripción.
+   */
+  private async autoProvisionarSuscripcionActiva(params: {
+    runner: any;
+    suscriptorId: number;
+  }): Promise<SuscriptorSuscripcion> {
+    const { runner, suscriptorId } = params;
+
+    const suscriptor = await runner.manager.findOne(Suscriptor, {
+      where: { id: suscriptorId },
+      relations: { membresia: true },
+    });
+    if (!suscriptor) {
+      throw new NotFoundException(`Suscriptor no existe: id=${suscriptorId}`);
+    }
+
+    const DEFAULT_MEMBRESIA_ID = 1; // Gratuita
+    let membresiaId = suscriptor.membresia?.id || DEFAULT_MEMBRESIA_ID;
+
+    let membresia = await runner.manager.findOne(Membresia, { where: { id: membresiaId } });
+    if (!membresia && membresiaId !== DEFAULT_MEMBRESIA_ID) {
+      membresiaId = DEFAULT_MEMBRESIA_ID;
+      membresia = await runner.manager.findOne(Membresia, { where: { id: membresiaId } });
+    }
+    if (!membresia) {
+      throw new NotFoundException(
+        `No se pudo auto-provisionar suscripción: no existe la membresía id=${membresiaId} (ni la Gratuita por default).`,
+      );
+    }
+
+    const susRepoTx = runner.manager.getRepository(SuscriptorSuscripcion);
+    const nueva = susRepoTx.create({
+      suscriptor,
+      membresia,
+      estatus: 'activa',
+      fechaInicio: new Date(),
+      fechaFin: null,
+      proximaFechaCorte: null,
+      renovacionAutomatica: false,
+      proveedorPago: 'sistema_auto',
+      proveedorSuscripcionId: null,
+    });
+    await susRepoTx.save(nueva);
+
+    // Mantiene suscriptores.membresia_id sincronizado — otras lecturas del
+    // código lo usan directo (ver renovarOCrearSuscripcion más arriba, y
+    // SucursalesNegociosService.assertLimiteSucursales).
+    if (!suscriptor.membresia) {
+      await runner.manager
+        .getRepository(Suscriptor)
+        .update({ id: suscriptorId }, { membresia: { id: membresiaId } as any });
+    }
+
+    const conMembresia = await susRepoTx
+      .createQueryBuilder('s')
+      .setLock('pessimistic_write')
+      .leftJoinAndSelect('s.membresia', 'm')
+      .where('s.id = :id', { id: nueva.id })
+      .getOne();
+
+    if (!conMembresia) {
+      throw new Error('No se pudo releer la suscripción auto-provisionada.');
+    }
+    return conMembresia;
+  }
 
   /**
    * GET-or-CREATE ciclo actual, con lock y UPSERT idempotente.
@@ -785,6 +880,7 @@ async consumirCuota(params: {
     if (dto.maxNegocios !== undefined) cuotas.maxNegocios = dto.maxNegocios;
     if (dto.maxPromociones !== undefined) cuotas.maxPromociones = dto.maxPromociones;
     if (dto.maxAnuncios !== undefined) cuotas.maxAnuncios = dto.maxAnuncios;
+    if (dto.maxSucursales !== undefined) cuotas.maxSucursales = dto.maxSucursales;
     if (dto.resetPeriodo !== undefined) cuotas.resetPeriodo = dto.resetPeriodo;
     if (dto.permitePromosDestacadas !== undefined) cuotas.permitePromosDestacadas = dto.permitePromosDestacadas;
     if (dto.permiteAnunciosPremium !== undefined) cuotas.permiteAnunciosPremium = dto.permiteAnunciosPremium;

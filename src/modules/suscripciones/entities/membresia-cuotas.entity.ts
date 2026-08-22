@@ -33,6 +33,16 @@ export class MembresiaCuotas {
   @Column({ name: 'max_anuncios', type: 'int', default: 0 })
   maxAnuncios: number;
 
+  // JLP-QUOTA — límite de sucursales que puede dar de alta CADA negocio del
+  // suscriptor, según su membresía. A diferencia de max_negocios/max_promociones
+  // (que se consumen vía consumirCuota()/suscripcion_ciclos, un pool único por
+  // suscriptor), este límite se verifica en vivo con un COUNT(*) de sucursales
+  // no eliminadas del negocio en cuestión — es un límite por-negocio, no
+  // por-suscriptor (ver SucursalesNegociosService.crear()), así que no tiene
+  // sentido meterlo en el motor de ciclos (que resetea/acumula por suscripción).
+  @Column({ name: 'max_sucursales', type: 'int', default: 0 })
+  maxSucursales: number;
+
   @Column({
     name: 'reset_periodo',
     type: 'enum',

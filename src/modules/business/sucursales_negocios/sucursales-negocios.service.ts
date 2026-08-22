@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, In } from 'typeorm';
 
@@ -10,6 +10,7 @@ import { Street } from '../domicilios/calles/entities/street.entity';
 import { Colonia } from '../domicilios/colonias/entities/colonia.entity';
 import { PostalCode } from '../domicilios/codigos_postal/entities/postal-code.entity';
 import { Negocio } from '../negocios/entities/negocio.entity';
+import { MembresiaCuotas } from '../../suscripciones/entities/membresia-cuotas.entity';
 
 /**
  * Identidad del solicitante para verificación de propiedad (JLP-C10).
@@ -37,6 +38,9 @@ export class SucursalesNegociosService {
 
     @InjectRepository(Negocio)
     private readonly negocioRepo: Repository<Negocio>,
+
+    @InjectRepository(MembresiaCuotas)
+    private readonly cuotasRepo: Repository<MembresiaCuotas>,
   ) {}
 
   // ================================================================
@@ -83,6 +87,58 @@ export class SucursalesNegociosService {
     requester?: RequesterCtx,
   ): Promise<void> {
     return this.assertOwnershipBySucursal(sucursalId, requester);
+  }
+
+  // ================================================================
+  // JLP-QUOTA — límite de sucursales por negocio (membresia_cuotas.max_sucursales)
+  // ================================================================
+  /**
+   * A diferencia de negocios/promociones (pool por SUSCRIPTOR, vía
+   * consumirCuota()/suscripcion_ciclos), el límite de sucursales es POR
+   * NEGOCIO: cada negocio del suscriptor puede tener hasta max_sucursales
+   * sucursales según la membresía del dueño. Se verifica con un COUNT(*) en
+   * vivo (no con un contador acumulado) para que borrar una sucursal libere
+   * el cupo de inmediato — no tendría sentido "gastar" el cupo para siempre.
+   * Los admins quedan exentos (mismo criterio que negocios/promociones).
+   */
+  private async assertLimiteSucursales(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (requester && requester.isAdmin) return;
+
+    const negocio = await this.negocioRepo.findOne({
+      where: { id: negocioId },
+      relations: ['suscriptor', 'suscriptor.membresia'],
+    });
+    if (!negocio) throw new NotFoundException('Negocio no encontrado');
+
+    // JLP-QUOTA — mismo criterio de auto-provisión que
+    // SuscripcionesService.autoProvisionarSuscripcionActiva(): si el dueño
+    // del negocio no tiene membresía asignada (cuentas dadas de alta antes
+    // de que existiera este flujo), se asume Gratuita (id=1) en vez de
+    // bloquear la creación de sucursales con un error de configuración.
+    const DEFAULT_MEMBRESIA_ID = 1; // Gratuita
+    const membresiaId = negocio.suscriptor?.membresia?.id || DEFAULT_MEMBRESIA_ID;
+
+    const cuotas = await this.cuotasRepo.findOne({
+      where: { membresia: { id: membresiaId } as any },
+    });
+    if (!cuotas) {
+      throw new BadRequestException(
+        `La membresía ${membresiaId} no tiene cuotas configuradas (membresia_cuotas).`,
+      );
+    }
+
+    const usadas = await this.sucursalRepo.count({
+      where: { negocio: { id: negocioId } as any, eliminado: false } as any,
+    });
+
+    if (usadas >= (cuotas.maxSucursales || 0)) {
+      throw new ConflictException(
+        `Límite de sucursales alcanzado para este negocio (máximo ${cuotas.maxSucursales} según su membresía).`,
+      );
+    }
   }
 
   // ================================================================
@@ -188,6 +244,7 @@ private toSucursalResumenResponse(item: any): any {
     requester?: RequesterCtx,
   ): Promise<SucursalNegocio> {
     await this.assertOwnershipByNegocio(dto.negocioId, requester);
+    await this.assertLimiteSucursales(dto.negocioId, requester);
 
     const entity = this.sucursalRepo.create({
       nombreSucursal: dto.nombreSucursal,

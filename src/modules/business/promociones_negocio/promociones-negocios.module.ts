@@ -9,11 +9,14 @@ import { PromotionBusinessBranch } from './entities/promotion-business-branch.en
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 import { Negocio } from '../negocios/entities/negocio.entity';
 import { EventosNegociosModule } from '../eventos_negocios/eventos-negocios.module';
+import { SuscripcionesModule } from '../../suscripciones/suscripciones.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([PromotionBusiness, PromotionBusinessBranch, SucursalNegocio, Negocio]),
-    EventosNegociosModule
+    EventosNegociosModule,
+    // JLP-QUOTA — necesario para consumirCuota() al crear una promoción.
+    SuscripcionesModule,
   ],
   controllers: [PromocionesNegociosController],
   providers: [PromocionesNegociosService],

@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { GuardsModule } from './common/guards/guards.module';
@@ -63,6 +64,36 @@ import { PublicAdsModule } from './modules/public/ads/public-ads.module';
 import { DataRetentionModule } from './modules/core/data-retention/data-retention.module';
 import { LegalModule } from './modules/core/legal/legal.module';
 import { BillingModule } from './modules/billing/billing.module';
+
+/**
+ * JLP-STRICT — sql_mode estricto por conexión, no a nivel de servidor.
+ *
+ * El servidor MySQL/MariaDB (174.136.53.220, compartido, no administrado por
+ * nosotros) NO trae STRICT_TRANS_TABLES por default — se verificó contra
+ * producción: `SELECT @@GLOBAL.sql_mode` devolvía sólo
+ * NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION.
+ * Sin STRICT_TRANS_TABLES, un INSERT/UPDATE con un valor inválido (string más
+ * largo que el VARCHAR, NULL en una columna NOT NULL sin default, número fuera
+ * de rango) se trunca/convierte EN SILENCIO en vez de fallar — puede estar
+ * guardando datos corruptos sin que nadie se entere.
+ *
+ * Se activa por conexión (evento 'connection' del pool de mysql2), no con
+ * `SET GLOBAL` en el servidor: así el cambio es 100% del lado de la app,
+ * reversible con un redeploy, y no toca un servidor MySQL compartido con
+ * otras bases de datos que no controlamos.
+ *
+ * Se preservan los 4 modos que YA estaban activos en el servidor (si sólo
+ * pusiéramos STRICT_TRANS_TABLES, `SET SESSION sql_mode=...` los reemplaza,
+ * no los suma).
+ *
+ * Verificado antes de activar: no hay ningún `INSERT`/`UPDATE` en SQL crudo en
+ * el código (todo pasa por TypeORM save()/create(), que ya tipa antes de
+ * enviar el query) y no hay literales de fecha en cero. El único INSERT
+ * conocido que hubiera roto con este modo (alta de suscriptor con teléfono
+ * NULL) ya se corrigió en data_004.
+ */
+const SQL_MODE_ESTRICTO =
+  'STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
 
 @Module({
   imports: [
@@ -196,4 +227,37 @@ import { BillingModule } from './modules/billing/billing.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements OnModuleInit {
+  private readonly logger = new Logger(AppModule.name);
+
+  constructor(private readonly dataSource: DataSource) {}
+
+  /**
+   * JLP-STRICT — engancha SQL_MODE_ESTRICTO a cada conexión nueva del pool.
+   *
+   * mysql2 emite 'connection' cada vez que el pool abre una conexión física
+   * nueva (hasta `extra.connectionLimit`, ver arriba). SET SESSION dura toda
+   * la vida de esa conexión TCP, así que basta con hacerlo una vez por
+   * conexión, no por query. `driver.pool` no está en los tipos públicos de
+   * TypeORM pero es el pool real de mysql2 (createPool) en runtime.
+   */
+  onModuleInit() {
+    const pool = (this.dataSource.driver as any)?.pool;
+    if (!pool?.on) {
+      this.logger.warn(
+        '[SQL_MODE] No se encontró el pool de mysql2 en el driver; sql_mode estricto NO se aplicó.',
+      );
+      return;
+    }
+
+    pool.on('connection', (connection: any) => {
+      connection.query(`SET SESSION sql_mode = '${SQL_MODE_ESTRICTO}'`, (err: Error | null) => {
+        if (err) {
+          this.logger.error(`[SQL_MODE] No se pudo aplicar sql_mode estricto: ${err.message}`);
+        }
+      });
+    });
+
+    this.logger.log(`[SQL_MODE] sql_mode estricto activado por conexión: ${SQL_MODE_ESTRICTO}`);
+  }
+}

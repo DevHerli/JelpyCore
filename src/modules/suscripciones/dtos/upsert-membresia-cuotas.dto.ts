@@ -23,6 +23,11 @@ export class UpsertMembresiaCuotasDto {
   maxAnuncios?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxSucursales?: number;
+
+  @IsOptional()
   @IsEnum(['mensual', 'anual', 'una_vez'] as const)
   resetPeriodo?: ResetPeriodo;
 

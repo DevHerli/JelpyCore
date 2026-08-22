@@ -2,7 +2,7 @@
 
 > **Entregable de auditoría.** Consolidado: **2026-08-06**.
 > Stack: NestJS · TypeScript · MySQL/TypeORM · JWT (access+refresh, claim `role`) · Stripe/Twilio/Cloudinary/OneSignal.
-> **Veredicto vigente (2026-08-06): APTO PARA PRODUCCIÓN — CONDICIONADO.** Todos los bloqueantes de seguridad (Crítica/Alta/Media/Baja de autorización + endurecimiento de autenticación) están **resueltos y verificados** (`build exit 0`, suite de regresión en verde). Ver §Veredicto de producción para las **condiciones** (2 decisiones de equipo no bloqueantes + operativa de despliegue).
+> **Veredicto vigente (2026-08-06): APTO PARA PRODUCCIÓN — CONDICIONADO (residual bajo).** Todos los bloqueantes de seguridad (Crítica/Alta/Media/Baja de autorización + endurecimiento de autenticación) están **resueltos y verificados**: `build exit 0`, `npm audit` = **0 vulnerabilidades**, suite unitaria (11) en verde y **e2e de seguridad ejecutado contra QA (12/12 aplicables en verde)**. Restan solo ítems no bloqueantes de seguridad (2 decisiones de equipo + 2 casos de IDOR e2e con tokens de QA + operativa de secretos). Ver §Veredicto de producción.
 
 ## Escala de severidad
 - **Crítica** — explotación trivial con impacto directo en dinero, datos personales/fiscales o integridad del sistema.
@@ -262,18 +262,20 @@ a un estado **apto condicionado**:
 2. **`ValidationPipe forbidNonWhitelisted`:** (decisión de equipo, no bloqueante de
    seguridad) activarlo tras auditar los payloads reales de los clientes móviles en
    staging (hoy `whitelist:true` ya descarta campos extra).
-3. **e2e en staging:** correr las pruebas de seguridad contra una BD aislada (no producción).
-   - **Escrito ✅:** `test/security.e2e-spec.ts` — cubre rechazo de anónimos en
-     membresías/ciudades (BFLA), auth obligatoria en facturas/pagos (IDOR), verificación
-     de OTP, y (con tokens de staging) IDOR entre usuarios. Desactivado por defecto; corre
-     con `RUN_SECURITY_E2E=1 npm run test:e2e` apuntando a staging.
-   - **Bloqueador de harness (pre-existente, no de seguridad):** `src/modules/core/health/health.service.ts`
-     importa `serverStartedAt` desde `../../../main`, por lo que importar `AppModule` en un
-     test arrastra `main.ts` y dispara su `bootstrap()` de nivel superior (arranca la app /
-     `process.exit`). Esto rompe **cualquier** e2e (incluido el `app.e2e-spec.ts` de fábrica),
-     no solo el nuevo. Además el `jest-e2e.json` necesita ajuste de transform ESM. **Acción:**
-     desacoplar `serverStartedAt` de `main.ts` (moverlo a un provider/const propio) antes de
-     poder ejecutar el e2e en staging. Registrado como tarea de infraestructura.
+3. **e2e de seguridad: ✅ EJECUTADO contra QA (2026-08-06) — 12/12 aplicables en verde.**
+   - `test/security.e2e-spec.ts` corrió contra el entorno **QA** (`NODE_ENV=qa`,
+     `DB_SYNC=false`, BD remota de QA — **no** producción). Todas las pruebas son
+     **no destructivas** (rechazos 401 antes de tocar la BD, o lecturas): ningún test escribe.
+   - **Resultado:** 12 pasan, 2 *skipped* (IDOR A≠B, requieren 2 tokens de QA). Validado en
+     runtime: mutaciones anónimas de membresías/ciudades → 401; facturas/pagos exigen auth → 401;
+     JWT manipulado → 401; `verify-otp` y `otp/email/verify` con código inexistente → 401
+     (no autentican ni resetean contraseña).
+   - **Pendiente menor:** completar los 2 casos de IDOR entre usuarios aportando
+     `SEC_E2E_TOKEN_A`, `SEC_E2E_TOKEN_B`, `SEC_E2E_FACTURA_B_ID` de QA.
+   - **Bloqueador de harness — RESUELTO:** `serverStartedAt` se movió de `main.ts` a
+     `src/server-started-at.ts`; `health.service.ts` ya no arrastra `main.ts`, así que
+     importar `AppModule` en tests ya **no** dispara `bootstrap()`. `app.e2e-spec.ts` de
+     fábrica también pasa.
 4. **Operativa de despliegue:** mantener secretos solo en el gestor de entorno de Render
    y establecer rotación periódica de Stripe/Twilio/Cloudinary/JWT.
 

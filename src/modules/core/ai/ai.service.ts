@@ -381,17 +381,23 @@ export class AiService {
       const historialPrevio =
         await this.conversationService.obtenerHistorial(idSesionActiva);
 
+      const ultimoTurnoAsistente = historialPrevio.find((tn) => tn.rol === 'assistant');
+      const ultimaIntencionChat = ultimoTurnoAsistente?.intent;
+
       const respuestaChat = ChatResponses.responder(textoCorregido, {
         ciudad: contexto?.ciudad ?? sesion.ciudad,
         historialTurnos: historialPrevio.length,
+        ultimaIntencionChat,
       });
+
+      const intentGranular = ChatResponses.detectarIntent(textoCorregido);
 
       const sugerencias = this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad);
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
         respuestaChat.mensaje,
-        { intent: 'chat', sugerencias },
+        { intent: intentGranular, sugerencias },
       );
 
       return {

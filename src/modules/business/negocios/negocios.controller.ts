@@ -20,6 +20,7 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CloudinaryService } from '../../../common/cloudinary/cloudinary.service';
 import { NegociosService } from './negocios.service';
 import { BillingService } from '../../billing/billing.service';
+import { SuscripcionesService } from '../../suscripciones/suscripciones.service';
 import { CreateNegocioDto } from './dto/create-negocio.dto';
 import { UpdateNegocioDto } from './dto/update-negocio.dto';
 import { Express } from 'express';
@@ -30,6 +31,7 @@ export class NegociosController {
     private readonly negociosService: NegociosService,
     private readonly cloudinary: CloudinaryService,
     private readonly billingService: BillingService,
+    private readonly suscripcionesService: SuscripcionesService,
   ) {}
 
   // ============================================================
@@ -116,6 +118,18 @@ export class NegociosController {
     // Admin: se respeta el suscriptorId del body para operaciones de back-office.
     const isAdmin = req.user?.role === 'admin';
     const suscriptorId = isAdmin ? Number(dto.suscriptorId) : Number(req.user.sub);
+
+    // JLP-QUOTA — límite de negocios por membresía (tabla membresia_cuotas).
+    // Los admins quedan exentos a propósito: es la cuenta de back-office la que
+    // da de alta negocios de cortesía a nombre de terceros (ver
+    // migrations/data_005_suscriptor_8_admin.sql) y no debe toparse con el
+    // límite de ningún plan. consumirCuota() lanza ConflictException (409) si
+    // ya no hay disponibles, o NotFoundException/BadRequestException si el
+    // suscriptor no tiene suscripción activa o su membresía no tiene cuotas
+    // configuradas — en ambos casos se bloquea la creación (fail-closed).
+    if (!isAdmin) {
+      await this.suscripcionesService.consumirCuota({ suscriptorId, tipo: 'negocios' });
+    }
 
     return this.negociosService.crear({ ...dto, logoUrl, suscriptorId });
   }

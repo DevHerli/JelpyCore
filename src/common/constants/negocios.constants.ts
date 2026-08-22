@@ -11,12 +11,10 @@ export const ESTADOS_NEGOCIO = {
     RECHAZADA: 35,
 
   };
-  
-  export const LIMITE_NEGOCIOS_POR_MEMBRESIA: Record<string, number> = {
-    free: 1,
-    cortesia: 1000000,
-    deluxe: 2,
-    premium: 3,
-    empresarial: 4,
-  };
+
+  // JLP-QUOTA — LIMITE_NEGOCIOS_POR_MEMBRESIA se eliminó: era código muerto
+  // (declarado, nunca importado en ningún lado) y sus valores ya no reflejan
+  // la config real. El límite de negocios por membresía ahora vive en la
+  // tabla `membresia_cuotas` (columna max_negocios) y se aplica de verdad en
+  // NegociosController.crear() vía SuscripcionesService.consumirCuota().
   

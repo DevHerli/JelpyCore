@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Connection } from 'typeorm';
-import { serverStartedAt } from '../../../main';
+import { serverStartedAt } from '../../../server-started-at';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../../../../package.json');
 

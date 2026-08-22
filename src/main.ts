@@ -7,8 +7,11 @@ import * as express from 'express';
 import { join } from 'path';
 import * as fs from 'fs';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { serverStartedAt } from './server-started-at';
 
-export const serverStartedAt = new Date();
+// Re-exportado por compatibilidad — el valor real vive en ./server-started-at
+// (ver ahí el porqué: evitar que importar AppModule dispare bootstrap() en e2e).
+export { serverStartedAt };
 
 /**
  * Detección de entorno con política fail-closed.

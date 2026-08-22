@@ -13,6 +13,7 @@ import { Street } from '../domicilios/calles/entities/street.entity';
 import { Colonia } from '../domicilios/colonias/entities/colonia.entity';
 import { PostalCode } from '../domicilios/codigos_postal/entities/postal-code.entity';
 import { Negocio } from '../negocios/entities/negocio.entity';
+import { MembresiaCuotas } from '../../suscripciones/entities/membresia-cuotas.entity';
 
 @Module({
   imports: [
@@ -23,6 +24,10 @@ import { Negocio } from '../negocios/entities/negocio.entity';
       Colonia,
       PostalCode,
       Negocio,
+      // JLP-QUOTA — límite de sucursales por negocio (max_sucursales), leído
+      // directo aquí porque es un chequeo per-negocio, no per-suscriptor: no
+      // pasa por SuscripcionesService/consumirCuota (ver comentario en la entity).
+      MembresiaCuotas,
     ]),
     CaracteristicasSucursalModule,
     EstadisticasModule,

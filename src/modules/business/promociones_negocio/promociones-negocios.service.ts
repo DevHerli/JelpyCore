@@ -9,6 +9,7 @@ import { Negocio } from '../negocios/entities/negocio.entity';
 import { CreatePromotionBusinessDto } from './dtos/create-promotion-business.dto';
 import { UpdatePromotionBusinessDto } from './dtos/update-promotion-business.dto';
 import { EventosNegociosService } from '../eventos_negocios/eventos-negocios.service';
+import { SuscripcionesService } from '../../suscripciones/suscripciones.service';
 
 /** Identidad del solicitante para verificación de propiedad (JLP-C11). */
 export type RequesterCtx = { sub: number; isAdmin: boolean };
@@ -29,6 +30,7 @@ export class PromocionesNegociosService {
     private readonly negocioRepo: Repository<Negocio>,
 
     private readonly eventosNegociosService: EventosNegociosService,
+    private readonly suscripcionesService: SuscripcionesService,
   ) {}
 
   /**
@@ -75,6 +77,23 @@ export class PromocionesNegociosService {
     }
 
     await this.assertOwnershipByNegocio(negocioId, requester);
+
+    // JLP-QUOTA — límite de promociones por membresía (tabla membresia_cuotas).
+    // El pool es por SUSCRIPTOR (no por negocio individual), igual que el
+    // límite de negocios: consumirCuota() usa la suscripción activa del dueño
+    // del negocio. Los admins quedan exentos (back-office sin tope, mismo
+    // criterio que en NegociosController.crear()).
+    if (!requester?.isAdmin) {
+      const negocioParaCuota = await this.negocioRepo.findOne({
+        where: { id: negocioId },
+        relations: ['suscriptor'],
+      });
+      if (!negocioParaCuota) throw new NotFoundException('Negocio no encontrado');
+      await this.suscripcionesService.consumirCuota({
+        suscriptorId: Number(negocioParaCuota.suscriptor?.id),
+        tipo: 'promociones',
+      });
+    }
 
     const sucursalIdsInput = Array.isArray(dto.sucursalIds)
       ? dto.sucursalIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
