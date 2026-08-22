@@ -272,13 +272,53 @@ export class AiService {
 
     const textoParaProcesar = resolucion.textoEnriquecido;
 
-    const aiIntent = await this.jelpyAiService.interpretar({
-      text: textoParaProcesar,
-      city_hint: contexto?.ciudad ?? sesion.ciudad ?? null,
-      lat: contexto?.latitud ?? null,
-      lng: contexto?.longitud ?? null,
-      user_id: usuarioId ?? null,
-    });
+    // JLP-CHAT-FIX: esta llamada a FastAPI (jelpy-ia-service en Render) NO
+    // tenía try/catch. `JelpyAiService.interpretar()` convierte CUALQUIER
+    // falla (timeout de 10s, cold start del servicio gratuito de Render, red)
+    // en un InternalServerErrorException que antes se propagaba sin capturar
+    // hasta el controller → 500 → el frontend mostraba el genérico "Lo siento,
+    // hubo un problema al interpretar tu mensaje". Esto es intermitente: pasa
+    // cuando jelpy-ia-service está lento/dormido, no siempre, por eso parecía
+    // aleatorio ("a veces funciona, a veces truena").
+    //
+    // Nota: `JelpyAssistantService.interpretar()` ya hace esta MISMA llamada
+    // a FastAPI internamente (para volver a mapear filtros de búsqueda) y esa
+    // sí está protegida con try/catch + fallback local (interpretarFallbackLocal).
+    // Aquí replicamos esa resiliencia: si FastAPI falla, seguimos el flujo
+    // igual, dejando que el motor de búsqueda interno (que vuelve a intentar
+    // FastAPI y cae a heurísticas locales si hace falta) se encargue en vez
+    // de tronar toda la petición.
+    let aiIntent: Awaited<ReturnType<JelpyAiService['interpretar']>>;
+
+    try {
+      aiIntent = await this.jelpyAiService.interpretar({
+        text: textoParaProcesar,
+        city_hint: contexto?.ciudad ?? sesion.ciudad ?? null,
+        lat: contexto?.latitud ?? null,
+        lng: contexto?.longitud ?? null,
+        user_id: usuarioId ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[FastAPI] interpretar() falló, usando fallback degradado: ${
+          (error as Error)?.message || error
+        }`,
+      );
+
+      aiIntent = {
+        intent: 'buscar_negocios',
+        confidence: 0,
+        entities: {
+          categoria: null,
+          subcategoria: null,
+          ciudad: contexto?.ciudad ?? sesion.ciudad ?? null,
+          especialidad: null,
+        },
+        filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+        normalized_text: textoParaProcesar,
+        reply: { mode: 'search', title: null, message: null, suggestions: [] },
+      } as any;
+    }
 
     await this.conversationService.guardarTurnoUsuario(
       idSesionActiva,
@@ -381,12 +421,22 @@ export class AiService {
       const historialPrevio =
         await this.conversationService.obtenerHistorial(idSesionActiva);
 
-      const ultimoTurnoAsistente = historialPrevio.find((tn) => tn.rol === 'assistant');
+      // JLP-CHAT-FIX: el turno del usuario actual ya se guardó unas líneas
+      // arriba (guardarTurnoUsuario), así que `historialPrevio` SIEMPRE
+      // incluye el mensaje que se está procesando ahora mismo. Si contáramos
+      // el total de turnos, un "Hola" recién escrito en una sesión nueva ya
+      // se vería como "el usuario ya había hablado antes" (historialTurnos=1)
+      // y el bot respondería con el tono de "¿en qué más te ayudo?" en vez
+      // de un saludo genuino de bienvenida. Contamos solo los turnos donde
+      // el ASISTENTE ya respondió antes: eso sí refleja con precisión si
+      // esta es la primera interacción real o una continuación.
+      const turnosAsistentePrevios = historialPrevio.filter((tn) => tn.rol === 'assistant');
+      const ultimoTurnoAsistente = turnosAsistentePrevios[0];
       const ultimaIntencionChat = ultimoTurnoAsistente?.intent;
 
       const respuestaChat = ChatResponses.responder(textoCorregido, {
         ciudad: contexto?.ciudad ?? sesion.ciudad,
-        historialTurnos: historialPrevio.length,
+        historialTurnos: turnosAsistentePrevios.length,
         ultimaIntencionChat,
       });
 
