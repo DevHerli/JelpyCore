@@ -28,6 +28,56 @@ describe('ChatResponses.detectarIntent', () => {
   });
 });
 
+describe('ChatResponses.detectarIntent — tolerancia a faltas de ortografía (JLP-PHONETIC-FIX)', () => {
+  // Regresión del bug reportado por el usuario: "Kien erez" (typo real,
+  // enviado desde la app) no se reconocía como "quién eres" y caía en la
+  // pregunta guiada genérica de Capa 2 en vez de responder identidad.
+  // Cubre las confusiones más comunes del español mexicano informal:
+  // seseo (s/z/c), yeísmo (ll/y), betacismo (b/v), h muda y letras
+  // repetidas — ver `TextNormalizer`.
+  const casos: Array<{ texto: string; intent: string }> = [
+    { texto: 'Kien erez', intent: 'identidad' },
+    { texto: 'kien eres', intent: 'identidad' },
+    { texto: 'komo te yamas', intent: 'identidad' },
+    { texto: 'grasias', intent: 'gracias' },
+    { texto: 'grasias totales', intent: 'gracias' },
+    { texto: 'ola', intent: 'saludo' },
+    { texto: 'nesesito ayuda', intent: 'capacidades' },
+  ];
+
+  it.each(casos)('"$texto" (con faltas) → $intent', ({ texto, intent }) => {
+    expect(ChatResponses.detectarIntent(texto)).toBe(intent);
+  });
+});
+
+describe('ChatResponses — Jelpy habla siempre en masculino (bug reportado por el usuario)', () => {
+  // Jelpy es "él", no "ella". Antes varias respuestas se referían a sí
+  // mismo en femenino ("estoy segura", "estoy lista", "diseñada",
+  // "precisa"), lo cual es inconsistente con la identidad del asistente.
+  const preguntasSobreSiMismo = [
+    'quien eres', 'como te llamas', 'eres humano', 'de donde eres',
+    'tienes novia', 'que genero eres', 'eres chatbot', 'aprendes de mi',
+    'me ayudas', 'que puedes hacer', 'eres segura', 'puedo confiar en ti',
+    'estas activa', 'puedes equivocarte', 'hola',
+  ];
+
+  it('ninguna respuesta sobre Jelpy usa adjetivos autorreferenciales en femenino', () => {
+    const terminosFemeninosProhibidos = [
+      'estoy segura', 'estoy lista', 'diseñada', 'preparada', 'dispuesta',
+      'mas precisa', 'más precisa', 'entrenada', 'programada', 'capacitada',
+    ];
+
+    for (const pregunta of preguntasSobreSiMismo) {
+      const respuesta = ChatResponses.responder(pregunta);
+      const textoCompleto = `${respuesta.titulo} ${respuesta.mensaje}`.toLowerCase();
+
+      for (const termino of terminosFemeninosProhibidos) {
+        expect(textoCompleto).not.toContain(termino);
+      }
+    }
+  });
+});
+
 describe('ChatResponses.responder', () => {
   it('"Promociones" pregunta categoría SIN decir "activas" (bug reportado por el usuario)', () => {
     const respuesta = ChatResponses.responder('promociones');

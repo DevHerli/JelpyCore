@@ -1,5 +1,6 @@
 import { JELPY_SEMANTIC_CATEGORIES } from '../jelpy-assistant/constants/jelpy-semantic-categories';
 import { ChatResponses } from './chat-responses';
+import { TextNormalizer } from './text-normalizer';
 
 export type JelpyConversationIntent =
   | 'small_talk'
@@ -35,12 +36,28 @@ export class ConversationClassifier {
       .trim();
   }
 
+  /**
+   * JLP-PHONETIC-FIX: clave fonética (ver `TextNormalizer`) usada para
+   * emparejar frases tolerando faltas de ortografía comunes en español
+   * mexicano informal (seseo, yeísmo, betacismo, h muda, letras repetidas).
+   * Se usa en `contieneTerminoDeNegocio` y en los `.some()` de abajo,
+   * SIEMPRE aplicada a ambos lados de la comparación (texto del usuario Y
+   * la palabra/alias contra la que se compara), para que "kien erez",
+   * "quien eres" y variantes con faltas produzcan la misma clave.
+   */
+  static clavefonetica(texto: string): string {
+    return TextNormalizer.clavefonetica(texto);
+  }
+
   static contieneTerminoDeNegocio(texto: string): boolean {
-    const textoNorm = this.normalizar(texto);
+    // JLP-PHONETIC-FIX: clave fonética en ambos lados (texto del usuario Y
+    // cada alias) para tolerar faltas de ortografía ("restaurantez",
+    // "farmasia") sin depender de una lista de correcciones a mano.
+    const textoNorm = this.clavefonetica(texto);
 
     return JELPY_SEMANTIC_CATEGORIES.some((cat) =>
       cat.aliases.some((alias) => {
-        const aliasNorm = this.normalizar(alias);
+        const aliasNorm = this.clavefonetica(alias);
 
         if (aliasNorm.length < 3) return false;
 
@@ -54,7 +71,12 @@ export class ConversationClassifier {
     texto: string,
     contexto: JelpyConversationContext = {},
   ): JelpyConversationClassification {
-    const textoNorm = this.normalizar(texto);
+    // JLP-PHONETIC-FIX: clave fonética, no solo normalización básica, para
+    // que las comparaciones de abajo (`.some(...)`) toleren faltas de
+    // ortografía comunes (ver `TextNormalizer`). El conteo de palabras
+    // (`.split(' ').length`) no se ve afectado: la clave fonética colapsa
+    // letras dentro de cada palabra, pero preserva los espacios.
+    const textoNorm = this.clavefonetica(texto);
     const chatIntent = ChatResponses.detectarIntent(texto);
     const containsBusinessTerm = this.contieneTerminoDeNegocio(texto);
 
@@ -90,7 +112,7 @@ export class ConversationClassifier {
       'envío',
       'precio',
       'precios',
-    ].some((p) => textoNorm.includes(this.normalizar(p)));
+    ].some((p) => textoNorm.includes(this.clavefonetica(p)));
 
     // JLP-DETAIL-VS-SEARCH-FIX: palabras como "teléfono", "número",
     // "precio" o "domicilio" son AMBIGUAS — son a la vez palabras de
@@ -110,7 +132,7 @@ export class ConversationClassifier {
     const tieneVerboBusquedaExplicito = [
       'busco', 'buscar', 'quiero', 'necesito', 'comprar', 'venden', 'vendan',
       'dame', 'recomiendame', 'recomiéndame', 'encuentra', 'donde hay', 'dónde hay',
-    ].some((p) => textoNorm.includes(this.normalizar(p)));
+    ].some((p) => textoNorm.includes(this.clavefonetica(p)));
 
     if (contexto.hasSearchContext && esPreguntaDetalle && !tieneVerboBusquedaExplicito) {
       return {
@@ -134,7 +156,7 @@ export class ConversationClassifier {
       'otra opción',
       'otros',
       'solo abiertos',
-    ].some((p) => textoNorm.includes(this.normalizar(p)));
+    ].some((p) => textoNorm.includes(this.clavefonetica(p)));
 
     if (contexto.hasSearchContext && esRefinamiento) {
       return { ...base, intent: 'search_refinement', route: 'search', confidence: 0.85 };
@@ -155,7 +177,7 @@ export class ConversationClassifier {
       'recomiéndame',
       'dame opciones',
       'encuentra',
-    ].some((p) => textoNorm.includes(this.normalizar(p)));
+    ].some((p) => textoNorm.includes(this.clavefonetica(p)));
 
     if (tieneVerboBusqueda && textoNorm.split(' ').length >= 3) {
       return { ...base, intent: 'business_search', route: 'search', confidence: 0.7 };

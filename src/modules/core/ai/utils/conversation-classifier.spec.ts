@@ -103,4 +103,43 @@ describe('ConversationClassifier', () => {
       expect(result.chatIntent).toBe('fallback');
     });
   });
+
+  // --------------------------------------------------------------------
+  // JLP-PHONETIC-FIX: bug reportado por el usuario — "Kien erez" (typo
+  // real, enviado desde la app) no se reconocía como "quién eres" y caía
+  // en la pregunta guiada genérica de Capa 2 en vez de responder identidad.
+  // Cubre las confusiones más comunes del español mexicano informal.
+  // --------------------------------------------------------------------
+  describe('tolerancia a faltas de ortografía (muchos usuarios en México escriben informal)', () => {
+    it('"Kien erez" se reconoce como pregunta de identidad, no cae en clarify', () => {
+      const result = ConversationClassifier.classify('Kien erez');
+
+      expect(result.intent).toBe('small_talk');
+      expect(result.route).toBe('chat');
+      expect(result.chatIntent).toBe('identidad');
+    });
+
+    it('"busko farmasia" (typos) se reconoce como búsqueda de negocio', () => {
+      const result = ConversationClassifier.classify('busko farmasia');
+
+      expect(result.intent).toBe('business_search');
+      expect(result.route).toBe('search');
+      expect(result.containsBusinessTerm).toBe(true);
+    });
+
+    it('"nesesito dentista" (typos) se reconoce como búsqueda de negocio', () => {
+      const result = ConversationClassifier.classify('nesesito dentista');
+
+      expect(result.intent).toBe('business_search');
+      expect(result.route).toBe('search');
+    });
+
+    it('"grasias" (typo de "gracias") se reconoce como small talk', () => {
+      const result = ConversationClassifier.classify('grasias');
+
+      expect(result.intent).toBe('small_talk');
+      expect(result.route).toBe('chat');
+      expect(result.chatIntent).toBe('gracias');
+    });
+  });
 });

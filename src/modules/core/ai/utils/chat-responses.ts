@@ -1,26 +1,36 @@
+import { TextNormalizer } from './text-normalizer';
+
 export class ChatResponses {
 
   // =====================================================
   // UTILIDADES
   // =====================================================
 
+  /**
+   * JLP-PHONETIC-FIX: devuelve la CLAVE FONÉTICA del texto (ver
+   * `TextNormalizer`), no solo una limpieza básica. Esto es lo que permite
+   * que "Kien erez" se reconozca como "quién eres" — la clave colapsa
+   * confusiones comunes del español informal mexicano (seseo, yeísmo,
+   * betacismo, h muda, letras repetidas) en vez de depender de una lista
+   * fija de palabras mal escritas.
+   *
+   * Como el resultado ya NO es texto legible (p.ej. "gracias" se convierte
+   * en "grasias"), todas las comparaciones de este archivo usan el helper
+   * `tieneFrase(t, frase)` de abajo en vez de `t.includes('texto plano')` —
+   * necesario para que la frase contra la que se compara pase por la misma
+   * transformación y la comparación tenga sentido.
+   */
   static normalizar(texto: string): string {
-    return (texto || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^\w\s¿?¡!]/g, '')
-      .replace(/\s+/g, ' ')
-      .replace(/kien|qien|kin/g, 'quien')
-      .replace(/kual|qual/g, 'cual')
-      .replace(/komo/g, 'como')
-      .replace(/yamas|llamaz|yamaz/g, 'llamas')
-      .replace(/\bke\b/g, 'que')
-      .replace(/\bnose\b/g, 'no se')
-      .replace(/\bpa\b/g, 'para')
-      .replace(/\bxfa\b/g, 'por favor')
-      .replace(/\bporfa\b/g, 'por favor')
-      .trim();
+    return TextNormalizer.clavefonetica(texto);
+  }
+
+  /**
+   * ¿La clave fonética de `t` (ya normalizado con `normalizar()`) contiene
+   * la clave fonética de `frase`? Reemplaza los antiguos
+   * `t.includes('texto plano')`.
+   */
+  private static tieneFrase(t: string, frase: string): boolean {
+    return t.includes(this.normalizar(frase));
   }
 
   /** Elige un elemento al azar de un array */
@@ -49,7 +59,11 @@ export class ChatResponses {
    */
   private static match(t: string, palabras: string[]): boolean {
     return palabras.some((p) => {
-      const escapada = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // JLP-PHONETIC-FIX: normalizamos `p` igual que `t` (ambos ya deben
+      // venir de `this.normalizar`) para que las listas de sinónimos
+      // (PROMO_KEYWORDS, QUEJA_KEYWORDS...) toleren faltas de ortografía.
+      const normalizada = this.normalizar(p);
+      const escapada = normalizada.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return new RegExp(`\\b${escapada}\\b`).test(t);
     });
   }
@@ -239,11 +253,11 @@ export class ChatResponses {
       titulo: this.elegir(['Ayúdame a entenderte mejor 🤔', '¿Qué tipo de lugar buscas? 🧭']),
       mensaje: tieneCiudad
         ? this.elegir([
-            `No estoy segura de qué buscas${enCiudad}. ¿Es comida, salud, belleza o algún servicio? Cuéntame y te ayudo.`,
+            `No estoy seguro de qué buscas${enCiudad}. ¿Es comida, salud, belleza o algún servicio? Cuéntame y te ayudo.`,
             `Dime un poco más: ¿comida, salud, belleza o servicios${enCiudad}? Así te muestro justo lo que necesitas.`,
           ])
         : this.elegir([
-            'No estoy segura de qué buscas. ¿Es comida, salud, belleza o algún servicio? Dime también tu ciudad para afinar la búsqueda.',
+            'No estoy seguro de qué buscas. ¿Es comida, salud, belleza o algún servicio? Dime también tu ciudad para afinar la búsqueda.',
             '¿Qué tipo de lugar te interesa: comida, salud, belleza o servicios? Y ¿en qué ciudad buscas?',
           ]),
     };
@@ -261,9 +275,9 @@ export class ChatResponses {
     const t = this.normalizar(input);
 
     if (
-      t.includes('tarea') || t.includes('resumen') || t.includes('matematica') ||
-      t.includes('quimica') || t.includes('fisica') || t.includes('codigo') ||
-      t.includes('programacion') || t.includes('investigacion')
+      this.tieneFrase(t, 'tarea') || this.tieneFrase(t, 'resumen') || this.tieneFrase(t, 'matematica') ||
+      this.tieneFrase(t, 'quimica') || this.tieneFrase(t, 'fisica') || this.tieneFrase(t, 'codigo') ||
+      this.tieneFrase(t, 'programacion') || this.tieneFrase(t, 'investigacion')
     ) return 'fuera_de_alcance';
 
     if (t.length <= 2 || ['aaa','emm','mmm','eh','ok','no se','nop','np'].includes(t)) return 'confuso';
@@ -271,17 +285,17 @@ export class ChatResponses {
     if (this.match(t, this.QUEJA_KEYWORDS)) return 'queja';
 
     if (
-      t.includes('quien eres') || t.includes('que eres') || t.includes('como te llamas') ||
-      t.includes('cual es tu nombre') || t.includes('tu nombre') || t.includes('llamas') ||
-      t.includes('eres humano') || t.includes('eres persona') || t.includes('eres real') ||
-      t.includes('de donde eres') || t.includes('donde vives') ||
-      t.includes('tienes novia') || t.includes('tienes sentimientos') || t.includes('tienes sexo') ||
-      t.includes('que genero eres')
+      this.tieneFrase(t, 'quien eres') || this.tieneFrase(t, 'que eres') || this.tieneFrase(t, 'como te llamas') ||
+      this.tieneFrase(t, 'cual es tu nombre') || this.tieneFrase(t, 'tu nombre') || this.tieneFrase(t, 'llamas') ||
+      this.tieneFrase(t, 'eres humano') || this.tieneFrase(t, 'eres persona') || this.tieneFrase(t, 'eres real') ||
+      this.tieneFrase(t, 'de donde eres') || this.tieneFrase(t, 'donde vives') ||
+      this.tieneFrase(t, 'tienes novia') || this.tieneFrase(t, 'tienes sentimientos') || this.tieneFrase(t, 'tienes sexo') ||
+      this.tieneFrase(t, 'que genero eres')
     ) return 'identidad';
 
     if (
-      t.includes('eres chatbot') || t.includes('eres ia') || t.includes('eres asistente') ||
-      t.includes('puedes conversar') || t.includes('puedes platicar') || t.includes('aprendes')
+      this.tieneFrase(t, 'eres chatbot') || this.tieneFrase(t, 'eres ia') || this.tieneFrase(t, 'eres asistente') ||
+      this.tieneFrase(t, 'puedes conversar') || this.tieneFrase(t, 'puedes platicar') || this.tieneFrase(t, 'aprendes')
     ) return 'chatbot_ia';
 
     const pideHumano =
@@ -290,45 +304,52 @@ export class ChatResponses {
         this.match(t, ['hablar', 'quiero', 'necesito', 'conectame', 'comunicame', 'pasame']));
     if (pideHumano) return 'humano_escalar';
 
-    if (t.includes('guardas mis datos') || t.includes('almacenas mis datos') || t.includes('guardas informacion')) return 'privacidad';
-    if (t.includes('eres segura') || t.includes('puedo confiar') || t.includes('eres confiable')) return 'confianza';
+    if (this.tieneFrase(t, 'guardas mis datos') || this.tieneFrase(t, 'almacenas mis datos') || this.tieneFrase(t, 'guardas informacion')) return 'privacidad';
+    if (this.tieneFrase(t, 'eres seguro') || this.tieneFrase(t, 'eres segura') || this.tieneFrase(t, 'puedo confiar') || this.tieneFrase(t, 'eres confiable')) return 'confianza';
 
     if (
-      t.includes('tu mision') || t.includes('tu vision') || t.includes('tus valores') ||
-      t.includes('cual es tu proposito')
+      this.tieneFrase(t, 'tu mision') || this.tieneFrase(t, 'tu vision') || this.tieneFrase(t, 'tus valores') ||
+      this.tieneFrase(t, 'cual es tu proposito')
     ) return 'identidad_corporativa';
 
     if (
-      t.includes('que puedes hacer') || t.includes('para que sirves') || t.includes('que haces') ||
-      t.includes('como funcionas') || t.includes('puedes ayudarme') || t.includes('me ayudas') ||
-      t.includes('puedes recomendarme') || t.includes('me recomiendas')
+      this.tieneFrase(t, 'que puedes hacer') || this.tieneFrase(t, 'para que sirves') || this.tieneFrase(t, 'que haces') ||
+      this.tieneFrase(t, 'como funcionas') || this.tieneFrase(t, 'puedes ayudarme') || this.tieneFrase(t, 'me ayudas') ||
+      this.tieneFrase(t, 'puedes recomendarme') || this.tieneFrase(t, 'me recomiendas') ||
+      // JLP-DETECTAR-INTENT-GAP-FIX: responder() ya reconocía estas frases
+      // ('me puedes ayudar', 'necesito ayuda') en su propio bloque de
+      // capacidades, pero detectarIntent() no las tenía — encontrado por
+      // la suite de pruebas (caso "nesesito ayuda"), lo que hacía que la
+      // etiqueta de intención guardada en el historial no coincidiera con
+      // la respuesta real que el usuario recibía.
+      this.tieneFrase(t, 'me puedes ayudar') || this.tieneFrase(t, 'necesito ayuda')
     ) return 'capacidades';
 
     if (this.match(t, this.PROMO_KEYWORDS)) return 'promociones';
     if (this.match(t, this.PRECIO_KEYWORDS)) return 'precio';
     if (this.match(t, this.AGENDAR_CITA_KEYWORDS)) return 'agendar_cita';
 
-    if (t.includes('usas ubicacion') || t.includes('cerca de mi') || t.includes('negocios cercanos')) return 'ubicacion';
+    if (this.tieneFrase(t, 'usas ubicacion') || this.tieneFrase(t, 'cerca de mi') || this.tieneFrase(t, 'negocios cercanos')) return 'ubicacion';
 
     if (
-      t.includes('como te pregunto') || t.includes('como uso jelpy') ||
-      t.includes('que le puedo preguntar') || t.includes('no se que buscar') ||
-      t.includes('quiero salir') || t.includes('algo para hacer')
+      this.tieneFrase(t, 'como te pregunto') || this.tieneFrase(t, 'como uso jelpy') ||
+      this.tieneFrase(t, 'que le puedo preguntar') || this.tieneFrase(t, 'no se que buscar') ||
+      this.tieneFrase(t, 'quiero salir') || this.tieneFrase(t, 'algo para hacer')
     ) return 'guia_uso';
 
-    if (t.includes('me escuchas') || t.includes('estas ahi') || t.includes('me entiendes') || t.includes('puedes equivocarte')) return 'presencia';
+    if (this.tieneFrase(t, 'me escuchas') || this.tieneFrase(t, 'estas ahi') || this.tieneFrase(t, 'me entiendes') || this.tieneFrase(t, 'puedes equivocarte')) return 'presencia';
 
     if (
-      t.includes('hola') || t.includes('buenas') || t.includes('hey') || t.includes('holi') || t === 'hi'
+      this.tieneFrase(t, 'hola') || this.tieneFrase(t, 'buenas') || this.tieneFrase(t, 'hey') || this.tieneFrase(t, 'holi') || t === 'hi'
     ) return 'saludo';
 
-    if (t.includes('gracias')) return 'gracias';
-    if (t.includes('adios') || t.includes('nos vemos') || t.includes('hasta luego') || t.includes('bye')) return 'despedida';
+    if (this.tieneFrase(t, 'gracias')) return 'gracias';
+    if (this.tieneFrase(t, 'adios') || this.tieneFrase(t, 'nos vemos') || this.tieneFrase(t, 'hasta luego') || this.tieneFrase(t, 'bye')) return 'despedida';
 
-    if (t.includes('que me recomiendas') || t.includes('recomiendame algo') || t.includes('dame una recomendacion')) return 'recomendacion_general';
-    if (t.includes('hablas espanol') || t.includes('entiendes espanol')) return 'idioma';
+    if (this.tieneFrase(t, 'que me recomiendas') || this.tieneFrase(t, 'recomiendame algo') || this.tieneFrase(t, 'dame una recomendacion')) return 'recomendacion_general';
+    if (this.tieneFrase(t, 'hablas espanol') || this.tieneFrase(t, 'entiendes espanol')) return 'idioma';
 
-    if (t.includes('no entiendo') || t.includes('repiteme') || t.includes('explicame')) return 'no_entiende';
+    if (this.tieneFrase(t, 'no entiendo') || this.tieneFrase(t, 'repiteme') || this.tieneFrase(t, 'explicame')) return 'no_entiende';
 
     return 'fallback';
   }
@@ -355,11 +376,11 @@ export class ChatResponses {
     // 🚫 TEMAS FUERA DE ALCANCE
     // --------------------------------------------------
     if (
-      t.includes('tarea') || t.includes('resumen') ||
-      t.includes('matematica') || t.includes('quimica') ||
-      t.includes('fisica') || t.includes('codigo') ||
-      t.includes('programacion') || t.includes('investigacion') ||
-      t.includes('haz mi tarea') || t.includes('escribe un ensayo')
+      this.tieneFrase(t, 'tarea') || this.tieneFrase(t, 'resumen') ||
+      this.tieneFrase(t, 'matematica') || this.tieneFrase(t, 'quimica') ||
+      this.tieneFrase(t, 'fisica') || this.tieneFrase(t, 'codigo') ||
+      this.tieneFrase(t, 'programacion') || this.tieneFrase(t, 'investigacion') ||
+      this.tieneFrase(t, 'haz mi tarea') || this.tieneFrase(t, 'escribe un ensayo')
     ) {
       return {
         titulo: 'Soy Jelpy 😉',
@@ -430,9 +451,9 @@ export class ChatResponses {
     // IDENTIDAD
     // --------------------------------------------------
     if (
-      t.includes('quien eres') || t.includes('que eres') ||
-      t.includes('quien es jelpy') || t.includes('que es jelpy') ||
-      t.includes('quien sos') || t.includes('presentate')
+      this.tieneFrase(t, 'quien eres') || this.tieneFrase(t, 'que eres') ||
+      this.tieneFrase(t, 'quien es jelpy') || this.tieneFrase(t, 'que es jelpy') ||
+      this.tieneFrase(t, 'quien sos') || this.tieneFrase(t, 'presentate')
     ) {
       return {
         titulo: this.elegir(['Soy Jelpy 🤖✨', 'Me llamo Jelpy 💙', '¡Hola! Soy Jelpy 😊']),
@@ -445,8 +466,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('como te llamas') || t.includes('cual es tu nombre') ||
-      t.includes('tu nombre') || t.includes('llamas')
+      this.tieneFrase(t, 'como te llamas') || this.tieneFrase(t, 'cual es tu nombre') ||
+      this.tieneFrase(t, 'tu nombre') || this.tieneFrase(t, 'llamas')
     ) {
       return {
         titulo: 'Me llamo Jelpy 💙',
@@ -458,8 +479,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('eres humano') || t.includes('eres persona') ||
-      t.includes('eres real') || t.includes('hablas con alguien')
+      this.tieneFrase(t, 'eres humano') || this.tieneFrase(t, 'eres persona') ||
+      this.tieneFrase(t, 'eres real') || this.tieneFrase(t, 'hablas con alguien')
     ) {
       return {
         titulo: 'Soy un asistente virtual 🤖',
@@ -471,8 +492,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('de donde eres') || t.includes('donde vives') ||
-      t.includes('de donde vienes')
+      this.tieneFrase(t, 'de donde eres') || this.tieneFrase(t, 'donde vives') ||
+      this.tieneFrase(t, 'de donde vienes')
     ) {
       return {
         titulo: 'Vengo de la nube 🌐',
@@ -489,9 +510,9 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('tienes novia') || t.includes('tienes novio') ||
-      t.includes('estas enamorado') || t.includes('tienes sentimientos') ||
-      t.includes('sientes algo') || t.includes('te gusta alguien')
+      this.tieneFrase(t, 'tienes novia') || this.tieneFrase(t, 'tienes novio') ||
+      this.tieneFrase(t, 'estas enamorado') || this.tieneFrase(t, 'tienes sentimientos') ||
+      this.tieneFrase(t, 'sientes algo') || this.tieneFrase(t, 'te gusta alguien')
     ) {
       return {
         titulo: 'Soy un asistente virtual 😅',
@@ -503,14 +524,14 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('tienes sexo') || t.includes('que genero eres') ||
-      t.includes('eres hombre') || t.includes('eres mujer')
+      this.tieneFrase(t, 'tienes sexo') || this.tieneFrase(t, 'que genero eres') ||
+      this.tieneFrase(t, 'eres hombre') || this.tieneFrase(t, 'eres mujer')
     ) {
       return {
-        titulo: 'Soy un asistente sin género 🤖',
+        titulo: 'Soy Jelpy 🤖',
         mensaje: this.elegir([
-          'Soy solo software, pero estoy aquí para ayudarte con negocios, servicios y más.',
-          'No tengo género, soy código 😊 ¿En qué te ayudo?',
+          'Soy solo software y hablo de mí en masculino, pero estoy aquí para ayudarte con negocios, servicios y más.',
+          'Me refiero a mí mismo en masculino, aunque en el fondo solo soy código 😊 ¿En qué te ayudo?',
         ]),
       };
     }
@@ -519,10 +540,10 @@ export class ChatResponses {
     // CONVERSACIÓN / CHATBOT / IA
     // --------------------------------------------------
     if (
-      t.includes('eres chatbot') || t.includes('eres ia') ||
-      t.includes('eres inteligencia artificial') || t.includes('eres asistente') ||
-      t.includes('eres como chatgpt') || t.includes('eres como siri') ||
-      t.includes('puedes conversar') || t.includes('puedes platicar')
+      this.tieneFrase(t, 'eres chatbot') || this.tieneFrase(t, 'eres ia') ||
+      this.tieneFrase(t, 'eres inteligencia artificial') || this.tieneFrase(t, 'eres asistente') ||
+      this.tieneFrase(t, 'eres como chatgpt') || this.tieneFrase(t, 'eres como siri') ||
+      this.tieneFrase(t, 'puedes conversar') || this.tieneFrase(t, 'puedes platicar')
     ) {
       return {
         titulo: 'Sí, puedo conversar 💬',
@@ -533,7 +554,7 @@ export class ChatResponses {
       };
     }
 
-    if (t.includes('aprendes') || t.includes('puedes aprender') || t.includes('aprendes de mi')) {
+    if (this.tieneFrase(t, 'aprendes') || this.tieneFrase(t, 'puedes aprender') || this.tieneFrase(t, 'aprendes de mi')) {
       return {
         titulo: 'Me adapto a ti 📚',
         mensaje: tieneCiudad
@@ -567,8 +588,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('guardas mis datos') || t.includes('almacenas mis datos') ||
-      t.includes('te acuerdas de mi') || t.includes('guardas informacion')
+      this.tieneFrase(t, 'guardas mis datos') || this.tieneFrase(t, 'almacenas mis datos') ||
+      this.tieneFrase(t, 'te acuerdas de mi') || this.tieneFrase(t, 'guardas informacion')
     ) {
       return {
         titulo: 'Tu privacidad importa 🔐',
@@ -579,11 +600,11 @@ export class ChatResponses {
       };
     }
 
-    if (t.includes('eres segura') || t.includes('puedo confiar') || t.includes('eres confiable')) {
+    if (this.tieneFrase(t, 'eres seguro') || this.tieneFrase(t, 'eres segura') || this.tieneFrase(t, 'puedo confiar') || this.tieneFrase(t, 'eres confiable')) {
       return {
         titulo: 'Puedes confiar en mí 🤝',
         mensaje: this.elegir([
-          'Estoy diseñada para ayudarte de forma clara, amable y útil. ¿En qué te puedo ayudar?',
+          'Estoy diseñado para ayudarte de forma clara, amable y útil. ¿En qué te puedo ayudar?',
           'Trabajo con información verificada de negocios reales. ¿Qué necesitas encontrar?',
         ]),
       };
@@ -593,8 +614,8 @@ export class ChatResponses {
     // MISIÓN / VISIÓN / VALORES
     // --------------------------------------------------
     if (
-      t.includes('tu mision') || t.includes('mision de jelpy') ||
-      t.includes('para que existes') || t.includes('cual es tu proposito')
+      this.tieneFrase(t, 'tu mision') || this.tieneFrase(t, 'mision de jelpy') ||
+      this.tieneFrase(t, 'para que existes') || this.tieneFrase(t, 'cual es tu proposito')
     ) {
       return {
         titulo: 'Mi misión 🎯',
@@ -605,7 +626,7 @@ export class ChatResponses {
       };
     }
 
-    if (t.includes('tu vision') || t.includes('vision de jelpy')) {
+    if (this.tieneFrase(t, 'tu vision') || this.tieneFrase(t, 'vision de jelpy')) {
       return {
         titulo: 'Mi visión 🌟',
         mensaje: this.elegir([
@@ -615,7 +636,7 @@ export class ChatResponses {
       };
     }
 
-    if (t.includes('tus valores') || t.includes('valores de jelpy')) {
+    if (this.tieneFrase(t, 'tus valores') || this.tieneFrase(t, 'valores de jelpy')) {
       return {
         titulo: 'Mis valores 💙',
         mensaje: this.elegir([
@@ -629,9 +650,9 @@ export class ChatResponses {
     // CAPACIDADES
     // --------------------------------------------------
     if (
-      t.includes('que puedes hacer') || t.includes('para que sirves') ||
-      t.includes('que haces') || t.includes('como funcionas') ||
-      t.includes('cuales son tus funciones')
+      this.tieneFrase(t, 'que puedes hacer') || this.tieneFrase(t, 'para que sirves') ||
+      this.tieneFrase(t, 'que haces') || this.tieneFrase(t, 'como funcionas') ||
+      this.tieneFrase(t, 'cuales son tus funciones')
     ) {
       return {
         titulo: 'Puedo ayudarte con mucho 🧠',
@@ -648,8 +669,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('puedes ayudarme') || t.includes('me ayudas') ||
-      t.includes('me puedes ayudar') || t.includes('necesito ayuda')
+      this.tieneFrase(t, 'puedes ayudarme') || this.tieneFrase(t, 'me ayudas') ||
+      this.tieneFrase(t, 'me puedes ayudar') || this.tieneFrase(t, 'necesito ayuda')
     ) {
       return {
         titulo: this.elegir(['¡Claro! 💙', 'Con mucho gusto 😊', 'Sí, dime 🙌']),
@@ -666,8 +687,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('puedes recomendarme') || t.includes('me recomiendas') ||
-      t.includes('que recomiendas') || t.includes('que me sugieres')
+      this.tieneFrase(t, 'puedes recomendarme') || this.tieneFrase(t, 'me recomiendas') ||
+      this.tieneFrase(t, 'que recomiendas') || this.tieneFrase(t, 'que me sugieres')
     ) {
       return {
         titulo: this.elegir(['Claro ✨', 'Con gusto 🌟', 'Puedo orientarte 😊']),
@@ -735,8 +756,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('usas ubicacion') || t.includes('puedes buscar cerca') ||
-      t.includes('cerca de mi') || t.includes('negocios cercanos')
+      this.tieneFrase(t, 'usas ubicacion') || this.tieneFrase(t, 'puedes buscar cerca') ||
+      this.tieneFrase(t, 'cerca de mi') || this.tieneFrase(t, 'negocios cercanos')
     ) {
       return {
         titulo: 'Sí, busco por cercanía 📍',
@@ -756,8 +777,8 @@ export class ChatResponses {
     // GUÍA DE USO
     // --------------------------------------------------
     if (
-      t.includes('como te pregunto') || t.includes('como debo buscar') ||
-      t.includes('como uso jelpy') || t.includes('como buscar contigo')
+      this.tieneFrase(t, 'como te pregunto') || this.tieneFrase(t, 'como debo buscar') ||
+      this.tieneFrase(t, 'como uso jelpy') || this.tieneFrase(t, 'como buscar contigo')
     ) {
       return {
         titulo: 'Es muy fácil 🙌',
@@ -774,8 +795,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('que le puedo preguntar') || t.includes('que puedo preguntarte') ||
-      t.includes('que tipos de cosas') || t.includes('que mas puedes')
+      this.tieneFrase(t, 'que le puedo preguntar') || this.tieneFrase(t, 'que puedo preguntarte') ||
+      this.tieneFrase(t, 'que tipos de cosas') || this.tieneFrase(t, 'que mas puedes')
     ) {
       return {
         titulo: 'Puedes preguntarme muchas cosas ✨',
@@ -792,8 +813,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('no se que buscar') || t.includes('ayudame a decidir') ||
-      t.includes('no sé que quiero') || t.includes('dame ideas')
+      this.tieneFrase(t, 'no se que buscar') || this.tieneFrase(t, 'ayudame a decidir') ||
+      this.tieneFrase(t, 'no sé que quiero') || this.tieneFrase(t, 'dame ideas')
     ) {
       return {
         titulo: 'Te ayudo a decidir 🧭',
@@ -802,8 +823,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('quiero salir') || t.includes('algo para hacer') ||
-      t.includes('a donde puedo ir') || t.includes('planes para hoy')
+      this.tieneFrase(t, 'quiero salir') || this.tieneFrase(t, 'algo para hacer') ||
+      this.tieneFrase(t, 'a donde puedo ir') || this.tieneFrase(t, 'planes para hoy')
     ) {
       return {
         titulo: 'Tengo ideas para ti 🎉',
@@ -823,9 +844,9 @@ export class ChatResponses {
     // PRESENCIA / DISPONIBILIDAD
     // --------------------------------------------------
     if (
-      t.includes('me escuchas') || t.includes('me lees') ||
-      t.includes('estas ahi') || t.includes('sigues ahi') ||
-      t.includes('estas activa') || t.includes('estas disponible')
+      this.tieneFrase(t, 'me escuchas') || this.tieneFrase(t, 'me lees') ||
+      this.tieneFrase(t, 'estas ahi') || this.tieneFrase(t, 'sigues ahi') ||
+      this.tieneFrase(t, 'estas activo') || this.tieneFrase(t, 'estas activa') || this.tieneFrase(t, 'estas disponible')
     ) {
       return {
         titulo: this.elegir(['Sí, aquí estoy 👀', 'Sigo aquí 💙', 'Claro, te leo 😊']),
@@ -835,13 +856,13 @@ export class ChatResponses {
               'Presente. ¿Seguimos con la búsqueda anterior o algo nuevo?',
             ])
           : this.elegir([
-              'Estoy lista para ayudarte. Dime qué necesitas.',
+              'Estoy listo para ayudarte. Dime qué necesitas.',
               'Aquí estoy, listo para tu siguiente búsqueda.',
             ]),
       };
     }
 
-    if (t.includes('me entiendes') || t.includes('entiendes lo que digo')) {
+    if (this.tieneFrase(t, 'me entiendes') || this.tieneFrase(t, 'entiendes lo que digo')) {
       return {
         titulo: 'Sí, haré mi mejor esfuerzo 💬',
         mensaje: this.elegir([
@@ -851,12 +872,12 @@ export class ChatResponses {
       };
     }
 
-    if (t.includes('puedes equivocarte') || t.includes('te equivocas') || t.includes('a veces fallas')) {
+    if (this.tieneFrase(t, 'puedes equivocarte') || this.tieneFrase(t, 'te equivocas') || this.tieneFrase(t, 'a veces fallas')) {
       return {
         titulo: 'Puedo mejorar contigo 🛠️',
         mensaje: tieneCiudad
           ? this.elegir([
-              `A veces necesito más contexto. Si me das más detalle, puedo ser más precisa en ${ciudad}.`,
+              `A veces necesito más contexto. Si me das más detalle, puedo ser más preciso en ${ciudad}.`,
               'Puedo equivocarme si el mensaje es muy ambiguo. Dame un poco más de detalle y te ayudo mejor.',
             ])
           : this.elegir([
@@ -870,9 +891,9 @@ export class ChatResponses {
     // SALUDOS
     // --------------------------------------------------
     if (
-      t.includes('hola') || t.includes('buenas') || t.includes('hey') ||
-      t.includes('holi') || t.includes('buen dia') || t.includes('buenos dias') ||
-      t.includes('buenas tardes') || t.includes('buenas noches') || t === 'hi'
+      this.tieneFrase(t, 'hola') || this.tieneFrase(t, 'buenas') || this.tieneFrase(t, 'hey') ||
+      this.tieneFrase(t, 'holi') || this.tieneFrase(t, 'buen dia') || this.tieneFrase(t, 'buenos dias') ||
+      this.tieneFrase(t, 'buenas tardes') || this.tieneFrase(t, 'buenas noches') || t === 'hi'
     ) {
       const saludo = this.saludoPorHora();
       const emoji  = this.emojiSaludo();
@@ -903,7 +924,7 @@ export class ChatResponses {
     // --------------------------------------------------
     // GRACIAS / DESPEDIDA
     // --------------------------------------------------
-    if (t.includes('gracias') || t.includes('te agradezco') || t.includes('muchas gracias')) {
+    if (this.tieneFrase(t, 'gracias') || this.tieneFrase(t, 'te agradezco') || this.tieneFrase(t, 'muchas gracias')) {
       return {
         titulo: this.elegir(['¡Con gusto! 💙', '¡Para eso estoy! 😊', 'Un placer 🙌']),
         mensaje: tieneCiudad
@@ -919,8 +940,8 @@ export class ChatResponses {
     }
 
     if (
-      t.includes('adios') || t.includes('nos vemos') || t.includes('hasta luego') ||
-      t.includes('bye') || t.includes('chao') || t.includes('hasta pronto')
+      this.tieneFrase(t, 'adios') || this.tieneFrase(t, 'nos vemos') || this.tieneFrase(t, 'hasta luego') ||
+      this.tieneFrase(t, 'bye') || this.tieneFrase(t, 'chao') || this.tieneFrase(t, 'hasta pronto')
     ) {
       return {
         titulo: this.elegir(['¡Hasta luego! 👋', '¡Nos vemos! 👋', 'Cuídate 💙']),
@@ -935,9 +956,9 @@ export class ChatResponses {
     // RECOMENDACIONES GENERALES
     // --------------------------------------------------
     if (
-      t.includes('que me recomiendas') || t.includes('recomiendame algo') ||
-      t.includes('sugiereme algo') || t.includes('dame una recomendacion') ||
-      t.includes('quiero una recomendacion')
+      this.tieneFrase(t, 'que me recomiendas') || this.tieneFrase(t, 'recomiendame algo') ||
+      this.tieneFrase(t, 'sugiereme algo') || this.tieneFrase(t, 'dame una recomendacion') ||
+      this.tieneFrase(t, 'quiero una recomendacion')
     ) {
       return {
         titulo: 'Te ayudo a decidir ✨',
@@ -951,8 +972,8 @@ export class ChatResponses {
     // HABLAR EN ESPAÑOL
     // --------------------------------------------------
     if (
-      t.includes('hablas espanol') || t.includes('entiendes espanol') ||
-      t.includes('solo espanol') || t.includes('solo hablas espanol')
+      this.tieneFrase(t, 'hablas espanol') || this.tieneFrase(t, 'entiendes espanol') ||
+      this.tieneFrase(t, 'solo espanol') || this.tieneFrase(t, 'solo hablas espanol')
     ) {
       return {
         titulo: 'Sí, en español 🇲🇽',
@@ -971,8 +992,8 @@ export class ChatResponses {
     // atrapado en una respuesta genérica de "no entendí".
     // --------------------------------------------------
     if (
-      t.includes('no entiendo') || t.includes('repiteme') ||
-      t.includes('explicame') || t.includes('como funciona esto')
+      this.tieneFrase(t, 'no entiendo') || this.tieneFrase(t, 'repiteme') ||
+      this.tieneFrase(t, 'explicame') || this.tieneFrase(t, 'como funciona esto')
     ) {
       return {
         titulo: 'Claro, te explico ✨',
