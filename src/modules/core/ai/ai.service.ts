@@ -5,6 +5,7 @@ import { SanitizerUseCase } from './use-cases/sanitizer.usecase';
 import { TrackMetricsUseCase } from './use-cases/track-metrics.usecase';
 import { HistoryManagerUseCase } from './use-cases/history-manager.usecase';
 import { ContextResolverUseCase } from './use-cases/context-resolver.usecase';
+import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
 import { JelpyAssistantService } from './jelpy-assistant/jelpy-assistant.service';
 import { AIResponseBuilder } from './utils/ai-response-builder';
 import { ChatResponses } from './utils/chat-responses';
@@ -46,6 +47,7 @@ export class AiService {
     private readonly trackMetricsUseCase: TrackMetricsUseCase,
     private readonly historyUseCase: HistoryManagerUseCase,
     private readonly contextResolver: ContextResolverUseCase,
+    private readonly intentDetector: IntentDetectorUseCase,
     private readonly conversationService: ConversationService,
     private readonly searchCache: SearchCacheService,
     private readonly rateLimiter: RateLimiterService,
@@ -143,6 +145,38 @@ export class AiService {
   private generarMensajeContextual(ciudad?: string): string | null {
     if (ciudad) return `Buscando en ${ciudad}.`;
     return null;
+  }
+
+  /**
+   * Detecta si el texto contiene algún alias de negocio/categoría conocido
+   * (JELPY_SEMANTIC_CATEGORIES), usando límites de palabra (\b) en vez de
+   * un simple `.includes()`.
+   *
+   * Bug que esto corrige: con `.includes()` a secas, alias muy cortos como
+   * "te" (de "cafeterías") matcheaban como substring dentro de CUALQUIER
+   * palabra que los contuviera — ej. "con-TE-stas", "es-TE", "ges-TE-ionar" —
+   * lo que forzaba falsos positivos de "esto es una búsqueda de negocio"
+   * para mensajes que no tenían nada que ver (como una queja: "porque no
+   * contestas bien"). Esto es, con alta probabilidad, la causa raíz de los
+   * resultados incoherentes tipo "te recomiendo tal negocio" para mensajes
+   * genéricos.
+   */
+  private contieneTerminoDeNegocio(texto: string): boolean {
+    const textoNorm = this.normalizarTexto(texto);
+
+    return JELPY_SEMANTIC_CATEGORIES.some((cat) =>
+      cat.aliases.some((alias) => {
+        const aliasNorm = this.normalizarTexto(alias);
+
+        // Alias de 1-2 caracteres son demasiado ambiguos para matchear con
+        // confianza (ej. "te", "ir"); se ignoran para evitar falsos positivos.
+        if (aliasNorm.length < 3) return false;
+
+        const aliasEscapado = aliasNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        return new RegExp(`\\b${aliasEscapado}\\b`).test(textoNorm);
+      }),
+    );
   }
 
   async processUserMessage(
@@ -272,42 +306,55 @@ export class AiService {
 
     const textoParaProcesar = resolucion.textoEnriquecido;
 
-    // JLP-CHAT-FIX: esta llamada a FastAPI (jelpy-ia-service en Render) NO
-    // tenía try/catch. `JelpyAiService.interpretar()` convierte CUALQUIER
-    // falla (timeout de 10s, cold start del servicio gratuito de Render, red)
-    // en un InternalServerErrorException que antes se propagaba sin capturar
-    // hasta el controller → 500 → el frontend mostraba el genérico "Lo siento,
-    // hubo un problema al interpretar tu mensaje". Esto es intermitente: pasa
-    // cuando jelpy-ia-service está lento/dormido, no siempre, por eso parecía
-    // aleatorio ("a veces funciona, a veces truena").
+    // ── FAST-PATH LOCAL (chat) ──────────────────────────────────────────
+    // Saludos, agradecimientos, despedidas, quejas, dudas simples, etc. se
+    // resuelven 100% localmente vía ChatResponses SIN llamar al microservicio
+    // externo de FastAPI (jelpy-ia-service en Render).
     //
-    // Nota: `JelpyAssistantService.interpretar()` ya hace esta MISMA llamada
-    // a FastAPI internamente (para volver a mapear filtros de búsqueda) y esa
-    // sí está protegida con try/catch + fallback local (interpretarFallbackLocal).
-    // Aquí replicamos esa resiliencia: si FastAPI falla, seguimos el flujo
-    // igual, dejando que el motor de búsqueda interno (que vuelve a intentar
-    // FastAPI y cae a heurísticas locales si hace falta) se encargue en vez
-    // de tronar toda la petición.
+    // Por qué: ese servicio corre en un plan gratuito de Render que "duerme"
+    // tras inactividad y puede tardar hasta 10s (nuestro timeout) en
+    // responder tras un cold start, o simplemente fallar. Antes, CUALQUIER
+    // mensaje —incluido un simple "Hola"— dependía por completo de esa
+    // llamada: si fallaba, el catch de abajo forzaba `intent: 'buscar_negocios'`
+    // a ciegas, lo cual mandaba saludos, promos y quejas al motor de búsqueda
+    // (produciendo el error genérico "hubo un problema al interpretar tu
+    // mensaje" cuando algo tronaba en el camino, o resultados incoherentes
+    // tipo "te recomiendo Salón Simancas" para un mensaje que no tenía nada
+    // que ver con eso).
+    //
+    // Con este fast-path combinamos DOS detectores 100% locales para decidir
+    // si el mensaje "suena" a chat conversacional:
+    //   1) `IntentDetectorUseCase` — heurística binaria genérica (chat/search).
+    //   2) `ChatResponses.detectarIntent()` — catálogo específico de intenciones
+    //      conversacionales (saludo, promociones, precio, queja, agendar_cita...).
+    // Se combinan con OR porque cada uno cubre casos que el otro no: por
+    // ejemplo, `IntentDetectorUseCase` clasifica "promociones"/"promos" como
+    // "search" (están en su lista de keywords de negocio), pero ChatResponses
+    // SÍ tiene un intent conversacional dedicado para eso ("promociones" →
+    // respuesta informativa pidiendo categoría). Si cualquiera de los dos
+    // reconoce el mensaje como chat, Y el mensaje no contiene ningún término
+    // de negocio/categoría conocido (JELPY_SEMANTIC_CATEGORIES, que sí es la
+    // fuente de verdad para búsquedas reales), respondemos directo con
+    // ChatResponses: rápido, confiable y sin depender de que FastAPI esté
+    // despierto. Si el mensaje sí parece una búsqueda real, seguimos usando
+    // FastAPI (para extraer entidades/categoría con más precisión), con el
+    // mismo try/catch de siempre como red de seguridad — y si ese falla,
+    // usamos la MISMA combinación de heurísticas locales para decidir el
+    // fallback en vez de asumir ciegamente que es una búsqueda.
+    const contieneTerminoDeBusqueda = this.contieneTerminoDeNegocio(textoParaProcesar);
+
+    const intentLocalHeuristico = this.intentDetector.detect(textoParaProcesar);
+    const intentGranularLocal = ChatResponses.detectarIntent(textoParaProcesar);
+
+    const pareceChatLocal =
+      intentLocalHeuristico === 'chat' || intentGranularLocal !== 'fallback';
+
     let aiIntent: Awaited<ReturnType<JelpyAiService['interpretar']>>;
 
-    try {
-      aiIntent = await this.jelpyAiService.interpretar({
-        text: textoParaProcesar,
-        city_hint: contexto?.ciudad ?? sesion.ciudad ?? null,
-        lat: contexto?.latitud ?? null,
-        lng: contexto?.longitud ?? null,
-        user_id: usuarioId ?? null,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `[FastAPI] interpretar() falló, usando fallback degradado: ${
-          (error as Error)?.message || error
-        }`,
-      );
-
+    if (pareceChatLocal && !contieneTerminoDeBusqueda) {
       aiIntent = {
-        intent: 'buscar_negocios',
-        confidence: 0,
+        intent: 'chat',
+        confidence: 1,
         entities: {
           categoria: null,
           subcategoria: null,
@@ -316,8 +363,38 @@ export class AiService {
         },
         filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
         normalized_text: textoParaProcesar,
-        reply: { mode: 'search', title: null, message: null, suggestions: [] },
+        reply: { mode: 'local_chat', title: null, message: null, suggestions: [] },
       } as any;
+    } else {
+      try {
+        aiIntent = await this.jelpyAiService.interpretar({
+          text: textoParaProcesar,
+          city_hint: contexto?.ciudad ?? sesion.ciudad ?? null,
+          lat: contexto?.latitud ?? null,
+          lng: contexto?.longitud ?? null,
+          user_id: usuarioId ?? null,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `[FastAPI] interpretar() falló, usando fallback degradado: ${
+            (error as Error)?.message || error
+          }`,
+        );
+
+        aiIntent = {
+          intent: pareceChatLocal && !contieneTerminoDeBusqueda ? 'chat' : 'buscar_negocios',
+          confidence: 0,
+          entities: {
+            categoria: null,
+            subcategoria: null,
+            ciudad: contexto?.ciudad ?? sesion.ciudad ?? null,
+            especialidad: null,
+          },
+          filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+          normalized_text: textoParaProcesar,
+          reply: { mode: 'search', title: null, message: null, suggestions: [] },
+        } as any;
+      }
     }
 
     await this.conversationService.guardarTurnoUsuario(
@@ -379,13 +456,7 @@ export class AiService {
     ].some((p) => textoNormSentimiento.includes(this.normalizarTexto(p)));
 
     if (aiIntent.intent === 'chat' && !esFrustrado) {
-      const textoNormCheck = this.normalizarTexto(textoCorregido);
-
-      const tieneTerminoSemantico = JELPY_SEMANTIC_CATEGORIES.some((cat) =>
-        cat.aliases.some((alias) =>
-          textoNormCheck.includes(this.normalizarTexto(alias)),
-        ),
-      );
+      const tieneTerminoSemantico = this.contieneTerminoDeNegocio(textoCorregido);
 
       if (tieneTerminoSemantico) {
         this.logger.debug(
