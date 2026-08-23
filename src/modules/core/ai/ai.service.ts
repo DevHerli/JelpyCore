@@ -181,7 +181,24 @@ export class AiService {
   ) {
     this.logger.debug(`[Session: ${sessionId ?? 'nueva'}] Procesando: "${input}"`);
 
-    const claveRL = sessionId ?? contexto?.ip ?? 'anonymous';
+    // JLP-RATELIMIT-KEY-FIX: antes se priorizaba `sessionId` y, si faltaba,
+    // `contexto.ip` — pero el frontend nunca envió `sessionId` (bug aparte,
+    // corregido en el cliente) y siempre manda `ip: null` explícito en el
+    // body. Resultado: `claveRL` caía SIEMPRE en el literal 'anonymous',
+    // sin importar el usuario — es decir, el límite "amigable" de 30
+    // mensajes/min (RateLimiterService) era en realidad UN SOLO cupo
+    // compartido por TODOS los usuarios de la app a la vez. Cualquier
+    // actividad normal de varios usuarios simultáneos agotaba ese cupo
+    // global y el resto empezaba a recibir "Demasiados mensajes" sin haber
+    // enviado casi nada. Usamos `usuarioId` (viene del JWT, siempre
+    // presente en este endpoint autenticado) como clave primaria — es
+    // estable, único por usuario real y no depende de que el cliente mande
+    // nada adicional.
+    const claveRL =
+      (usuarioId ? `user:${usuarioId}` : null) ??
+      (sessionId ? `session:${sessionId}` : null) ??
+      (contexto?.ip ? `ip:${contexto.ip}` : null) ??
+      'anonymous';
 
     if (!this.rateLimiter.verificar(claveRL)) {
       const segundos = this.rateLimiter.tiempoRestante(claveRL);
@@ -681,6 +698,21 @@ export class AiService {
     }
 
     if (items.length === 0) {
+      // JLP-PROMO-FIX: además de verbos de intención genéricos ("quiero",
+      // "busco"...), hay que excluir palabras de FILTRO/COMERCIALES
+      // (promociones, precio, oferta, cerca, abierto...) de la selección de
+      // "palabra significativa" para la sugerencia ortográfica.
+      //
+      // Bug que esto corrige: con un mensaje como "Promociones de sushi" sin
+      // resultados, el código tomaba la primera palabra de ≥4 letras que no
+      // fuera un verbo de intención → "Promociones" (en vez de "sushi", que
+      // es la categoría real que se buscó). Luego se le pasaba "Promociones"
+      // a `sugerirCorreccion()` (fuzzy match por Levenshtein contra el
+      // diccionario de negocio), que encontraba "protecciones" como la
+      // palabra más parecida — produciendo el mensaje sin sentido
+      // "No encontré 'Promociones' ¿Quisiste decir 'protecciones'?" para una
+      // categoría (sushi) que sí existe en el diccionario pero simplemente no
+      // tuvo resultados en ese momento/ciudad.
       const verbosIntento = new Set([
         'quiero',
         'queria',
@@ -721,6 +753,37 @@ export class AiService {
         'cerca',
         'cerquita',
         'favor',
+        // Promociones / ofertas (mismo catálogo conceptual que
+        // ChatResponses.PROMO_KEYWORDS — palabras de filtro, no de negocio)
+        'promocion',
+        'promoción',
+        'promociones',
+        'promo',
+        'promos',
+        'oferta',
+        'ofertas',
+        'descuento',
+        'descuentos',
+        'rebaja',
+        'rebajas',
+        'cupon',
+        'cupón',
+        'cupones',
+        // Precio / costo (ChatResponses.PRECIO_KEYWORDS)
+        'precio',
+        'precios',
+        'costo',
+        'costos',
+        'tarifa',
+        'tarifas',
+        'cotizacion',
+        'cotización',
+        // Otros filtros comerciales frecuentes
+        'abierto',
+        'abierta',
+        'abiertos',
+        'abiertas',
+        'domicilio',
       ]);
 
       const palabraSignificativa =

@@ -36,6 +36,21 @@ async function bootstrap() {
       : ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
+  // JLP-TRUST-PROXY-FIX: en Render (y cualquier despliegue detrás de un
+  // reverse proxy/load balancer) Express NO confía en el header
+  // `X-Forwarded-For` por defecto, así que `req.ip` resuelve SIEMPRE a la IP
+  // interna del proxy — la misma para TODAS las peticiones de TODOS los
+  // usuarios. Esto rompe cualquier rate-limit basado en IP (como
+  // `ThrottlerGuard` en /ai/process): en la práctica, el límite deja de ser
+  // "por usuario" y se vuelve un límite GLOBAL compartido por toda la app.
+  // Un solo usuario probando rápido (o varios usuarios normales a la vez)
+  // agota el cupo de TODOS, y el resto empieza a recibir 429 de la nada —
+  // que en el frontend se traduce en el genérico "hubo un problema al
+  // interpretar tu mensaje" para un simple "Hola", sin relación real con el
+  // contenido del mensaje. `trust proxy: 1` hace que Express lea la IP real
+  // del primer proxy en `X-Forwarded-For`, restaurando el rate-limit por IP.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   app.use(helmet());
 
   app.useGlobalFilters(new HttpExceptionFilter());

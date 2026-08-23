@@ -43,9 +43,20 @@ export class AiController {
    *   }
    * }
    */
+  // JLP-THROTTLE-FIX: antes este límite (15/60s) era MÁS ESTRICTO que el
+  // rate-limiter interno "amigable" de AiService (30 msj/min, ver
+  // RateLimiterService), y se evalúa ANTES de llegar al controlador. Eso
+  // significa que, en la práctica, el límite de 30/min nunca se alcanzaba:
+  // a los 15 requests en 60s, ThrottlerGuard ya había tirado un 429 "seco"
+  // (sin body coherente) que el frontend no sabe interpretar y muestra como
+  // error genérico. Una conversación real de chat (mensaje + varios chips
+  // tocados) agota ese cupo fácilmente en menos de un minuto. Se sube por
+  // encima del límite interno para que sea solo una red de seguridad
+  // anti-abuso, y el mensaje amigable "Demasiados mensajes 🐢" (con cuenta
+  // regresiva) sea el que el usuario vea normalmente.
   @Post('process')
   @UseGuards(JwtAuthGuard)
-  @Throttle({ default: { limit: 15, ttl: 60 } })
+  @Throttle({ default: { limit: 60, ttl: 60 } })
   async procesarMensaje(
     @Req() req: any,
     @Body('mensaje') mensaje: string,
