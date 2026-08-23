@@ -98,6 +98,103 @@ export class ChatResponses {
     'como agendo', 'como saco cita', 'quiero agendar',
   ];
 
+  // =====================================================
+  // SUGERENCIAS DINÁMICAS (chips)
+  // Importante: cada frase de este catálogo está armada con alias reales
+  // del diccionario de negocio (JELPY_SEMANTIC_CATEGORIES) — "tacos",
+  // "doctor", "spa", "barbería", etc. — para que si el usuario TOCA el
+  // chip (y el texto se reenvía tal cual como si lo hubiera escrito), el
+  // mensaje SIEMPRE se reconozca correctamente (ya sea como búsqueda real
+  // o como intención conversacional válida) y nunca caiga en el
+  // "No entendí bien" genérico. Antes los chips eran preguntas fijas
+  // ("¿Quieres buscar algo cerca de ti?") que no coincidían con ningún
+  // patrón de detección — de ahí el bug reportado.
+  // =====================================================
+  private static readonly POOL_COMIDA = [
+    'Tacos cerca de mí', 'Sushi cerca de mí', 'Restaurantes cerca de mí',
+  ];
+
+  private static readonly POOL_SALUD = [
+    'Doctor cerca de mí', 'Farmacia abierta', 'Dentista cerca de mí',
+  ];
+
+  private static readonly POOL_BELLEZA = [
+    'Barbería cerca de mí', 'Spa cerca de mí', 'Peluquería cerca de mí',
+  ];
+
+  private static readonly POOL_EXPLORAR = [
+    'Hotel cerca de mí', 'Gimnasio cerca de mí', 'Veterinaria cerca de mí',
+  ];
+
+  private static readonly POOL_PROMOS = [
+    'Promociones de tacos', 'Promociones de sushi', 'Promociones de spa',
+    'Promociones de barbería', 'Promociones de farmacia',
+  ];
+
+  /** Elige N elementos distintos al azar de un array (sin repetir). */
+  private static elegirVarios<T>(opciones: T[], n: number): T[] {
+    const copia = [...opciones];
+    const resultado: T[] = [];
+
+    while (copia.length > 0 && resultado.length < n) {
+      const idx = Math.floor(Math.random() * copia.length);
+      resultado.push(copia.splice(idx, 1)[0]);
+    }
+
+    return resultado;
+  }
+
+  /**
+   * Genera chips de sugerencia contextuales y dinámicos según la intención
+   * conversacional detectada (ver `detectarIntent`). Reemplaza al set fijo
+   * de 2 sugerencias genéricas que se repetía siempre igual, sin importar
+   * de qué se estuviera hablando.
+   *
+   * Reglas de diseño:
+   *  - En intents sensibles (queja, escalar a humano, despedida) NO se
+   *    empujan chips: no es el momento de "vender" otra búsqueda.
+   *  - En el resto, se arma un pool relevante al tema y se eligen 2-3 al
+   *    azar cada vez, para que no se sientan repetitivos.
+   */
+  static generarSugerencias(intentGranular: string): string[] {
+    switch (intentGranular) {
+      case 'queja':
+      case 'humano_escalar':
+      case 'despedida':
+        return [];
+
+      case 'promociones':
+        return this.elegirVarios(this.POOL_PROMOS, 3);
+
+      case 'agendar_cita':
+        return this.elegirVarios([...this.POOL_SALUD, ...this.POOL_BELLEZA], 3);
+
+      case 'precio':
+      case 'ubicacion':
+        return this.elegirVarios([...this.POOL_COMIDA, ...this.POOL_SALUD], 2);
+
+      case 'capacidades':
+      case 'guia_uso':
+      case 'recomendacion_general':
+        return this.elegirVarios(
+          [...this.POOL_COMIDA, ...this.POOL_EXPLORAR, ...this.POOL_PROMOS],
+          3,
+        );
+
+      case 'saludo':
+      case 'presencia':
+      case 'gracias':
+      case 'confuso':
+      case 'no_entiende':
+      case 'fallback':
+      default:
+        return this.elegirVarios(
+          [...this.POOL_COMIDA, ...this.POOL_SALUD, ...this.POOL_BELLEZA, ...this.POOL_PROMOS],
+          3,
+        );
+    }
+  }
+
   /**
    * Etiquetas de intención "repetibles": si el usuario vuelve a preguntar
    * lo mismo en la misma sesión, conviene reconocerlo en vez de repetir
@@ -554,8 +651,8 @@ export class ChatResponses {
         titulo: this.elegir(['¡Sí, busco promociones! 🎉', 'Encuentro ofertas por ti 🎉']),
         mensaje: tieneCiudad
           ? this.elegir([
-              `Puedo buscar promociones activas en ${ciudad}. Dime en qué categoría: sushi, barbería, hotel, farmacia…`,
-              `Dime qué tipo de negocio te interesa y busco las promociones activas en ${ciudad}.`,
+              `Puedo buscar promociones en ${ciudad}. Dime en qué categoría: sushi, barbería, hotel, farmacia…`,
+              `Dime qué tipo de negocio te interesa y busco las promociones en ${ciudad}.`,
             ])
           : this.elegir([
               'Dime qué tipo de negocio y tu ciudad, y busco las mejores promociones disponibles.',
@@ -737,7 +834,9 @@ export class ChatResponses {
       const saludo = this.saludoPorHora();
       const emoji  = this.emojiSaludo();
       return {
-        titulo: `${saludo} ${emoji}`,
+        titulo: tieneHistorial
+          ? `${saludo} ${emoji}`
+          : this.elegir([`¡Hola! ${emoji}`, `${saludo} ${emoji}`, `¡Qué tal! ${emoji}`]),
         mensaje: tieneHistorial
           ? this.elegir([
               `¿En qué más te puedo ayudar${enCiudad}?`,
@@ -747,12 +846,12 @@ export class ChatResponses {
           : this.elegir(
               tieneCiudad
                 ? [
-                    `¿Qué te gustaría encontrar en ${ciudad}? Puedo ayudarte con comida, salud, servicios, promociones y más.`,
-                    `Dime qué buscas y lo encuentro en ${ciudad}.`,
+                    `¡Qué gusto saludarte! 😊 ¿Qué te gustaría encontrar en ${ciudad}? Puedo ayudarte con comida, salud, servicios, promociones y más.`,
+                    `¡Hola! Bienvenido a Jelpy 💙 Dime qué buscas y lo encuentro en ${ciudad}.`,
                   ]
                 : [
-                    '¿Qué te gustaría encontrar hoy? Puedo ayudarte con comida, salud, servicios, promociones y lugares cercanos.',
-                    'Cuéntame qué necesitas y te ayudo a encontrarlo cerca de ti.',
+                    '¡Hola! 😊 ¿Qué te gustaría encontrar hoy? Puedo ayudarte con comida, salud, servicios, promociones y lugares cercanos.',
+                    '¡Hola! Bienvenido a Jelpy 💙 Cuéntame qué necesitas y te ayudo a encontrarlo cerca de ti.',
                   ],
             ),
       };

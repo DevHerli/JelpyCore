@@ -72,12 +72,6 @@ export class AiService {
       .trim();
   }
 
-  private generarSugerenciasGenericas(ciudad?: string): string[] {
-    return [
-      ciudad ? `¿Quieres buscar otra cosa en ${ciudad}?` : '¿Quieres hacer otra búsqueda?',
-      '¿Quieres buscar algo cerca de ti?',
-    ];
-  }
 
   private generarRecomendacionProactiva(filtros: any, items: any[]): string {
     if (items.length === 0) {
@@ -411,7 +405,9 @@ export class AiService {
 
     if (aiIntent.reply?.mode === 'direct_reply' && !esBusquedaReal) {
       const respuestaTexto = aiIntent.reply.message || '';
-      const sugerencias = this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad);
+      const sugerencias = ChatResponses.generarSugerencias(
+        ChatResponses.detectarIntent(textoCorregido),
+      );
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
@@ -484,7 +480,10 @@ export class AiService {
             titulo: 'Lo siento',
             mensaje:
               'Entiendo que no encontraste lo que buscabas 😔 Cuéntame qué necesitas con otras palabras y hago mi mejor esfuerzo para ayudarte.',
-            sugerencias: this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad),
+            // Sin chips aquí a propósito: el usuario está frustrado, no es
+            // momento de empujarle más sugerencias/opciones (ver 'queja' en
+            // ChatResponses.generarSugerencias).
+            sugerencias: ChatResponses.generarSugerencias('queja'),
           },
         };
       }
@@ -513,7 +512,13 @@ export class AiService {
 
       const intentGranular = ChatResponses.detectarIntent(textoCorregido);
 
-      const sugerencias = this.generarSugerenciasGenericas(contexto?.ciudad ?? sesion.ciudad);
+      // Chips dinámicos y contextuales (ver ChatResponses.generarSugerencias):
+      // cambian según de qué se habló (saludo, promociones, agendar cita...)
+      // y están armados con alias reales de negocio, para que si el usuario
+      // toca uno, SIEMPRE se interprete correctamente en el siguiente turno
+      // (antes eran 2 preguntas fijas que ni siquiera coincidían con ningún
+      // patrón de detección, y tocar el chip devolvía "No entendí bien").
+      const sugerencias = ChatResponses.generarSugerencias(intentGranular);
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
