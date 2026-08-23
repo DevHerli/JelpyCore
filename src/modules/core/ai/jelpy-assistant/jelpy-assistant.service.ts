@@ -13,6 +13,8 @@ import { UsuarioPreferenciasService } from '../../preferencias-usuarios/usuario-
 
 import { JelpyAiService } from '../../../jelpy-ai/jelpy-ai.service';
 import { JelpyAiResponse } from '../../../jelpy-ai/interfaces/jelpy-ai-response.interface';
+import { ChatResponses } from '../utils/chat-responses';
+import { ConversationClassifier } from '../utils/conversation-classifier';
 
 import {
   SemanticCategory,
@@ -80,6 +82,62 @@ export class JelpyAssistantService {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .trim();
+  }
+
+  private normalizarParaCoincidencia(texto: string): string {
+    return this.normalizar(texto)
+      .replace(/[¿?¡!.,;:()]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private contieneTerminoDeNegocio(texto: string): boolean {
+    const textoNorm = this.normalizarParaCoincidencia(texto);
+
+    return this.diccionarioSemantico.some((cat) =>
+      cat.aliases.some((alias) => {
+        const aliasNorm = this.normalizarParaCoincidencia(alias);
+
+        if (aliasNorm.length < 3) return false;
+
+        const aliasEscapado = aliasNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`\\b${aliasEscapado}\\b`).test(textoNorm);
+      }),
+    );
+  }
+
+  private responderConversacional(texto: string, ciudad?: string | null) {
+    const clasificacion = ConversationClassifier.classify(texto);
+    const intent = clasificacion.chatIntent;
+
+    if (clasificacion.route === 'search') return null;
+
+    const respuesta = ChatResponses.responder(texto, {
+      ciudad: ciudad ?? undefined,
+      historialTurnos: 0,
+    });
+    const suggestedQueries = ChatResponses.generarSugerencias(intent).map((query) => ({
+      label: query,
+      query,
+      filter: `chat_${intent}`,
+    }));
+
+    return {
+      filtros_detectados: {
+        intent: 'chat',
+        chatIntent: intent,
+        clasificacion: clasificacion.intent,
+        ciudad: ciudad ?? null,
+      },
+      resultados: { items: [] },
+      sin_resultados: false,
+      mensaje_sin_resultados: null,
+      esMensajeConversacional: true,
+      respuesta,
+      titulo: respuesta.titulo,
+      mensaje: respuesta.mensaje,
+      suggestedQueries,
+    };
   }
 
   private detectarIntencionSemantica(textoNorm: string): SemanticDetectionResult {
@@ -967,6 +1025,14 @@ for (const a of aliases) {
         : texto;
 
     const textoNorm = this.normalizar(textoProcesado);
+    const respuestaConversacional = this.responderConversacional(
+      textoProcesado,
+      ciudadManual,
+    );
+
+    if (respuestaConversacional) {
+      return respuestaConversacional;
+    }
 
     try {
       const ai = await this.jelpyAiService.interpretar({

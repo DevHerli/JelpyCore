@@ -163,6 +163,18 @@ export class ChatResponses {
       case 'despedida':
         return [];
 
+      // Capa 2 — búsqueda guiada: un chip representativo de cada categoría
+      // grande (comida, salud, belleza, explorar) para que la pregunta de
+      // aclaración ("¿comida, salud, belleza o servicios?") tenga una
+      // respuesta de un solo tap, cubriendo las áreas más buscadas.
+      case 'clarificar_busqueda':
+        return [
+          this.elegir(this.POOL_COMIDA),
+          this.elegir(this.POOL_SALUD),
+          this.elegir(this.POOL_BELLEZA),
+          this.elegir(this.POOL_EXPLORAR),
+        ];
+
       case 'promociones':
         return this.elegirVarios(this.POOL_PROMOS, 3);
 
@@ -205,6 +217,37 @@ export class ChatResponses {
   private static readonly INTENTS_REPETIBLES = [
     'identidad', 'chatbot_ia', 'identidad_corporativa', 'capacidades', 'guia_uso',
   ];
+
+  /**
+   * Capa 2 — búsqueda guiada.
+   *
+   * Se usa cuando el mensaje no fue reconocido como ninguna intención
+   * conversacional conocida (saludo, gracias, identidad, promociones...)
+   * NI como una búsqueda de negocio real (ConversationClassifier: route
+   * 'clarify', chatIntent 'fallback'). En vez del "No entendí bien, prueba
+   * algo como..." genérico y pasivo, hace una pregunta DIRIGIDA que le da
+   * al usuario un camino claro para continuar: qué categoría y, si falta,
+   * en qué ciudad. Se combina con chips de categoría (ver
+   * `generarSugerencias('clarificar_busqueda')`) para que responder sea un
+   * solo tap.
+   */
+  static preguntarAclaracionBusqueda(ciudad?: string): { titulo: string; mensaje: string } {
+    const tieneCiudad = !!(ciudad || '').trim();
+    const enCiudad = tieneCiudad ? ` en ${ciudad}` : '';
+
+    return {
+      titulo: this.elegir(['Ayúdame a entenderte mejor 🤔', '¿Qué tipo de lugar buscas? 🧭']),
+      mensaje: tieneCiudad
+        ? this.elegir([
+            `No estoy segura de qué buscas${enCiudad}. ¿Es comida, salud, belleza o algún servicio? Cuéntame y te ayudo.`,
+            `Dime un poco más: ¿comida, salud, belleza o servicios${enCiudad}? Así te muestro justo lo que necesitas.`,
+          ])
+        : this.elegir([
+            'No estoy segura de qué buscas. ¿Es comida, salud, belleza o algún servicio? Dime también tu ciudad para afinar la búsqueda.',
+            '¿Qué tipo de lugar te interesa: comida, salud, belleza o servicios? Y ¿en qué ciudad buscas?',
+          ]),
+    };
+  }
 
   /**
    * Clasifica el mensaje en una etiqueta corta de intención conversacional,

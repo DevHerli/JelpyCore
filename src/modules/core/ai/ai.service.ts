@@ -20,6 +20,7 @@ import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
 import { JelpyAiService } from '../../jelpy-ai/jelpy-ai.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { SugerenciasUtil } from './utils/suggestions.util';
+import { ConversationClassifier } from './utils/conversation-classifier';
 
 @Injectable()
 export class AiService {
@@ -174,6 +175,51 @@ export class AiService {
   }
 
   async processUserMessage(
+    input: string,
+    usuarioId?: number,
+    contexto?: any,
+    sessionId?: string,
+  ) {
+    // JLP-BULLETPROOF-FIX: red de seguridad de último nivel. Antes, CUALQUIER
+    // excepción no controlada dentro del pipeline (DB caída, null pointer,
+    // timeout de un servicio externo, lo que sea) se propagaba tal cual hasta
+    // el HttpExceptionFilter global como un 500 crudo. El frontend (antes de
+    // su propio fix, pendiente de rebuild/redeploy en el celular) solo sabe
+    // mostrar el genérico "Lo siento, hubo un problema al interpretar tu
+    // mensaje" para CUALQUIER error HTTP, sin distinguir la causa real — por
+    // eso "Hola" y cosas tan simples podían verse así.
+    //
+    // Con esto garantizamos que, pase lo que pase dentro del pipeline, el
+    // usuario SIEMPRE reciba una respuesta conversacional coherente (nunca un
+    // 500 crudo), mientras el error real queda logueado server-side con
+    // stack completo para diagnóstico futuro. Es defensa en profundidad,
+    // independiente de si trust-proxy/throttle/rate-limit-key ya cubren la
+    // causa raíz conocida — cubre cualquier otra causa no identificada.
+    try {
+      return await this.processUserMessageInterno(input, usuarioId, contexto, sessionId);
+    } catch (error) {
+      this.logger.error(
+        `[Session: ${sessionId ?? 'sin-sesion'}] Error no controlado procesando "${input}": ${
+          error instanceof Error ? error.stack : String(error)
+        }`,
+      );
+
+      return {
+        sessionId: sessionId ?? 'sin-sesion',
+        status: 'error_interno',
+        mensajeOriginal: input,
+        mensajeCorregido: input,
+        respuesta: {
+          titulo: 'Ups, algo salió mal 🙈',
+          mensaje:
+            'Tuve un problema para procesar tu mensaje. ¿Puedes intentarlo de nuevo en un momento?',
+          sugerencias: ['Promociones', 'Restaurantes', 'Servicios cerca de mí'],
+        },
+      };
+    }
+  }
+
+  private async processUserMessageInterno(
     input: string,
     usuarioId?: number,
     contexto?: any,
@@ -352,20 +398,39 @@ export class AiService {
     // mismo try/catch de siempre como red de seguridad — y si ese falla,
     // usamos la MISMA combinación de heurísticas locales para decidir el
     // fallback en vez de asumir ciegamente que es una búsqueda.
-    const contieneTerminoDeBusqueda = this.contieneTerminoDeNegocio(textoParaProcesar);
+    const clasificacion = ConversationClassifier.classify(textoParaProcesar, {
+      hasSearchContext: !!sesion.ultimaQuery,
+    });
+    const contieneTerminoDeBusqueda = clasificacion.containsBusinessTerm;
 
     const intentLocalHeuristico = this.intentDetector.detect(textoParaProcesar);
-    const intentGranularLocal = ChatResponses.detectarIntent(textoParaProcesar);
+    const intentGranularLocal = clasificacion.chatIntent;
 
     const pareceChatLocal =
-      intentLocalHeuristico === 'chat' || intentGranularLocal !== 'fallback';
+      clasificacion.route === 'chat' ||
+      intentLocalHeuristico === 'chat' ||
+      intentGranularLocal !== 'fallback';
 
     let aiIntent: Awaited<ReturnType<JelpyAiService['interpretar']>>;
 
-    if (pareceChatLocal && !contieneTerminoDeBusqueda) {
+    if (clasificacion.route === 'clarify') {
       aiIntent = {
         intent: 'chat',
-        confidence: 1,
+        confidence: clasificacion.confidence,
+        entities: {
+          categoria: null,
+          subcategoria: null,
+          ciudad: contexto?.ciudad ?? sesion.ciudad ?? null,
+          especialidad: null,
+        },
+        filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+        normalized_text: textoParaProcesar,
+        reply: { mode: 'local_chat', title: null, message: null, suggestions: [] },
+      } as any;
+    } else if (clasificacion.route === 'chat' && !contieneTerminoDeBusqueda) {
+      aiIntent = {
+        intent: 'chat',
+        confidence: clasificacion.confidence,
         entities: {
           categoria: null,
           subcategoria: null,
@@ -393,7 +458,10 @@ export class AiService {
         );
 
         aiIntent = {
-          intent: pareceChatLocal && !contieneTerminoDeBusqueda ? 'chat' : 'buscar_negocios',
+          intent:
+            clasificacion.route === 'chat' && !contieneTerminoDeBusqueda
+              ? 'chat'
+              : 'buscar_negocios',
           confidence: 0,
           entities: {
             categoria: null,
@@ -502,6 +570,41 @@ export class AiService {
             // ChatResponses.generarSugerencias).
             sugerencias: ChatResponses.generarSugerencias('queja'),
           },
+        };
+      }
+
+      // JLP-GUIDED-SEARCH-FIX (Capa 2 — búsqueda guiada): mensaje que NO
+      // fue reconocido como ninguna intención conversacional conocida
+      // (saludo, gracias, identidad...) NI como búsqueda de negocio, y que
+      // tampoco es un simple relleno corto ("???", "ok", "mmm" → esos ya
+      // se manejan aparte con chatIntent 'confuso'). Antes esto caía
+      // directo en el "No entendí bien, prueba algo como..." genérico y
+      // plano de ChatResponses.responder() — informativo pero pasivo. En
+      // vez de eso, hacemos una pregunta DIRIGIDA (categoría + ciudad) que
+      // le da al usuario un camino claro para continuar, con chips reales
+      // de cada categoría para que retomar la conversación sea un solo tap.
+      if (clasificacion.route === 'clarify' && clasificacion.chatIntent === 'fallback') {
+        const respuestaGuiada = ChatResponses.preguntarAclaracionBusqueda(
+          contexto?.ciudad ?? sesion.ciudad,
+        );
+        const sugerenciasGuiadas = ChatResponses.generarSugerencias('clarificar_busqueda');
+
+        await this.conversationService.guardarTurnoAsistente(
+          idSesionActiva,
+          respuestaGuiada.mensaje,
+          { intent: 'clarificar_busqueda', sugerencias: sugerenciasGuiadas },
+        );
+
+        return {
+          sessionId: idSesionActiva,
+          status: 'chat',
+          mensajeOriginal: input,
+          mensajeCorregido: textoCorregido,
+          respuesta: {
+            ...respuestaGuiada,
+            sugerencias: sugerenciasGuiadas,
+          },
+          debug: { aiIntent, clasificacion },
         };
       }
 
@@ -983,6 +1086,7 @@ export class AiService {
       debug: {
         aiIntent,
         filtros: interpretacion.filtros_detectados,
+        clasificacion,
         totalResultados: items.length,
         sesionActiva: idSesionActiva,
         esSeguimiento: resolucion.esSeguimiento,

@@ -18,8 +18,13 @@ export class RateLimiterService {
   private readonly WINDOW_MS = 60_000; // 1 minuto
 
   constructor() {
-    // Limpieza periódica cada 5 minutos
-    setInterval(() => this.limpiar(), 5 * 60 * 1000);
+    // Limpieza periódica cada 5 minutos.
+    // JLP-TEST-CLEANUP-FIX: .unref() evita que este timer mantenga vivo el
+    // proceso (o un worker de Jest) solo por sí mismo — detectado porque la
+    // nueva suite de pruebas de ai.service.spec.ts usa una instancia real
+    // de RateLimiterService y Jest reportaba "worker process has failed to
+    // exit gracefully" por este handle nunca liberado.
+    setInterval(() => this.limpiar(), 5 * 60 * 1000).unref();
   }
 
   /**

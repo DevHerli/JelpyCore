@@ -12,6 +12,48 @@ export class JelpyAiService {
 
   constructor(private readonly httpService: HttpService) {}
 
+  private normalizarRespuesta(
+    data: Partial<JelpyAiResponse> | any,
+    payload: JelpyAiRequest,
+  ): JelpyAiResponse {
+    const replyMode =
+      data?.reply?.mode === 'direct_reply' || data?.reply?.mode === 'search'
+        ? data.reply.mode
+        : 'search';
+
+    return {
+      intent: typeof data?.intent === 'string' ? data.intent : 'buscar_negocios',
+      confidence:
+        typeof data?.confidence === 'number' && Number.isFinite(data.confidence)
+          ? data.confidence
+          : 0,
+      entities: {
+        categoria: data?.entities?.categoria ?? null,
+        subcategoria: data?.entities?.subcategoria ?? null,
+        ciudad: data?.entities?.ciudad ?? payload.city_hint ?? null,
+        especialidad: data?.entities?.especialidad ?? null,
+      },
+      filters: {
+        abierto_ahora: Boolean(data?.filters?.abierto_ahora),
+        promos: Boolean(data?.filters?.promos),
+        cerca_de_mi: Boolean(data?.filters?.cerca_de_mi),
+      },
+      normalized_text:
+        typeof data?.normalized_text === 'string'
+          ? data.normalized_text
+          : payload.text,
+      reply: {
+        mode: replyMode,
+        title: data?.reply?.title ?? null,
+        message: data?.reply?.message ?? null,
+        suggestions: Array.isArray(data?.reply?.suggestions)
+          ? data.reply.suggestions
+          : [],
+      },
+      filtros_detectados: data?.filtros_detectados,
+    };
+  }
+
   async interpretar(payload: JelpyAiRequest): Promise<JelpyAiResponse> {
     const baseUrl = process.env.JELPY_AI_URL;
 
@@ -35,9 +77,11 @@ export class JelpyAiService {
         }),
       );
 
-      this.logger.log(`Respuesta de FastAPI: ${JSON.stringify(response.data)}`);
+      const respuestaNormalizada = this.normalizarRespuesta(response.data, payload);
 
-      return response.data;
+      this.logger.log(`Respuesta de FastAPI: ${JSON.stringify(respuestaNormalizada)}`);
+
+      return respuestaNormalizada;
     } catch (error: unknown) {
       const axiosError = error as AxiosError;
 
