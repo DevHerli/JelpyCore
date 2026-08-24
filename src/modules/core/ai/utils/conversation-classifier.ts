@@ -1,6 +1,7 @@
 import { JELPY_SEMANTIC_CATEGORIES } from '../jelpy-assistant/constants/jelpy-semantic-categories';
 import { ChatResponses } from './chat-responses';
 import { TextNormalizer } from './text-normalizer';
+import { REFINEMENT_PHRASES } from './refinement-phrases';
 
 export type JelpyConversationIntent =
   | 'small_talk'
@@ -143,20 +144,11 @@ export class ConversationClassifier {
       };
     }
 
-    const esRefinamiento = [
-      'mas cerca',
-      'más cerca',
-      'mas barato',
-      'más barato',
-      'abierto ahora',
-      'con promo',
-      'con promocion',
-      'con promoción',
-      'otra opcion',
-      'otra opción',
-      'otros',
-      'solo abiertos',
-    ].some((p) => textoNorm.includes(this.clavefonetica(p)));
+    // JLP-CONTEXT-THREAD-FIX: lista compartida con `ContextResolverUseCase`
+    // (ver `refinement-phrases.ts`) para que la clasificación de ruta y el
+    // enriquecimiento del texto real de búsqueda usen SIEMPRE el mismo
+    // criterio de "esto es un refinamiento de la búsqueda anterior".
+    const esRefinamiento = REFINEMENT_PHRASES.some((p) => textoNorm.includes(this.clavefonetica(p)));
 
     if (contexto.hasSearchContext && esRefinamiento) {
       return { ...base, intent: 'search_refinement', route: 'search', confidence: 0.85 };

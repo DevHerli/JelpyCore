@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConversationSession } from '../../conversation/entities/conversation-session.entity';
+import { REFINEMENT_PHRASES } from '../utils/refinement-phrases';
 
 /**
  * Palabras y frases que indican que el usuario se refiere a algo anterior.
@@ -80,7 +81,12 @@ export interface ContextResolution {
   contextoDisponible: boolean;
 
   /** Tipo de seguimiento detectado */
-  tipoSeguimiento?: 'referencia_item' | 'consulta_detalles' | 'busqueda_variante' | 'ninguno';
+  tipoSeguimiento?:
+    | 'referencia_item'
+    | 'consulta_detalles'
+    | 'busqueda_variante'
+    | 'refinamiento'
+    | 'ninguno';
 }
 
 @Injectable()
@@ -174,6 +180,37 @@ export class ContextResolverUseCase {
         textoEnriquecido,
         contextoDisponible: true,
         tipoSeguimiento: 'busqueda_variante',
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // 4. REFINAMIENTO DE LA BÚSQUEDA ANTERIOR
+    //    ("más cerca", "más barato", "otra opción", "solo abiertos"...)
+    //
+    // JLP-CONTEXT-THREAD-FIX: bug reportado por el usuario — tras buscar
+    // "farmacias abiertas", Jelpy ofrecía el chip "¿Quieres ver la más
+    // cercana a ti?". Al tocarlo, `ConversationClassifier` SÍ lo
+    // clasificaba correctamente como `search_refinement` (usa esta misma
+    // lista, ver `refinement-phrases.ts`), pero este resolver no sabía
+    // que era un refinamiento y devolvía el texto tal cual ("más cercana
+    // a ti", sin categoría) — o, si además se había perdido la sesión, el
+    // mensaje ni siquiera llegaba a clasificarse como búsqueda y el
+    // usuario recibía "No entendí bien", rompiendo el hilo de la
+    // conversación. Igual que en el punto 3, anteponemos la query
+    // anterior para que el motor de búsqueda real conserve la categoría
+    // ("farmacia más cercana a ti" en vez de solo "más cercana a ti").
+    // ------------------------------------------------------------------
+    const esRefinamiento =
+      REFINEMENT_PHRASES.some((p) => textoNorm.includes(this.normalizar(p))) &&
+      sesion.ultimaQuery;
+
+    if (esRefinamiento) {
+      const textoEnriquecido = `${sesion.ultimaQuery} ${mensajeActual}`;
+      return {
+        esSeguimiento: true,
+        textoEnriquecido,
+        contextoDisponible: true,
+        tipoSeguimiento: 'refinamiento',
       };
     }
 

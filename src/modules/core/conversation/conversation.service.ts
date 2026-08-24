@@ -45,30 +45,51 @@ export class ConversationService {
       }
     }
 
-    // Buscar sesión previa del mismo usuario para heredar contexto (ciudad)
-    let ciudadHeredada = ciudad;
-    if (usuarioId && !ciudadHeredada) {
+    // JLP-CONTEXT-THREAD-FIX: bug reportado por el usuario — tras una
+    // búsqueda de farmacias, tocar el chip de seguimiento "¿Quieres ver la
+    // más cercana a ti?" respondía "No entendí bien", rompiendo el hilo de
+    // la conversación. Una de las causas raíz: cuando el cliente no
+    // reenviaba el `sessionId` (o enviaba uno que ya no existe), este
+    // método SIEMPRE creaba una sesión nueva desde cero, heredando
+    // únicamente la ciudad del usuario — perdiendo `ultimaQuery`,
+    // `ultimoResultado` y `ultimoIntent`, con lo que `hasSearchContext` se
+    // volvía falso en el siguiente turno y cualquier chip de refinamiento
+    // caía en la respuesta genérica de "no entendí".
+    //
+    // Ahora, si el usuario está autenticado, reutilizamos su sesión activa
+    // más reciente COMPLETA (no solo la ciudad) en vez de crear una nueva,
+    // para que el contexto de búsqueda sobreviva aunque el cliente no
+    // reenvíe el sessionId correctamente. La sesión sigue acotada por la
+    // misma ventana de inactividad de siempre (`activa: true`, limpiada
+    // periódicamente por `limpiarSesionesViejas()`), así que esto no
+    // "resucita" conversaciones ya expiradas.
+    if (usuarioId) {
       try {
         const sesionPrevia = await this.sessionRepo.findOne({
           where: { usuarioId, activa: true },
           order: { actualizadoEn: 'DESC' },
         });
         if (sesionPrevia) {
-          ciudadHeredada = sesionPrevia.ciudad ?? ciudad;
+          if (ciudad && ciudad !== sesionPrevia.ciudad) {
+            sesionPrevia.ciudad = ciudad;
+          }
+          sesionPrevia.actualizadoEn = new Date();
           this.logger.debug(
-            `[Sesión] Heredando ciudad "${ciudadHeredada}" del usuario ${usuarioId}`,
+            `[Sesión] Reutilizando sesión activa ${sesionPrevia.id} del usuario ${usuarioId} ` +
+              `(sessionId recibido: ${sessionId ?? 'ninguno'}) para conservar el hilo de la conversación`,
           );
+          return this.sessionRepo.save(sesionPrevia);
         }
       } catch {
         // No interrumpir flujo si falla
       }
     }
 
-    // Crear nueva sesión
+    // Crear nueva sesión (usuario anónimo, o autenticado sin sesión previa activa)
     const nueva = this.sessionRepo.create({
       id: sessionId || uuidv4(),
       usuarioId,
-      ciudad: ciudadHeredada,
+      ciudad,
       activa: true,
       creadoEn: new Date(),
       actualizadoEn: new Date(),
