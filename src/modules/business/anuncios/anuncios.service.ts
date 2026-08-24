@@ -725,6 +725,31 @@ private mapAnuncio(a: Anuncio) {
 
     // ROW_NUMBER() particiona por negocio y limita a max_slots_simultaneos del tier.
     // Si el negocio no tiene regla en membresia_publicidad, COALESCE usa 999 (sin límite).
+    //
+    // sucursalId: se expone la sucursal a la que apunta el anuncio, pero SOLO si
+    // sigue siendo válida/activa (LEFT JOIN contra sucursales_negocios filtrando
+    // eliminado = 0 y verificando que pertenezca al mismo negocio del anuncio).
+    // Si la sucursal fue eliminada, o ya no pertenece a ese negocio, sn.id
+    // resuelve a NULL y por tanto sucursalId (e internalRoute) se devuelven
+    // como null en vez de un id colgante que ya no existe.
+    //
+    // JLP-ADS-SUCURSAL-FALLBACK: un anuncio puede crearse sin sucursal_id
+    // ("anuncio de marca completa", ver anuncio.entity.ts). El problema es que
+    // "favoritos" (POST /bookmarks/toggle) SOLO sabe guardar sucursal_id (la
+    // tabla bookmarks no tiene columna negocio_id y sucursal_id es NOT NULL
+    // ahí) — con sucursalId: null el front no tiene nada que mandarle a
+    // /bookmarks/toggle y el "favorito" del anuncio queda imposible de
+    // guardar, aunque el negocio anunciado sí tenga una sucursal física real.
+    // Mientras el negocio tenga EXACTAMENTE una sucursal activa, no hay
+    // ambigüedad real de a cuál sucursal referirse, así que la usamos como
+    // fallback. COALESCE intenta primero el sucursal_id explícito del
+    // anuncio; si es null, cae a la subconsulta que solo devuelve una fila
+    // cuando ese negocio tiene una única sucursal activa (HAVING COUNT(*)=1).
+    // Si el negocio tiene 0 o 2+ sucursales activas, la subconsulta no
+    // devuelve nada y sucursalId sigue en null (ahí sí es un caso genuino de
+    // "no se puede saber a cuál sucursal se refiere", que requeriría que
+    // favoritos soporte guardar por negocio — no es algo que se pueda inferir
+    // aquí sin adivinar).
     const rows: any[] = await this.anuncioRepo.manager.query(
       `SELECT t.id, t.title, t.description, t.imageUrl, t.ctaLabel,
               t.sponsorName, t.placement, t.internalRoute, t.externalUrl,
@@ -738,11 +763,11 @@ private mapAnuncio(a: Anuncio) {
            a.cta_label                                           AS ctaLabel,
            a.placement,
            a.external_url                                        AS externalUrl,
-           CASE WHEN a.sucursal_id IS NOT NULL
-                THEN CONCAT('/branch/branch-detail/', a.sucursal_id)
+           CASE WHEN sn.id IS NOT NULL
+                THEN CONCAT('/branch/branch-detail/', sn.id)
                 ELSE NULL END                                    AS internalRoute,
            a.negocio_id                                          AS negocioId,
-           a.sucursal_id                                         AS sucursalId,
+           sn.id                                                  AS sucursalId,
            a.prioridad,
            n.nombre_negocio                                      AS sponsorName,
            ROW_NUMBER() OVER (
@@ -751,6 +776,19 @@ private mapAnuncio(a: Anuncio) {
            COALESCE(mp.max_slots_simultaneos, 999)               AS max_slots
          FROM anuncios a
          INNER JOIN negocios n    ON n.id  = a.negocio_id AND n.eliminado = 0
+         LEFT  JOIN sucursales_negocios sn ON sn.id = COALESCE(
+                                                 a.sucursal_id,
+                                                 (
+                                                   SELECT sn2.id
+                                                   FROM sucursales_negocios sn2
+                                                   WHERE sn2.negocio_id = a.negocio_id
+                                                     AND sn2.eliminado = 0
+                                                   GROUP BY sn2.negocio_id
+                                                   HAVING COUNT(*) = 1
+                                                 )
+                                               )
+                                            AND sn.eliminado = 0
+                                            AND sn.negocio_id = a.negocio_id
          LEFT  JOIN suscriptores s ON s.id = n.suscriptor_id
          LEFT  JOIN membresia_publicidad mp ON mp.membresia_id = s.membresia_id
          WHERE a.status       = 'active'

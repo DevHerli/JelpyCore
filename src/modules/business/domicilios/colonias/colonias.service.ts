@@ -103,7 +103,11 @@ export class ColoniasService {
       );
     }
 
-    if (filters?.activo !== undefined) {
+    if (filters?.activo === undefined) {
+      // Por defecto solo se muestran colonias activas (con calles cargadas).
+      // Para ver también las inactivas desde un panel admin, pasar ?activo=all.
+      query.andWhere('colonia.activo = :activo', { activo: 1 });
+    } else if (filters.activo !== 'all') {
       query.andWhere('colonia.activo = :activo', {
         activo: Number(filters.activo),
       });

@@ -4,18 +4,26 @@ import { Repository, Like } from 'typeorm';
 import { Ciudad } from './entities/ciudades.entity';
 import { CreateCiudadDto } from './dtos/create-ciudad.dto';
 import { UpdateCiudadDto } from './dtos/update-ciudad.dto';
+import { MemoryCacheService } from '../../../common/cache/memory-cache.service';
+
+// Prefijo de claves de caché de este catálogo (para invalidación por familia).
+const CACHE_PREFIX = 'ciudades:';
 
 @Injectable()
 export class CiudadesService {
   constructor(
     @InjectRepository(Ciudad)
     private readonly ciudadRepo: Repository<Ciudad>,
+
+    private readonly cache: MemoryCacheService,
   ) {}
 
   async listar(): Promise<Ciudad[]> {
-    return await this.ciudadRepo.find({
-      order: { id: 'DESC' },
-    });
+    return this.cache.wrap(`${CACHE_PREFIX}listar`, () =>
+      this.ciudadRepo.find({
+        order: { id: 'DESC' },
+      }),
+    );
   }
 
   async obtenerPorId(id: number): Promise<Ciudad> {
@@ -28,7 +36,9 @@ export class CiudadesService {
 
   async crear(data: CreateCiudadDto): Promise<Ciudad> {
     const nueva = this.ciudadRepo.create(data);
-    return await this.ciudadRepo.save(nueva);
+    const guardada = await this.ciudadRepo.save(nueva);
+    this.cache.delByPrefix(CACHE_PREFIX);
+    return guardada;
   }
 
   async actualizar(id: number, data: UpdateCiudadDto): Promise<Ciudad> {
@@ -38,7 +48,9 @@ export class CiudadesService {
     }
 
     Object.assign(ciudad, data);
-    return await this.ciudadRepo.save(ciudad);
+    const guardada = await this.ciudadRepo.save(ciudad);
+    this.cache.delByPrefix(CACHE_PREFIX);
+    return guardada;
   }
 
   async eliminar(id: number): Promise<{ message: string }> {
@@ -47,6 +59,7 @@ export class CiudadesService {
       throw new NotFoundException(`No se encontró la ciudad con id ${id}`);
     }
     await this.ciudadRepo.remove(ciudad);
+    this.cache.delByPrefix(CACHE_PREFIX);
     return { message: 'Ciudad eliminada correctamente' };
   }
 

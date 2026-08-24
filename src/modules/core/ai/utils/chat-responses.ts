@@ -33,6 +33,21 @@ export class ChatResponses {
     return t.includes(this.normalizar(frase));
   }
 
+  /**
+   * JLP-SALUDO-CORTO-FIX: la clave fonética elimina la "h muda" del español
+   * ("ay"/"hay"), pero "hi" y "hey" son préstamos del inglés donde la "h"
+   * SÍ se pronuncia — al quitarla quedan en "i" y "ey" (1-2 caracteres),
+   * justo el rango que el guard de "entrada muy corta / confuso" trata
+   * como relleno sin sentido. Sin este chequeo, alguien que escribe "hi" o
+   * "hey" cae en "no entendí" en vez de recibir un saludo (bug encontrado
+   * por la suite de regresión de saludos). Se compara con la clave
+   * fonética de las propias palabras (no con literales "i"/"ey" sueltos)
+   * para que, si el normalizador cambia, esto se mantenga en sincronía.
+   */
+  private static esSaludoCortoEspecial(t: string): boolean {
+    return t === this.normalizar('hi') || t === this.normalizar('hey');
+  }
+
   /** Elige un elemento al azar de un array */
   private static elegir<T>(opciones: T[]): T {
     return opciones[Math.floor(Math.random() * opciones.length)];
@@ -280,7 +295,7 @@ export class ChatResponses {
       this.tieneFrase(t, 'programacion') || this.tieneFrase(t, 'investigacion')
     ) return 'fuera_de_alcance';
 
-    if (t.length <= 2 || ['aaa','emm','mmm','eh','ok','no se','nop','np'].includes(t)) return 'confuso';
+    if (!this.esSaludoCortoEspecial(t) && (t.length <= 2 || ['aaa','emm','mmm','eh','ok','no se','nop','np'].includes(t))) return 'confuso';
 
     if (this.match(t, this.QUEJA_KEYWORDS)) return 'queja';
 
@@ -339,8 +354,18 @@ export class ChatResponses {
 
     if (this.tieneFrase(t, 'me escuchas') || this.tieneFrase(t, 'estas ahi') || this.tieneFrase(t, 'me entiendes') || this.tieneFrase(t, 'puedes equivocarte')) return 'presencia';
 
+    // JLP-SALUDO-GAP-FIX: bug real reportado por el usuario — "buenos días"
+    // NO se reconocía aquí (solo "buenas" a secas), así que detectarIntent
+    // devolvía 'fallback' para un saludo perfectamente normal. Como
+    // ConversationClassifier usa este chatIntent para decidir la ruta, un
+    // "buenos días" terminaba disparando la pregunta guiada de Capa 2
+    // ("¿es comida, salud, belleza o servicio?") en vez de un saludo — la
+    // respuesta "muy incoherente" que reportó el usuario. Debe reflejar
+    // EXACTAMENTE las mismas frases que el bloque de saludo en responder().
     if (
-      this.tieneFrase(t, 'hola') || this.tieneFrase(t, 'buenas') || this.tieneFrase(t, 'hey') || this.tieneFrase(t, 'holi') || t === 'hi'
+      this.tieneFrase(t, 'hola') || this.tieneFrase(t, 'buenas') || this.tieneFrase(t, 'hey') ||
+      this.tieneFrase(t, 'holi') || this.tieneFrase(t, 'buen dia') || this.tieneFrase(t, 'buenos dias') ||
+      this.tieneFrase(t, 'buenas tardes') || this.tieneFrase(t, 'buenas noches') || t === this.normalizar('hi')
     ) return 'saludo';
 
     if (this.tieneFrase(t, 'gracias')) return 'gracias';
@@ -395,7 +420,7 @@ export class ChatResponses {
     // --------------------------------------------------
     // 🟦 ENTRADAS MUY CORTAS (tokens de relleno, no palabras clave)
     // --------------------------------------------------
-    if (t.length <= 2 || ['aaa','emm','mmm','eh','ok','no se','nop','np'].includes(t)) {
+    if (!this.esSaludoCortoEspecial(t) && (t.length <= 2 || ['aaa','emm','mmm','eh','ok','no se','nop','np'].includes(t))) {
       return {
         titulo: 'Aquí estoy 😊',
         mensaje: tieneCiudad
@@ -893,29 +918,69 @@ export class ChatResponses {
     if (
       this.tieneFrase(t, 'hola') || this.tieneFrase(t, 'buenas') || this.tieneFrase(t, 'hey') ||
       this.tieneFrase(t, 'holi') || this.tieneFrase(t, 'buen dia') || this.tieneFrase(t, 'buenos dias') ||
-      this.tieneFrase(t, 'buenas tardes') || this.tieneFrase(t, 'buenas noches') || t === 'hi'
+      this.tieneFrase(t, 'buenas tardes') || this.tieneFrase(t, 'buenas noches') || t === this.normalizar('hi')
     ) {
-      const saludo = this.saludoPorHora();
-      const emoji  = this.emojiSaludo();
+      // JLP-SALUDO-COHERENTE-FIX: antes el título SIEMPRE se calculaba con
+      // la hora del servidor (this.saludoPorHora()), sin importar lo que
+      // el usuario realmente escribió — por eso alguien podía escribir
+      // "buenas tardes" y recibir un título de "Buenos días" si el reloj
+      // del servidor marcaba otra franja, algo incoherente (bug reportado
+      // por el usuario). Ahora, si fue específico, Jelpy responde con
+      // exactamente esa franja horaria; solo recurre a la hora del
+      // servidor cuando el saludo es genérico ("hola", "buenas", "hey"...).
+      const franjaDetectada: 'dias' | 'tardes' | 'noches' | null =
+        this.tieneFrase(t, 'buenos dias') || this.tieneFrase(t, 'buen dia')
+          ? 'dias'
+          : this.tieneFrase(t, 'buenas tardes')
+            ? 'tardes'
+            : this.tieneFrase(t, 'buenas noches')
+              ? 'noches'
+              : null;
+
+      const saludo =
+        franjaDetectada === 'dias' ? 'Buenos días'
+        : franjaDetectada === 'tardes' ? 'Buenas tardes'
+        : franjaDetectada === 'noches' ? 'Buenas noches'
+        : this.saludoPorHora();
+
+      const emoji = this.emojiSaludo();
+
+      // Más calidez y variedad conversacional (pedido explícito del
+      // usuario): en vez de repetir siempre "¿qué te gustaría encontrar?",
+      // se agregan toques de charla ("¿cómo estás?", "qué gusto verte")
+      // antes de guiar hacia la búsqueda.
+      //
+      // JLP-SALUDO-COHERENTE-FIX (parte 2): cuando el usuario fue específico
+      // sobre la franja horaria (franjaDetectada !== null), el título SIEMPRE
+      // debe reflejarla — sortear el título entre opciones que no la
+      // mencionan (ej. "¡Qué gusto verte!") reintroduciría el mismo tipo de
+      // incoherencia que este fix resuelve. La variedad de título solo
+      // aplica cuando el saludo fue genérico ("hola", "buenas", "hey"...).
       return {
-        titulo: tieneHistorial
-          ? `${saludo} ${emoji}`
-          : this.elegir([`¡Hola! ${emoji}`, `${saludo} ${emoji}`, `¡Qué tal! ${emoji}`]),
+        titulo:
+          tieneHistorial || franjaDetectada
+            ? `${saludo} ${emoji}`
+            : this.elegir([`${saludo} ${emoji}`, `¡Qué gusto verte! ${emoji}`, `${saludo}, bienvenido ${emoji}`]),
         mensaje: tieneHistorial
           ? this.elegir([
-              `¿En qué más te puedo ayudar${enCiudad}?`,
-              `¿Seguimos buscando o necesitas algo diferente${enCiudad}?`,
-              `Aquí sigo. ¿Qué más necesitas${enCiudad}?`,
+              `Qué gusto verte de nuevo. ¿En qué más te puedo ayudar${enCiudad}?`,
+              `Aquí sigo. ¿Seguimos con lo que buscabas o necesitas algo diferente${enCiudad}?`,
+              `¿Cómo vas? Cuéntame qué necesitas ahora y lo buscamos${enCiudad}.`,
+              `Sigo por aquí para lo que se ofrezca. ¿Qué más te ayudo a encontrar${enCiudad}?`,
             ])
           : this.elegir(
               tieneCiudad
                 ? [
-                    `¡Qué gusto saludarte! 😊 ¿Qué te gustaría encontrar en ${ciudad}? Puedo ayudarte con comida, salud, servicios, promociones y más.`,
-                    `¡Hola! Bienvenido a Jelpy 💙 Dime qué buscas y lo encuentro en ${ciudad}.`,
+                    `¡Qué gusto saludarte! 😊 ¿Cómo estás? Cuéntame qué se te antoja o qué necesitas en ${ciudad} y te ayudo a encontrarlo.`,
+                    `${saludo}, bienvenido a Jelpy 💙 Dime qué buscas y lo encuentro en ${ciudad}.`,
+                    `Un gusto tenerte por aquí 🙌 ¿Qué tal tu día? Cuéntame qué te gustaría encontrar en ${ciudad}: comida, salud, servicios, promociones...`,
+                    `${saludo} 😊 Espero que la estés pasando bien. ¿Qué necesitas encontrar hoy en ${ciudad}?`,
                   ]
                 : [
-                    '¡Hola! 😊 ¿Qué te gustaría encontrar hoy? Puedo ayudarte con comida, salud, servicios, promociones y lugares cercanos.',
-                    '¡Hola! Bienvenido a Jelpy 💙 Cuéntame qué necesitas y te ayudo a encontrarlo cerca de ti.',
+                    '¡Qué gusto saludarte! 😊 ¿Cómo estás? Cuéntame qué necesitas y te ayudo a encontrarlo cerca de ti.',
+                    `${saludo}, bienvenido a Jelpy 💙 Dime qué buscas: comida, salud, servicios, promociones...`,
+                    'Un gusto tenerte por aquí 🙌 ¿Qué tal tu día? Estoy para ayudarte a encontrar lo que necesites.',
+                    `${saludo} 😊 Espero que la estés pasando bien. ¿Qué te gustaría encontrar hoy?`,
                   ],
             ),
       };

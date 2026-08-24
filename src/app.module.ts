@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { GuardsModule } from './common/guards/guards.module';
+import { MemoryCacheModule } from './common/cache/memory-cache.module';
 import { CloudinaryModule } from './common/cloudinary/cloudinary.module';
 
 import { TaxonomiaModule } from './modules/core/taxonomia/taxonomia.module';
@@ -38,6 +39,7 @@ import { AiModule } from './modules/core/ai/ai.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { Suscriptor } from './modules/business/suscriptores/entities/suscriptores.entity';
 import { CodigoOtp } from './modules/auth/entities/codigo-otp.entity';
+import { assertTestsNeverHitProduction } from './common/env/db-safety';
 import { CaracteristicasSucursalModule } from './modules/business/caracteristicas_sucursales/caracteristicas-sucursal.module';
 import { PublicidadChatModule } from './modules/core/publicidad-chat/publicidad-chat.module';
 import { UsuarioPreferenciasModule } from './modules/core/preferencias-usuarios/usuario-preferencias.module';
@@ -100,6 +102,7 @@ const SQL_MODE_ESTRICTO =
     // GuardsModule PRIMERO: es @Global() y provee SuscriptorRepository a AdminGuard
     // y JwtAuthGuard. Debe inicializarse antes que cualquier módulo que use esos guards.
     GuardsModule,
+    MemoryCacheModule,
     CloudinaryModule,
 
     SuscriptoresModule,
@@ -156,6 +159,15 @@ const SQL_MODE_ESTRICTO =
     TypeOrmModule.forFeature([Suscriptor, CodigoOtp]),
     ConfigModule.forRoot({
       isGlobal: true,
+      // JLP-C29 — En ejecuciones de pruebas se carga `.env.qa` (BD de QA aislada)
+      // en vez del `.env` por defecto (que apuntaba a producción). En cualquier
+      // otro entorno se mantiene el comportamiento previo: en Render no existe
+      // archivo `.env` y las variables llegan desde la plataforma (process.env),
+      // por lo que este cambio es un no-op en producción.
+      envFilePath:
+        (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'test'
+          ? ['.env.qa']
+          : ['.env'],
       validate: (config: Record<string, unknown>) => {
         const required = [
           'DB_HOST',
@@ -181,13 +193,19 @@ const SQL_MODE_ESTRICTO =
 
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (cfg: ConfigService) => ({
+      useFactory: (cfg: ConfigService) => {
+        const host = cfg.get<string>('DB_HOST');
+        const database = cfg.get<string>('DB_NAME');
+        // JLP-C29 — fail-closed: aborta si un proceso de pruebas (jest) intenta
+        // conectarse a la BD de producción. No-op fuera de tests.
+        assertTestsNeverHitProduction(host, database);
+        return {
         type: 'mysql',
-        host: cfg.get<string>('DB_HOST'),
+        host,
         port: parseInt(cfg.get<string>('DB_PORT') || '3306', 10),
         username: cfg.get<string>('DB_USER'),
         password: cfg.get<string>('DB_PASS'),
-        database: cfg.get<string>('DB_NAME'),
+        database,
         autoLoadEntities: true,
         synchronize: cfg.get<string>('DB_SYNC') === 'true', // QA: true | PROD: false
         timezone: 'Z', // gestionamos TZ en app para "abiertoAhora"
@@ -211,7 +229,8 @@ const SQL_MODE_ESTRICTO =
           // Timeout de conexión inicial (ms)
           connectTimeout: 30000,
         },
-      }),
+        };
+      },
     }),
 
     // Módulos del core

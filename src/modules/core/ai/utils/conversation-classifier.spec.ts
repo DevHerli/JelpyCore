@@ -142,4 +142,25 @@ describe('ConversationClassifier', () => {
       expect(result.chatIntent).toBe('gracias');
     });
   });
+
+  // --------------------------------------------------------------------
+  // Bug reportado por el usuario: "buenos días" producía respuestas "muy
+  // incoherentes". Causa raíz: ChatResponses.detectarIntent() no
+  // reconocía "buenos dias"/"buen dia"/"buenas tardes"/"buenas noches"
+  // (solo "buenas" a secas), así que devolvía chatIntent='fallback'. Como
+  // ConversationClassifier.classify() usa ese chatIntent, terminaba
+  // clasificando el saludo como route='clarify', lo que en ai.service.ts
+  // dispara la pregunta guiada genérica de Capa 2 en vez de saludar.
+  // --------------------------------------------------------------------
+  describe('saludos con franja horaria específica nunca caen en clarify (bug "buenos días" incoherente)', () => {
+    const saludos = ['buenos dias', 'buen dia', 'buenas tardes', 'buenas noches'];
+
+    it.each(saludos)('"%s" se clasifica como small_talk/chat, no como clarify', (texto) => {
+      const result = ConversationClassifier.classify(texto);
+
+      expect(result.intent).toBe('small_talk');
+      expect(result.route).toBe('chat');
+      expect(result.chatIntent).toBe('saludo');
+    });
+  });
 });

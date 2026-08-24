@@ -137,32 +137,32 @@ suite('Seguridad (e2e)', () => {
     });
   });
 
-  // ── IDOR entre usuarios (requiere tokens de staging) ───────────────────────
-  const TOKEN_A = process.env.SEC_E2E_TOKEN_A;
-  const TOKEN_B = process.env.SEC_E2E_TOKEN_B;
-  const FACTURA_B = process.env.SEC_E2E_FACTURA_B_ID;
-  const idorSuite = TOKEN_A && TOKEN_B && FACTURA_B ? describe : describe.skip;
+  // ── IDOR entre usuarios (requiere token de A + recursos ajenos) ────────────
+  // Todos los casos son de SOLO LECTURA: no escriben datos aunque la defensa
+  // fallara (un rechazo 403 no muta nada).
+  const TOKEN_A = process.env.SEC_E2E_TOKEN_A; // usuario no-admin
+  const A_ID = process.env.SEC_E2E_SUSCRIPTOR_A_ID; // id de A
+  const NEGOCIO_B = process.env.SEC_E2E_NEGOCIO_B_ID; // negocio de OTRO suscriptor
+  const idorSuite = TOKEN_A && NEGOCIO_B ? describe : describe.skip;
 
-  idorSuite('IDOR: el usuario A no accede a recursos del usuario B', () => {
-    it('GET /facturas/:idDeB con token de A → 403/404 (no expone RFC/razón social ajenos)', async () => {
-      const res = await request(server())
-        .get(`/facturas/${FACTURA_B}`)
-        .set('Authorization', `Bearer ${TOKEN_A}`);
-      expect([403, 404]).toContain(res.status);
+  idorSuite('IDOR: el usuario A no accede a recursos de otros', () => {
+    it('GET /negocios/:idAjeno/membresia con token de A → 403 (no ve el plan de otro negocio)', async () => {
+      await request(server())
+        .get(`/negocios/${NEGOCIO_B}/membresia`)
+        .set('Authorization', `Bearer ${TOKEN_A}`)
+        .expect(403);
     });
 
-    it('GET /pagos con token de A no devuelve pagos de B', async () => {
+    it('GET /pagos con token de A solo devuelve pagos propios (nunca de otros)', async () => {
       const res = await request(server())
         .get('/pagos')
         .set('Authorization', `Bearer ${TOKEN_A}`)
         .expect(200);
-      // Ningún registro debe pertenecer a otro suscriptor.
       const items = Array.isArray(res.body) ? res.body : res.body?.data ?? [];
       for (const p of items) {
-        if (p?.suscriptorId != null) {
-          expect(String(p.suscriptorId)).not.toEqual(
-            process.env.SEC_E2E_SUSCRIPTOR_B_ID,
-          );
+        if (p?.suscriptorId != null && A_ID) {
+          // Todo registro devuelto debe pertenecer a A.
+          expect(String(p.suscriptorId)).toEqual(String(A_ID));
         }
       }
     });

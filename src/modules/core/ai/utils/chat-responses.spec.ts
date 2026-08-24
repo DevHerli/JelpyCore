@@ -50,6 +50,47 @@ describe('ChatResponses.detectarIntent — tolerancia a faltas de ortografía (J
   });
 });
 
+describe('ChatResponses — saludos con franja horaria específica (bug reportado por el usuario: "buenos días" incoherente)', () => {
+  // Bug real: "buenos días" NO se reconocía en detectarIntent() (solo
+  // "buenas" a secas), así que devolvía 'fallback' en vez de 'saludo'.
+  // Como ConversationClassifier usa este valor para decidir la ruta, eso
+  // disparaba la pregunta guiada genérica de Capa 2 ("¿es comida, salud,
+  // belleza o servicio?") en vez de saludar — la respuesta "muy
+  // incoherente" que reportó el usuario. Además, cuando SÍ se reconocía,
+  // el título de la respuesta siempre usaba la hora del SERVIDOR
+  // (this.saludoPorHora()), ignorando lo que el usuario escribió, por lo
+  // que alguien podía escribir "buenas tardes" y recibir un título de
+  // "Buenos días" si el reloj del servidor marcaba otra franja.
+  const casos: Array<{ texto: string; contieneEnTitulo: string }> = [
+    { texto: 'buenos dias', contieneEnTitulo: 'buenos días' },
+    { texto: 'buen dia', contieneEnTitulo: 'buenos días' },
+    { texto: 'buenas tardes', contieneEnTitulo: 'buenas tardes' },
+    { texto: 'buenas noches', contieneEnTitulo: 'buenas noches' },
+  ];
+
+  it.each(casos)(
+    '"$texto" → detectarIntent = saludo (nunca fallback)',
+    ({ texto }) => {
+      expect(ChatResponses.detectarIntent(texto)).toBe('saludo');
+    },
+  );
+
+  it.each(casos)(
+    '"$texto" → el título de la respuesta respeta la franja horaria que el usuario escribió, no la del servidor',
+    ({ texto, contieneEnTitulo }) => {
+      const respuesta = ChatResponses.responder(texto);
+      expect(respuesta.titulo.toLowerCase()).toContain(contieneEnTitulo);
+    },
+  );
+
+  it('los saludos genéricos ("hola", "buenas", "hey") siguen funcionando y no lanzan excepción', () => {
+    for (const texto of ['hola', 'buenas', 'hey', 'holi', 'hi']) {
+      expect(ChatResponses.detectarIntent(texto)).toBe('saludo');
+      expect(() => ChatResponses.responder(texto)).not.toThrow();
+    }
+  });
+});
+
 describe('ChatResponses — Jelpy habla siempre en masculino (bug reportado por el usuario)', () => {
   // Jelpy es "él", no "ella". Antes varias respuestas se referían a sí
   // mismo en femenino ("estoy segura", "estoy lista", "diseñada",

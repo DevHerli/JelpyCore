@@ -9,6 +9,10 @@ import { Especialidad } from './entities/especialidades.entity';
 import { Subcategoria } from '../subcategorias/entities/subcategorias.entity';
 import { CreateEspecialidadDto } from './dto/create-especialidad.dto';
 import { UpdateEspecialidadDto } from './dto/update-especialidad.dto';
+import { MemoryCacheService } from '../../../common/cache/memory-cache.service';
+
+// Prefijo de claves de caché de este catálogo (para invalidación por familia).
+const CACHE_PREFIX = 'especialidades:';
 
 @Injectable()
 export class EspecialidadesService {
@@ -18,17 +22,21 @@ export class EspecialidadesService {
 
     @InjectRepository(Subcategoria)
     private readonly subcategoriaRepo: Repository<Subcategoria>,
+
+    private readonly cache: MemoryCacheService,
   ) {}
 
   /**
-   * 🔹 Listar todas las especialidades activas
+   * 🔹 Listar todas las especialidades activas (cacheado — catálogo casi estático)
    */
   async listar(): Promise<Especialidad[]> {
-    return this.especialidadRepo.find({
-      where: { activo: true },
-      relations: ['subcategoria'],
-      order: { nombre: 'ASC' },
-    });
+    return this.cache.wrap(`${CACHE_PREFIX}listar`, () =>
+      this.especialidadRepo.find({
+        where: { activo: true },
+        relations: ['subcategoria'],
+        order: { nombre: 'ASC' },
+      }),
+    );
   }
 
   /**
@@ -48,11 +56,13 @@ export class EspecialidadesService {
    * 🔹 Listar especialidades por subcategoría
    */
   async listarPorSubcategoria(subcategoriaId: number): Promise<Especialidad[]> {
-    return this.especialidadRepo.find({
-      where: { subcategoria: { id: subcategoriaId }, activo: true },
-      relations: ['subcategoria'],
-      order: { nombre: 'ASC' },
-    });
+    return this.cache.wrap(`${CACHE_PREFIX}sub:${subcategoriaId}`, () =>
+      this.especialidadRepo.find({
+        where: { subcategoria: { id: subcategoriaId }, activo: true },
+        relations: ['subcategoria'],
+        order: { nombre: 'ASC' },
+      }),
+    );
   }
 
   /**
@@ -74,7 +84,9 @@ export class EspecialidadesService {
       subcategoria,
     });
 
-    return await this.especialidadRepo.save(nueva);
+    const guardada = await this.especialidadRepo.save(nueva);
+    this.cache.delByPrefix(CACHE_PREFIX);
+    return guardada;
   }
 
   /**
@@ -107,7 +119,9 @@ export class EspecialidadesService {
       dto.actualizadoPor ?? especialidad.actualizadoPor;
     especialidad.fechaActualizacion = new Date();
 
-    return await this.especialidadRepo.save(especialidad);
+    const guardada = await this.especialidadRepo.save(especialidad);
+    this.cache.delByPrefix(CACHE_PREFIX);
+    return guardada;
   }
 
   /**
@@ -122,6 +136,7 @@ export class EspecialidadesService {
     especialidad.fechaActualizacion = new Date();
 
     await this.especialidadRepo.save(especialidad);
+    this.cache.delByPrefix(CACHE_PREFIX);
     return { message: `Especialidad con ID ${id} desactivada correctamente` };
   }
 
@@ -138,6 +153,7 @@ export class EspecialidadesService {
       );
 
     await this.especialidadRepo.remove(especialidad);
+    this.cache.delByPrefix(CACHE_PREFIX);
     return { message: `Especialidad con ID ${id} eliminada definitivamente` };
   }
 }

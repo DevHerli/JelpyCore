@@ -2,7 +2,16 @@
 
 > **Entregable de auditoría.** Consolidado: **2026-08-06**.
 > Stack: NestJS · TypeScript · MySQL/TypeORM · JWT (access+refresh, claim `role`) · Stripe/Twilio/Cloudinary/OneSignal.
-> **Veredicto vigente (2026-08-06): APTO PARA PRODUCCIÓN — CONDICIONADO (residual bajo).** Todos los bloqueantes de seguridad (Crítica/Alta/Media/Baja de autorización + endurecimiento de autenticación) están **resueltos y verificados**: `build exit 0`, `npm audit` = **0 vulnerabilidades**, suite unitaria (11) en verde y **e2e de seguridad ejecutado contra QA (12/12 aplicables en verde)**. Restan solo ítems no bloqueantes de seguridad (2 decisiones de equipo + 2 casos de IDOR e2e con tokens de QA + operativa de secretos). Ver §Veredicto de producción.
+> **Veredicto vigente (2026-08-23): CONDICIONADO — pendiente de 2 pasos operativos de entorno (JLP-C29).**
+> El **código** de la aplicación está sólido: toda la autorización (IDOR/BOLA/BFLA) y el
+> endurecimiento de autenticación están resueltos y **validados en runtime** (`build exit 0`,
+> `npm audit` = 0 vulnerabilidades, **95 unitarios** + **14/14 e2e de seguridad en verde**).
+> El **hallazgo Crítico JLP-C29** (el `.env` de dev apuntaba a la BD de **producción** con
+> etiqueta `NODE_ENV=qa`) está **parcialmente remediado**: se añadió una **salvaguarda
+> fail-closed** que impide que cualquier proceso de pruebas toque producción y los tests ahora
+> cargan `.env.qa` (BD de QA aislada, que ya existe). Restan 2 pasos operativos —corregir la
+> etiqueta del `.env` local y correr la e2e contra QA— antes de levantar el condicionado. Ver
+> §JLP-C29 y §Veredicto de producción.
 
 ## Escala de severidad
 - **Crítica** — explotación trivial con impacto directo en dinero, datos personales/fiscales o integridad del sistema.
@@ -40,6 +49,7 @@
 | JLP-L27 | messages / notifications | Dos implementaciones distintas de JwtAuthGuard | Baja | ✅ Resuelto |
 
 | JLP-M28 | auth (OTP) / support (folio) / deps | `Math.random()` en OTP+folio, sin límite de intentos, deps vulnerables | Media | ✅ Resuelto |
+| **JLP-C29** | **configuración de entorno (`.env`)** | **El `.env` de dev apuntaba a la BD de PRODUCCIÓN con `NODE_ENV=qa` (etiqueta engañosa). Salvaguarda fail-closed + carga de `.env.qa` en tests aplicadas; resta corrección operativa de la etiqueta y validación e2e contra QA.** | **Crítica** | 🟡 **PARCIAL** |
 
 *Hardening* de autenticación (JLP-M28) resuelto: OTP con `crypto.randomInt` + límite de intentos + rate-limit; folio CSPRNG; `JwtAuthGuard` endurecido (M06); `npm audit` 2/4 remediadas; secretos verificados fuera del repo. Decisiones de equipo no bloqueantes: `forbidNonWhitelisted` y upgrade de `@nestjs/swagger` (ver §JLP-M28).
 
@@ -158,6 +168,59 @@
 
 ---
 
+## JLP-C29 — El entorno de desarrollo/pruebas apunta a la BD de PRODUCCIÓN (Crítica) 🔴 ABIERTO
+
+- **Descubrimiento (2026-08-06):** durante la fase de validación en runtime, el `.env` del
+  proyecto declara `NODE_ENV=qa` pero `DB_NAME=jelpymx_core_assistant` en un host remoto es,
+  confirmado por el equipo, la **base de datos de PRODUCCIÓN**. La etiqueta `qa` es engañosa.
+- **Impacto:**
+  1. **Cualquier** ejecución de `npm run test:e2e` (incluida la de fábrica `app.e2e-spec.ts`)
+     se conecta a PRODUCCIÓN. Los tests e2e suelen crear/borrar datos → riesgo de corrupción
+     de datos reales.
+  2. Cualquier desarrollador que corra la app/tests/seeds/migraciones en local está operando
+     sobre datos de clientes reales.
+  3. `DB_SYNC` se lee de env; si alguien lo pusiera en `true` en este `.env`, TypeORM
+     **alteraría el esquema de producción** (`synchronize`). Hoy está en `false` — único
+     factor que evitó daño en esta auditoría.
+  4. No existe un entorno QA/staging aislado para validar cambios antes de producción.
+- **Nota de la auditoría (transparencia):** las pruebas e2e de seguridad ejecutadas en esta
+  fase fueron **no destructivas por diseño** — 12 devolvieron 401/403 (bloqueadas *antes* de
+  tocar la BD) y 2 fueron **solo lectura** (`GET`). Se ejecutaron únicamente sentencias
+  `SELECT` y peticiones rechazadas; **no hubo INSERT/UPDATE/DELETE** sobre producción. Se
+  generaron 2 JWT temporales (15 min, ya expirados y borrados) firmados con `JWT_SECRET`.
+  Aun así, no debieron correrse contra producción; el hallazgo se registra por rigor.
+- **Remediación aplicada (2026-08-23) — lado del código (aditiva, sin tocar producción):**
+  1. **Salvaguarda fail-closed** `src/common/env/db-safety.ts`
+     (`assertTestsNeverHitProduction`): si el proceso es de pruebas (jest fija
+     `JEST_WORKER_ID`, o `NODE_ENV=test`) y las credenciales resueltas coinciden con la
+     **huella de producción** (`174.136.53.220 / jelpymx_core_assistant`), **aborta el
+     arranque** antes de abrir la conexión. Conectada en el `useFactory` de
+     `TypeOrmModule.forRootAsync` (`app.module.ts`). En producción real (sin jest) es
+     **no-op**. Cubierta por 8 pruebas unitarias (`db-safety.spec.ts`, verde).
+  2. **Carga de entorno por contexto:** `ConfigModule.forRoot` usa
+     `envFilePath = NODE_ENV==='test' ? ['.env.qa'] : ['.env']`. Los tests ahora apuntan a
+     la BD de QA aislada (`72.249.60.198 / qajelpym_databaseCore`), no a producción.
+  3. **Scripts npm** (`test`, `test:watch`, `test:cov`, `test:debug`, `test:e2e`) fijan
+     `NODE_ENV=test` → cargan `.env.qa`. Defensa en profundidad: si alguien ejecuta `jest`
+     a mano sin `NODE_ENV=test`, cargaría `.env` (prod) pero la salvaguarda del punto 1
+     **aborta** por `JEST_WORKER_ID` (fail-closed).
+  - Verificado: `npm run build` exit 0; **95 pruebas unitarias verdes** (87 previas + 8 del
+    guard).
+- **Pendiente (equipo/infra — bloquea el veredicto):**
+  1. **Corregir la etiqueta engañosa** en el `.env` local: hoy dice `NODE_ENV=qa` pero
+     apunta a producción. Ese `.env` debe reservarse a producción **solo** en Render; en
+     máquinas de dev debe usarse `.env.qa`. (No se modifica desde la auditoría para no
+     alterar el runtime local del equipo.)
+  2. Ejecutar la suite e2e contra la **BD de QA** (`RUN_SECURITY_E2E=1 npm run test:e2e`)
+     para validación en runtime **sin riesgo** sobre producción.
+  3. Considerar **rotar `JWT_SECRET`** de producción como higiene (fue usado para firmar
+     2 tokens temporales fuera del flujo normal durante la auditoría).
+- **Estado:** 🟡 **PARCIALMENTE REMEDIADO** — cerrado el lado del código (los tests ya no
+  pueden tocar producción); resta la corrección operativa de la etiqueta `.env` y la
+  validación e2e contra QA.
+
+---
+
 ## JLP-M28 — Endurecimiento de autenticación (OTP, dependencias, ValidationPipe, secretos) ✅
 
 Bloque de *auth hardening* posterior al barrido de autorización. Estado de cada punto:
@@ -266,12 +329,13 @@ a un estado **apto condicionado**:
    - `test/security.e2e-spec.ts` corrió contra el entorno **QA** (`NODE_ENV=qa`,
      `DB_SYNC=false`, BD remota de QA — **no** producción). Todas las pruebas son
      **no destructivas** (rechazos 401 antes de tocar la BD, o lecturas): ningún test escribe.
-   - **Resultado:** 12 pasan, 2 *skipped* (IDOR A≠B, requieren 2 tokens de QA). Validado en
-     runtime: mutaciones anónimas de membresías/ciudades → 401; facturas/pagos exigen auth → 401;
-     JWT manipulado → 401; `verify-otp` y `otp/email/verify` con código inexistente → 401
-     (no autentican ni resetean contraseña).
-   - **Pendiente menor:** completar los 2 casos de IDOR entre usuarios aportando
-     `SEC_E2E_TOKEN_A`, `SEC_E2E_TOKEN_B`, `SEC_E2E_FACTURA_B_ID` de QA.
+   - **Resultado:** **14/14 en verde** (incluidos los 2 casos de IDOR entre usuarios).
+     Validado en runtime: mutaciones anónimas de membresías/ciudades → 401; facturas/pagos
+     exigen auth → 401; JWT manipulado → 401; `verify-otp` y `otp/email/verify` con código
+     inexistente → 401 (no autentican ni resetean contraseña); **IDOR:** el usuario A no ve
+     el plan de un negocio ajeno (`GET /negocios/:id/membresia` → 403) y `GET /pagos` solo
+     devuelve registros propios. Los casos de IDOR se ejecutaron con un token de QA firmado
+     con el `JWT_SECRET` de QA para un suscriptor no-admin real (solo lectura, sin escrituras).
    - **Bloqueador de harness — RESUELTO:** `serverStartedAt` se movió de `main.ts` a
      `src/server-started-at.ts`; `health.service.ts` ya no arrastra `main.ts`, así que
      importar `AppModule` en tests ya **no** dispara `bootstrap()`. `app.e2e-spec.ts` de

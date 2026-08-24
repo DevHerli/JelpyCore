@@ -5,12 +5,18 @@ import { Categoria } from './entities/categorias.entity';
 import { CreateCategoriaDto } from './dtos/create-categoria.dto';
 import { UpdateCategoriaDto } from './dtos/update-categoria.dto';
 import { QueryCategoriasDto } from './dtos/query-categorias.dto';
+import { MemoryCacheService } from '../../../common/cache/memory-cache.service';
+
+// Prefijo de claves de caché de este catálogo (para invalidación por familia).
+const CACHE_PREFIX = 'categorias:';
 
 @Injectable()
 export class CategoriasService {
   constructor(
     @InjectRepository(Categoria)
     private readonly categoriasRepo: Repository<Categoria>,
+
+    private readonly cache: MemoryCacheService,
   ) {}
 
   async create(dto: CreateCategoriaDto) {
@@ -18,13 +24,20 @@ export class CategoriasService {
       ...dto,
       activo: dto.activo ?? true,
     });
-    return this.categoriasRepo.save(nuevaCategoria);
+    const guardada = await this.categoriasRepo.save(nuevaCategoria);
+    this.cache.delByPrefix(CACHE_PREFIX);
+    return guardada;
   }
 
   /**
    * Listado con filtros (q, activo, fechas, orden, paginación)
    */
   async findAll(query?: QueryCategoriasDto) {
+    const cacheKey = `${CACHE_PREFIX}findAll:${JSON.stringify(query ?? {})}`;
+    return this.cache.wrap(cacheKey, () => this.findAllUncached(query));
+  }
+
+  private async findAllUncached(query?: QueryCategoriasDto) {
     const qb = this.categoriasRepo.createQueryBuilder('c');
 
     // relations opcionales (para que no pese siempre)
@@ -98,11 +111,13 @@ export class CategoriasService {
    * Endpoint dedicado: solo activas
    */
   async findActivas() {
-    return this.categoriasRepo.find({
-      where: { activo: true },
-      relations: ['subcategorias'],
-      order: { id: 'ASC' },
-    });
+    return this.cache.wrap(`${CACHE_PREFIX}activas`, () =>
+      this.categoriasRepo.find({
+        where: { activo: true },
+        relations: ['subcategorias'],
+        order: { id: 'ASC' },
+      }),
+    );
   }
 
   async findById(id: number) {
@@ -117,7 +132,9 @@ export class CategoriasService {
   async update(id: number, dto: UpdateCategoriaDto) {
     const categoria = await this.findById(id);
     Object.assign(categoria, dto);
-    return this.categoriasRepo.save(categoria);
+    const guardada = await this.categoriasRepo.save(categoria);
+    this.cache.delByPrefix(CACHE_PREFIX);
+    return guardada;
   }
 
   /**
@@ -127,7 +144,9 @@ export class CategoriasService {
     const categoria = await this.findById(id);
     categoria.activo = false;
     categoria.eliminadoPor = eliminadoPor ?? null;
-    return this.categoriasRepo.save(categoria);
+    const guardada = await this.categoriasRepo.save(categoria);
+    this.cache.delByPrefix(CACHE_PREFIX);
+    return guardada;
   }
 
   /**
@@ -144,6 +163,7 @@ export class CategoriasService {
     if (!res.affected) {
       throw new NotFoundException('Categoría no encontrada');
     }
+    this.cache.delByPrefix(CACHE_PREFIX);
     return { ok: true, message: 'Categoría eliminada permanentemente' };
   }
 }
