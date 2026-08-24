@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConversationSession } from '../../conversation/entities/conversation-session.entity';
 import { REFINEMENT_PHRASES } from '../utils/refinement-phrases';
+import { ConversationClassifier } from '../utils/conversation-classifier';
+import { ChatResponses } from '../utils/chat-responses';
 
 /**
  * Palabras y frases que indican que el usuario se refiere a algo anterior.
@@ -150,7 +152,17 @@ export class ContextResolverUseCase {
       textoNorm.includes(this.normalizar(palabra)),
     );
 
-    const esTextoMuyCorto = textoNorm.split(' ').length <= 4;
+    // JLP-CONTEXT-THREAD-FIX: el límite original de 4 palabras estaba
+    // pensado para mensajes ORGANICOS y cortos escritos por el usuario
+    // ("cuánto cuesta", "cuál es su teléfono"). Pero muchos de los chips
+    // que el propio Jelpy ofrece como sugerencia (`suggestions.util.ts`)
+    // son preguntas completas más largas — ej. "¿Quieres ver los precios
+    // disponibles?" (5 palabras) — que SÍ están en `PALABRAS_SEGUIMIENTO`
+    // pero quedaban excluidas solo por el conteo de palabras, perdiendo la
+    // respuesta de detalle ya armada (`generarRespuestaDetalle`) y cayendo
+    // en una búsqueda real menos precisa. Se amplía el límite para cubrir
+    // la longitud típica de esas preguntas generadas por Jelpy.
+    const esTextoMuyCorto = textoNorm.split(' ').length <= 8;
 
     if (esPreguntaDeDetalle && esTextoMuyCorto && tieneResultadosPrevios) {
       return {
@@ -205,6 +217,46 @@ export class ContextResolverUseCase {
       sesion.ultimaQuery;
 
     if (esRefinamiento) {
+      const textoEnriquecido = `${sesion.ultimaQuery} ${mensajeActual}`;
+      return {
+        esSeguimiento: true,
+        textoEnriquecido,
+        contextoDisponible: true,
+        tipoSeguimiento: 'refinamiento',
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // 5. RESPALDO GENÉRICO: cualquier otro seguimiento con búsqueda activa
+    //
+    // JLP-CONTEXT-THREAD-FIX: bug reportado por el usuario — Jelpy ofrece
+    // decenas de chips distintos por categoría (ver `suggestions.util.ts`:
+    // "¿Quieres ver cuáles tienen medicamentos genéricos?", "¿Buscas
+    // alguna especialidad médica?", "¿Quieres ver los precios
+    // disponibles?"...) que es imposible enumerar por completo a mano en
+    // `PALABRAS_SEGUIMIENTO`/`REFINEMENT_PHRASES` sin que la lista se
+    // desincronice de nuevo (ya pasó dos veces). Antes, cualquier chip que
+    // no calzara EXACTO en esas listas se enviaba tal cual al motor de
+    // búsqueda (perdiendo la categoría, ej. "farmacia") o, peor, ni
+    // siquiera se clasificaba como búsqueda y el usuario recibía
+    // "No entendí bien" justo después de un resultado exitoso.
+    //
+    // Regla: si hay una búsqueda anterior (`sesion.ultimaQuery`), el
+    // mensaje actual NO introduce su propio término de negocio nuevo (es
+    // decir, no parece una búsqueda independiente tipo "quiero tacos") Y
+    // TAMPOCO es un mensaje conversacional ya reconocido por
+    // `ChatResponses` (saludo, despedida, gracias, queja, fuera de
+    // alcance, etc. — esos deben seguir su propio camino de chat, no
+    // contaminarse con "farmacia" antepuesto), lo tratamos como
+    // continuación de la búsqueda anterior y anteponemos la query previa.
+    // Esto es exactamente simétrico a la ampliación que se hizo en
+    // `ConversationClassifier.classify()` para el mismo caso.
+    // ------------------------------------------------------------------
+    if (
+      sesion.ultimaQuery &&
+      ChatResponses.detectarIntent(mensajeActual) === 'fallback' &&
+      !ConversationClassifier.contieneTerminoDeNegocio(mensajeActual)
+    ) {
       const textoEnriquecido = `${sesion.ultimaQuery} ${mensajeActual}`;
       return {
         esSeguimiento: true,

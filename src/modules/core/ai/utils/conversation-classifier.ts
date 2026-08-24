@@ -179,6 +179,28 @@ export class ConversationClassifier {
       return { ...base, intent: 'small_talk', route: 'chat', confidence: 0.9 };
     }
 
+    // JLP-CONTEXT-THREAD-FIX: bug reportado por el usuario — Jelpy ofrece
+    // decenas de chips de seguimiento distintos por categoría (ver
+    // `suggestions.util.ts`: "¿Quieres ver cuáles tienen medicamentos
+    // genéricos?", "¿Buscas alguna especialidad médica?", "¿Quieres ver
+    // los precios disponibles?"...). Enumerarlos todos a mano en
+    // `REFINEMENT_PHRASES`/`PALABRAS_SEGUIMIENTO` es una lista que nunca
+    // termina de estar completa y que ya se desincronizó dos veces antes.
+    //
+    // Si llegamos hasta aquí, ya descartamos: saludo/despedida/queja/fuera
+    // de alcance (chatIntent !== 'fallback' arriba), un término de negocio
+    // nuevo propio (containsBusinessTerm) y un verbo de búsqueda explícito.
+    // O sea: es un mensaje corto que no sabemos clasificar con precisión.
+    // Si además hay una búsqueda activa en la sesión, la opción MENOS mala
+    // es asumir que es continuación/refinamiento de esa búsqueda (y dejar
+    // que `ContextResolverUseCase` enriquezca el texto con la query
+    // anterior) en vez de responder "no entendí" y romper el hilo de la
+    // conversación — que es exactamente lo que los usuarios reportan como
+    // "Jelpy no funciona".
+    if (contexto.hasSearchContext) {
+      return { ...base, intent: 'search_refinement', route: 'search', confidence: 0.5 };
+    }
+
     return { ...base, intent: 'ambiguous', route: 'clarify', confidence: 0.55 };
   }
 }
