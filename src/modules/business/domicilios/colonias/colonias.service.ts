@@ -30,6 +30,40 @@ export class ColoniasService {
       .replace(/\s+/g, ' ');
   }
 
+  // JLP-SEC-AUDIT-LEAK: los endpoints GET de este catálogo son públicos
+  // (usados por el flujo de registro antes de login). No deben exponer
+  // metadatos internos de auditoría (ids de usuarios admin que crearon/
+  // editaron/eliminaron el registro). Estos helpers limpian esos campos
+  // antes de responder, sin tocar los métodos internos (create/update/
+  // remove) que sí necesitan el entity completo.
+  private sanitizePostalCode(postalCode: PostalCode | null | undefined): any {
+    if (!postalCode) return postalCode;
+    const {
+      creado_por,
+      actualizado_por,
+      eliminado_por,
+      ...rest
+    } = postalCode as any;
+    return rest;
+  }
+
+  private sanitizeColonia(colonia: Colonia | null | undefined): any {
+    if (!colonia) return colonia;
+    const {
+      creado_por,
+      actualizado_por,
+      eliminado_por,
+      codigo_postal,
+      ...rest
+    } = colonia as any;
+    return {
+      ...rest,
+      ...(codigo_postal !== undefined
+        ? { codigo_postal: this.sanitizePostalCode(codigo_postal) }
+        : {}),
+    };
+  }
+
   async create(createColoniaDto: CreateColoniaDto): Promise<Colonia> {
     const postalCode = await this.postalCodeRepository.findOne({
       where: { id: createColoniaDto.codigo_postal_id as any },
@@ -76,7 +110,7 @@ export class ColoniasService {
     ciudad_id?: string;
     nombre?: string;
     activo?: string;
-  }): Promise<Colonia[]> {
+  }): Promise<any[]> {
     const query = this.coloniaRepository
       .createQueryBuilder('colonia')
       .leftJoinAndSelect('colonia.codigo_postal', 'codigoPostal');
@@ -117,10 +151,14 @@ export class ColoniasService {
       .orderBy('codigoPostal.codigo_postal', 'ASC')
       .addOrderBy('colonia.nombre', 'ASC');
 
-    return await query.getMany();
+    const colonias = await query.getMany();
+    return colonias.map((colonia) => this.sanitizeColonia(colonia));
   }
 
-  async findOne(id: string): Promise<Colonia> {
+  // Carga la entidad completa (incluye campos de auditoría). Uso interno
+  // exclusivo de update()/remove(); NO exponer directamente en respuestas
+  // públicas — usar findOne() para eso.
+  private async findOneEntity(id: string): Promise<Colonia> {
     const colonia = await this.coloniaRepository.findOne({
       where: { id: id as any },
       relations: ['codigo_postal'],
@@ -133,8 +171,13 @@ export class ColoniasService {
     return colonia;
   }
 
-  async findByPostalCodeId(codigoPostalId: string): Promise<Colonia[]> {
-    return await this.coloniaRepository.find({
+  async findOne(id: string): Promise<any> {
+    const colonia = await this.findOneEntity(id);
+    return this.sanitizeColonia(colonia);
+  }
+
+  async findByPostalCodeId(codigoPostalId: string): Promise<any[]> {
+    const colonias = await this.coloniaRepository.find({
       where: {
         codigo_postal_id: codigoPostalId as any,
         activo: true,
@@ -143,33 +186,36 @@ export class ColoniasService {
         nombre: 'ASC',
       },
     });
+    return colonias.map((colonia) => this.sanitizeColonia(colonia));
   }
 
-  async findByPostalCode(codigoPostal: string): Promise<Colonia[]> {
-    return await this.coloniaRepository
+  async findByPostalCode(codigoPostal: string): Promise<any[]> {
+    const colonias = await this.coloniaRepository
       .createQueryBuilder('colonia')
       .leftJoinAndSelect('colonia.codigo_postal', 'codigoPostal')
       .where('codigoPostal.codigo_postal = :codigoPostal', { codigoPostal })
       .andWhere('colonia.activo = :activo', { activo: 1 })
       .orderBy('colonia.nombre', 'ASC')
       .getMany();
+    return colonias.map((colonia) => this.sanitizeColonia(colonia));
   }
 
-  async findByCity(ciudadId: string): Promise<Colonia[]> {
-    return await this.coloniaRepository
+  async findByCity(ciudadId: string): Promise<any[]> {
+    const colonias = await this.coloniaRepository
       .createQueryBuilder('colonia')
       .leftJoinAndSelect('colonia.codigo_postal', 'codigoPostal')
       .where('codigoPostal.ciudad_id = :ciudadId', { ciudadId })
       .andWhere('colonia.activo = :activo', { activo: 1 })
       .orderBy('colonia.nombre', 'ASC')
       .getMany();
+    return colonias.map((colonia) => this.sanitizeColonia(colonia));
   }
 
   async update(
     id: string,
     updateColoniaDto: UpdateColoniaDto,
   ): Promise<Colonia> {
-    const colonia = await this.findOne(id);
+    const colonia = await this.findOneEntity(id);
 
     let codigoPostalId = colonia.codigo_postal_id;
     let nombreNormalizadoFinal = colonia.nombre_normalizado;
@@ -225,7 +271,7 @@ export class ColoniasService {
   }
 
   async remove(id: string, eliminado_por?: string): Promise<Colonia> {
-    const colonia = await this.findOne(id);
+    const colonia = await this.findOneEntity(id);
 
     colonia.activo = false;
     colonia.eliminado_por = eliminado_por ?? null;

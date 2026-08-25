@@ -60,11 +60,28 @@ export class PostalCodesService {
     return await this.postalCodeRepository.save(postalCode);
   }
 
+  // JLP-SEC-AUDIT-LEAK: los endpoints GET de este catálogo son públicos
+  // (usados por el flujo de registro antes de login, igual que colonias).
+  // No deben exponer metadatos internos de auditoría (ids de usuarios
+  // admin que crearon/editaron/eliminaron el registro). Este helper limpia
+  // esos campos antes de responder, sin tocar los métodos internos
+  // (create/update/remove) que sí necesitan el entity completo.
+  private sanitizePostalCode(postalCode: PostalCode | null | undefined): any {
+    if (!postalCode) return postalCode;
+    const {
+      creado_por,
+      actualizado_por,
+      eliminado_por,
+      ...rest
+    } = postalCode as any;
+    return rest;
+  }
+
   async findAll(filters?: {
     ciudad_id?: string;
     codigo_postal?: string;
     activo?: string;
-  }): Promise<PostalCode[]> {
+  }): Promise<any[]> {
     const query = this.postalCodeRepository
       .createQueryBuilder('postalCode')
       .leftJoinAndSelect('postalCode.ciudad', 'ciudad');
@@ -89,10 +106,14 @@ export class PostalCodesService {
 
     query.orderBy('postalCode.codigo_postal', 'ASC');
 
-    return await query.getMany();
+    const postalCodes = await query.getMany();
+    return postalCodes.map((pc) => this.sanitizePostalCode(pc));
   }
 
-  async findOne(id: string): Promise<PostalCode> {
+  // Carga la entidad completa (incluye campos de auditoría). Uso interno
+  // exclusivo de update()/remove(); NO exponer directamente en respuestas
+  // públicas — usar findOne() para eso.
+  private async findOneEntity(id: string): Promise<PostalCode> {
     const postalCode = await this.postalCodeRepository.findOne({
       where: { id: id as any },
       relations: ['ciudad'],
@@ -107,8 +128,13 @@ export class PostalCodesService {
     return postalCode;
   }
 
-  async findByCity(ciudadId: string): Promise<PostalCode[]> {
-    return await this.postalCodeRepository.find({
+  async findOne(id: string): Promise<any> {
+    const postalCode = await this.findOneEntity(id);
+    return this.sanitizePostalCode(postalCode);
+  }
+
+  async findByCity(ciudadId: string): Promise<any[]> {
+    const postalCodes = await this.postalCodeRepository.find({
       where: {
         ciudad_id: ciudadId as any,
         activo: true,
@@ -117,10 +143,11 @@ export class PostalCodesService {
         codigo_postal: 'ASC',
       },
     });
+    return postalCodes.map((pc) => this.sanitizePostalCode(pc));
   }
 
-  async findByPostalCode(codigoPostal: string): Promise<PostalCode[]> {
-    return await this.postalCodeRepository.find({
+  async findByPostalCode(codigoPostal: string): Promise<any[]> {
+    const postalCodes = await this.postalCodeRepository.find({
       where: {
         codigo_postal: codigoPostal,
       },
@@ -129,13 +156,14 @@ export class PostalCodesService {
         codigo_postal: 'ASC',
       },
     });
+    return postalCodes.map((pc) => this.sanitizePostalCode(pc));
   }
 
   async update(
     id: string,
     updatePostalCodeDto: UpdatePostalCodeDto,
   ): Promise<PostalCode> {
-    const postalCode = await this.findOne(id);
+    const postalCode = await this.findOneEntity(id);
 
     if (
       updatePostalCodeDto.ciudad_id !== undefined ||
@@ -180,7 +208,7 @@ export class PostalCodesService {
   }
 
   async remove(id: string, eliminado_por?: string): Promise<PostalCode> {
-    const postalCode = await this.findOne(id);
+    const postalCode = await this.findOneEntity(id);
 
     postalCode.activo = false;
     postalCode.eliminado_por = eliminado_por ?? null;

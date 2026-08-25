@@ -327,6 +327,44 @@ export class AiService {
       };
     }
 
+    // JLP-CHIP-RECUPERACION-FIX: los chips de recuperación que Jelpy ofrece
+    // tras una búsqueda SIN resultados ("¿Quieres intentar con otra
+    // palabra?", "¿Buscas algo diferente en {ciudad}?", "¿Quieres ampliar
+    // la búsqueda a otra categoría?", "¿Quieres buscar en otra ciudad?" —
+    // ver `SugerenciasUtil.generar()`) son preguntas META, no frases de
+    // negocio buscables. Deben interceptarse ANTES de
+    // `ContextResolverUseCase`/`ConversationClassifier` y responderse con
+    // una pregunta dirigida, en vez de intentar una búsqueda con el texto
+    // literal del chip (lo que producía "No entendí bien" al tocarlos —
+    // justo lo contrario de lo que el chip prometía).
+    const chipRecuperacion = ChatResponses.detectarChipRecuperacionSinResultados(textoCorregido);
+
+    if (chipRecuperacion) {
+      const respuestaRecuperacion = ChatResponses.responderChipRecuperacion(
+        chipRecuperacion,
+        contexto?.ciudad ?? sesion.ciudad,
+      );
+      const sugerenciasRecuperacion = ChatResponses.generarSugerencias('clarificar_busqueda');
+
+      await this.conversationService.guardarTurnoUsuario(idSesionActiva, input, 'chip_recuperacion');
+      await this.conversationService.guardarTurnoAsistente(
+        idSesionActiva,
+        respuestaRecuperacion.mensaje,
+        { intent: 'chip_recuperacion', sugerencias: sugerenciasRecuperacion },
+      );
+
+      return {
+        sessionId: idSesionActiva,
+        status: 'chat',
+        mensajeOriginal: input,
+        mensajeCorregido: textoCorregido,
+        respuesta: {
+          ...respuestaRecuperacion,
+          sugerencias: sugerenciasRecuperacion,
+        },
+      };
+    }
+
     const resolucion = this.contextResolver.execute(textoCorregido, sesion);
 
     if (resolucion.esSeguimiento && resolucion.referenciaItem) {

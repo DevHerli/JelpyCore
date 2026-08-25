@@ -279,6 +279,80 @@ export class ChatResponses {
   }
 
   /**
+   * JLP-CHIP-RECUPERACION-FIX: bug reportado por el usuario — tras una
+   * búsqueda SIN resultados, Jelpy ofrece chips de recuperación
+   * ("¿Quieres intentar con otra palabra?", "¿Buscas algo diferente en
+   * {ciudad}?", "¿Quieres ampliar la búsqueda a otra categoría?", "¿Quieres
+   * buscar en otra ciudad?" — ver `SugerenciasUtil.generar()`, rama
+   * `items.length === 0`). Estos 4 chips NO son frases de negocio
+   * autosuficientes como "Tacos cerca de mí": son PREGUNTAS META que piden
+   * al usuario un dato que todavía no dio (una palabra nueva, otra
+   * categoría, otra ciudad). Al tocarlos, el texto literal del chip
+   * ("¿Buscas algo diferente en Tepic?") se enviaba al pipeline de
+   * clasificación/búsqueda como si fuera una consulta real, y terminaba en
+   * "No entendí bien" — literalmente lo opuesto de lo que el chip prometía.
+   *
+   * Reporte textual del usuario: "los chips que ves dice quieres tratar con
+   * otra palabra? pero no da opciones, o deberia ser informativo y no
+   * opcional un chip [...] lo seleccionas y dice no entendi! que
+   * incongruente es eso!"
+   *
+   * Este detector se usa para INTERCEPTAR esos 4 textos ANTES de que
+   * entren a `ContextResolverUseCase`/`ConversationClassifier`, y
+   * responder con una pregunta dirigida (igual que `preguntarAclaracionBusqueda`)
+   * en vez de intentar una búsqueda con el texto del chip.
+   */
+  static detectarChipRecuperacionSinResultados(
+    texto: string,
+  ): 'otra_palabra' | 'otra_categoria' | 'otra_ciudad' | null {
+    const t = this.normalizar(texto);
+
+    if (this.tieneFrase(t, 'quieres intentar con otra palabra')) return 'otra_palabra';
+    if (this.tieneFrase(t, 'buscas algo diferente en')) return 'otra_palabra';
+    if (this.tieneFrase(t, 'quieres ampliar la busqueda a otra categoria')) return 'otra_categoria';
+    if (this.tieneFrase(t, 'quieres buscar en otra ciudad')) return 'otra_ciudad';
+
+    return null;
+  }
+
+  /**
+   * Respuesta "informativa" (no una búsqueda a ciegas) para los chips de
+   * recuperación sin resultados detectados por
+   * `detectarChipRecuperacionSinResultados`. Sigue el mismo patrón que
+   * `preguntarAclaracionBusqueda`: pregunta dirigida + chips de
+   * `generarSugerencias('clarificar_busqueda')` para que responder sea un
+   * solo tap.
+   */
+  static responderChipRecuperacion(
+    tipo: 'otra_palabra' | 'otra_categoria' | 'otra_ciudad',
+    ciudad?: string,
+  ): { titulo: string; mensaje: string } {
+    const tieneCiudad = !!(ciudad || '').trim();
+    const enCiudad = tieneCiudad ? ` en ${ciudad}` : '';
+
+    switch (tipo) {
+      case 'otra_categoria':
+        return {
+          titulo: this.elegir(['¿Qué categoría te gustaría explorar? 🧭', 'Vamos a probar otra categoría 🧭']),
+          mensaje: `Dime qué tipo de lugar buscas${enCiudad}: comida, salud, belleza, servicios... y te muestro opciones.`,
+        };
+
+      case 'otra_ciudad':
+        return {
+          titulo: this.elegir(['¿En qué ciudad buscamos? 📍', 'Cambiemos de ciudad 📍']),
+          mensaje: 'Dime el nombre de la ciudad donde quieres que busque y con gusto te ayudo.',
+        };
+
+      case 'otra_palabra':
+      default:
+        return {
+          titulo: this.elegir(['¡Claro, intentemos de nuevo! 🔍', 'Vamos a intentarlo de otra forma 🔍']),
+          mensaje: `Escríbeme qué te gustaría buscar${enCiudad} (por ejemplo un negocio, categoría o servicio) y lo intento otra vez.`,
+        };
+    }
+  }
+
+  /**
    * Clasifica el mensaje en una etiqueta corta de intención conversacional,
    * sin generar la respuesta. Se usa para:
    *  1) Persistir en el historial de turnos qué se habló (memoria de sesión).
