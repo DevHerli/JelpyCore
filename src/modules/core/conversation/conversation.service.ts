@@ -180,6 +180,42 @@ export class ConversationService {
   }
 
   // ------------------------------------------------------------------
+  // GUARDAR/LIMPIAR PREGUNTA DE CONFIRMACIÓN PENDIENTE
+  // ------------------------------------------------------------------
+  // JLP-CONFIRMACION-PENDIENTE-FIX: bug reportado por el usuario — Jelpy
+  // preguntó "¿Quieres que busque otros negocios similares que sí tengan
+  // promo?" y, al responder "Sí", el usuario recibió "Dime qué necesitas
+  // y busco en Tepic...", ignorando la propia pregunta que Jelpy acababa
+  // de hacer. Se guarda aquí qué pregunta quedó pendiente (dentro de
+  // `ultimosFiltros`, sin requerir una columna nueva) para que
+  // `ContextResolverUseCase` pueda resolver un "Sí"/"No" posterior contra
+  // la acción real que se ofreció, en vez de tratarlo como relleno sin
+  // sentido. Se llama SIEMPRE que se genera una respuesta de detalle
+  // (con `pendiente = null` cuando esa respuesta puntual no ofrece
+  // ninguna confirmación), para que una pregunta pendiente nunca quede
+  // "viva" más de un turno sin resolverse.
+  // ------------------------------------------------------------------
+  async guardarPreguntaPendiente(
+    sessionId: string,
+    pendiente: { tipo: string; categoria?: string; ciudad?: string } | null,
+  ): Promise<void> {
+    const sesion = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!sesion) return;
+
+    const filtrosActuales = { ...(sesion.ultimosFiltros || {}) };
+    delete filtrosActuales.pendienteConfirmacion;
+
+    if (pendiente) {
+      filtrosActuales.pendienteConfirmacion = pendiente;
+    }
+
+    await this.sessionRepo.update(
+      { id: sessionId },
+      { ultimosFiltros: filtrosActuales, actualizadoEn: new Date() },
+    );
+  }
+
+  // ------------------------------------------------------------------
   // OBTENER HISTORIAL DE TURNOS RECIENTES
   // ------------------------------------------------------------------
   async obtenerHistorial(sessionId: string): Promise<ConversationTurn[]> {

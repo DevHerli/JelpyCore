@@ -367,6 +367,42 @@ export class AiService {
 
     const resolucion = this.contextResolver.execute(textoCorregido, sesion);
 
+    // JLP-CONFIRMACION-PENDIENTE-FIX: si esta resolución consumió una
+    // pregunta de confirmación pendiente ("¿Quieres que busque otros
+    // negocios similares que sí tengan promo?" -> "Sí"/"No"), se limpia de
+    // inmediato para que no siga "viva" en turnos posteriores no
+    // relacionados. Se limpia tanto si la respuesta fue afirmativa (ya se
+    // va a convertir en una búsqueda real más abajo) como negativa.
+    if (resolucion.tipoSeguimiento === 'confirmacion_pendiente') {
+      await this.conversationService.guardarPreguntaPendiente(idSesionActiva, null);
+    }
+
+    // JLP-CONFIRMACION-PENDIENTE-FIX: respuesta directa cuando el usuario
+    // responde "No" a la pregunta de confirmación pendiente — no hay
+    // ninguna búsqueda que lanzar, solo confirmar y seguir la charla.
+    if (resolucion.respuestaDirecta) {
+      await this.conversationService.guardarTurnoUsuario(
+        idSesionActiva,
+        input,
+        'confirmacion_negativa',
+      );
+
+      await this.conversationService.guardarTurnoAsistente(
+        idSesionActiva,
+        resolucion.respuestaDirecta.mensaje,
+        { intent: 'confirmacion_negativa' },
+      );
+
+      return {
+        sessionId: idSesionActiva,
+        status: 'chat',
+        mensajeOriginal: input,
+        mensajeCorregido: textoCorregido,
+        respuesta: resolucion.respuestaDirecta,
+        contextoUsado: true,
+      };
+    }
+
     if (resolucion.esSeguimiento && resolucion.referenciaItem) {
       const normalizado = this.normalizarTexto(textoCorregido);
 
@@ -376,6 +412,16 @@ export class AiService {
       );
 
       if (respuestaDetalle) {
+        // JLP-CONFIRMACION-PENDIENTE-FIX: se registra (o se limpia, si esta
+        // respuesta puntual no ofrece ninguna confirmación) cada vez que se
+        // genera una respuesta de detalle, para que una pregunta pendiente
+        // nunca quede desincronizada con lo último que Jelpy realmente
+        // preguntó.
+        await this.conversationService.guardarPreguntaPendiente(
+          idSesionActiva,
+          respuestaDetalle.pendienteConfirmacion ?? null,
+        );
+
         await this.conversationService.guardarTurnoUsuario(
           idSesionActiva,
           input,

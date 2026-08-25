@@ -88,7 +88,32 @@ export interface ContextResolution {
     | 'consulta_detalles'
     | 'busqueda_variante'
     | 'refinamiento'
+    | 'confirmacion_pendiente'
     | 'ninguno';
+
+  /**
+   * JLP-CONFIRMACION-PENDIENTE-FIX: cuando el usuario responde "No" (o
+   * similar) a una pregunta de confirmación pendiente (ver
+   * `PreguntaPendiente` más abajo), no hay ninguna búsqueda que lanzar —
+   * hay que responder directo con esto, sin pasar por clasificación/
+   * búsqueda.
+   */
+  respuestaDirecta?: { titulo: string; mensaje: string };
+}
+
+/**
+ * JLP-CONFIRMACION-PENDIENTE-FIX: descripción mínima de una pregunta de
+ * confirmación ("¿Quieres que busque otros negocios similares que sí
+ * tengan promo?") que Jelpy le hizo al usuario y que aún no fue
+ * respondida. Se guarda en `sesion.ultimosFiltros.pendienteConfirmacion`
+ * (ver `ConversationService.guardarPreguntaPendiente`) para que, si el
+ * usuario responde con un simple "Sí"/"No", sepamos qué acción ejecutar en
+ * vez de caer en "no entendí".
+ */
+export interface PreguntaPendiente {
+  tipo: 'buscar_similares_promo';
+  categoria?: string;
+  ciudad?: string;
 }
 
 @Injectable()
@@ -120,6 +145,59 @@ export class ContextResolverUseCase {
 
     // Sin sesión o sin contexto previo → procesar normal
     if (!sesion || !sesion.ultimoIntent) return sinContexto;
+
+    // ------------------------------------------------------------------
+    // 0. CONFIRMACIÓN DE UNA PREGUNTA PENDIENTE
+    //    ("¿Quieres que busque otros negocios similares que sí tengan
+    //    promo?" -> "Sí" / "No")
+    //
+    // JLP-CONFIRMACION-PENDIENTE-FIX: bug reportado por el usuario — Jelpy
+    // preguntaba esto y, al responder "Sí", el usuario recibía "Dime qué
+    // necesitas y busco en Tepic...", ignorando la propia pregunta de
+    // Jelpy. Se revisa ANTES que cualquier otra rama porque una respuesta
+    // de confirmación de 2 caracteres ("Sí"/"No") no calza con ningún otro
+    // patrón de seguimiento (no es referencia numerada, no trae palabra de
+    // negocio, no trae "también"/"pero en") y de otro modo caería directo
+    // en `sinContexto`.
+    // ------------------------------------------------------------------
+    const pendiente = (sesion.ultimosFiltros as any)?.pendienteConfirmacion as
+      | PreguntaPendiente
+      | undefined;
+
+    if (pendiente) {
+      const confirmacion = ChatResponses.detectarConfirmacion(mensajeActual);
+
+      if (confirmacion === 'afirmativa') {
+        const categoria = pendiente.categoria || sesion.ultimaQuery || '';
+        const ciudadPendiente = pendiente.ciudad || sesion.ciudad || '';
+        const textoEnriquecido = [categoria, 'con promociones', ciudadPendiente ? `en ${ciudadPendiente}` : '']
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+
+        if (textoEnriquecido) {
+          return {
+            esSeguimiento: true,
+            textoEnriquecido,
+            contextoDisponible: true,
+            tipoSeguimiento: 'confirmacion_pendiente',
+          };
+        }
+      }
+
+      if (confirmacion === 'negativa') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: mensajeActual,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+          respuestaDirecta: {
+            titulo: '¡Entendido! 👍',
+            mensaje: '¿En qué más te ayudo? Puedo buscar otro negocio, servicio o categoría cuando quieras.',
+          },
+        };
+      }
+    }
 
     const tieneResultadosPrevios =
       Array.isArray(sesion.ultimoResultado) && sesion.ultimoResultado.length > 0;
@@ -276,7 +354,7 @@ export class ContextResolverUseCase {
   generarRespuestaDetalle(
     mensajeNorm: string,
     item: any,
-  ): { titulo: string; mensaje: string } | null {
+  ): { titulo: string; mensaje: string; pendienteConfirmacion?: PreguntaPendiente } | null {
     const nombreLugar = item?.nombre || item?.nombre_negocio || 'ese lugar';
 
     if (
@@ -372,6 +450,14 @@ export class ContextResolverUseCase {
       return {
         titulo: `${nombreLugar} no tiene promociones registradas en este momento`,
         mensaje: '¿Quieres que busque otros negocios similares que sí tengan promo? 💸',
+        // JLP-CONFIRMACION-PENDIENTE-FIX: se guarda en la sesión (ver
+        // `ai.service.ts`) para que, si el usuario responde "Sí"/"No" a
+        // esta pregunta, sepamos qué hacer en vez de caer en "no entendí".
+        pendienteConfirmacion: {
+          tipo: 'buscar_similares_promo',
+          categoria: item?.categoria || item?.nombreCategoria,
+          ciudad: item?.ciudad || item?.nombreCiudad,
+        },
       };
     }
 

@@ -53,6 +53,51 @@ export class ChatResponses {
     return opciones[Math.floor(Math.random() * opciones.length)];
   }
 
+  /**
+   * JLP-CONFIRMACION-PENDIENTE-FIX: bug reportado por el usuario — Jelpy le
+   * preguntó "¿Quieres que busque otros negocios similares que sí tengan
+   * promo?" (ver `ContextResolverUseCase.generarRespuestaDetalle`, rama de
+   * promociones) y, al responder "Sí", el usuario recibió "Dime qué
+   * necesitas y busco en Tepic..." — ignorando por completo la pregunta que
+   * Jelpy misma acababa de hacer.
+   *
+   * Causa raíz: "Sí"/"No" son respuestas de 2 caracteres. El guard de
+   * "entrada muy corta / relleno" (`t.length <= 2`) en `detectarIntent` y
+   * en `responder()` las trata como "eh"/"ok"/relleno sin sentido, y
+   * `ConversationClassifier.classify()` corta camino a `intent: 'ambiguous'`
+   * ANTES de siquiera mirar si hay contexto de sesión activo — por eso
+   * ninguno de los arreglos de "hilo de conversación" anteriores (que
+   * dependen de `hasSearchContext`) llegaba a aplicarse aquí.
+   *
+   * Este detector es DELIBERADAMENTE de coincidencia EXACTA (no
+   * `tieneFrase`/substring) sobre una lista corta de respuestas de
+   * confirmación reales, para no arriesgar falsos positivos con frases más
+   * largas que solo CONTENGAN "si"/"no" como substring (ej. "así es",
+   * "no sé"). Solo se usa cuando ya existe una pregunta de confirmación
+   * pendiente guardada en la sesión (ver `ai.service.ts`), así que el
+   * universo de mensajes que le llegan ya es acotado a respuestas cortas.
+   */
+  private static readonly CONFIRMACIONES_AFIRMATIVAS = [
+    'si', 'sip', 'sisi', 'siii', 'simon', 'simonda', 'va', 'vale', 'dale',
+    'claro', 'claro que si', 'obvio', 'de una', 'porfa', 'porfavor',
+    'por favor', 'si porfa', 'si porfavor', 'si por favor', 'si quiero',
+    'si claro', 'esta bien', 'oki', 'okay', 'yes',
+  ];
+
+  private static readonly CONFIRMACIONES_NEGATIVAS = [
+    'no', 'nel', 'no gracias', 'no por ahora', 'ahorita no', 'no quiero',
+    'mejor no', 'no por ahorita', 'nop', 'nope', 'no por el momento',
+  ];
+
+  static detectarConfirmacion(texto: string): 'afirmativa' | 'negativa' | null {
+    const t = this.normalizar(texto);
+
+    if (this.CONFIRMACIONES_NEGATIVAS.some((n) => t === this.normalizar(n))) return 'negativa';
+    if (this.CONFIRMACIONES_AFIRMATIVAS.some((a) => t === this.normalizar(a))) return 'afirmativa';
+
+    return null;
+  }
+
   /** Saludo según la hora del día */
   private static saludoPorHora(): string {
     const h = new Date().getHours();

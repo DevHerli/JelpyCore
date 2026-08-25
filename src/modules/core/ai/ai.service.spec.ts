@@ -53,6 +53,7 @@ function crearMocks() {
     actualizarContextoBusqueda: jest.fn().mockResolvedValue(undefined),
     obtenerContextoSesion: jest.fn(),
     cerrarSesion: jest.fn(),
+    guardarPreguntaPendiente: jest.fn().mockResolvedValue(undefined),
   } as any;
 
   const zeroResultLogger = { execute: jest.fn().mockResolvedValue(undefined) } as any;
@@ -175,6 +176,85 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
 
     expect(resultado.status).toBe('chat');
     expect(resultado.respuesta.titulo).not.toMatch(/entenderte mejor|qué tipo de lugar/i);
+  });
+
+  it('el chip "¿Buscas algo diferente en Tepic?" responde de forma informativa, no "no entendí" (regresión)', async () => {
+    const { service, mocks } = crearServicio();
+
+    const resultado = await service.processUserMessage(
+      '¿Buscas algo diferente en Tepic?',
+      1,
+      {},
+      undefined,
+    );
+
+    expect(resultado.status).toBe('chat');
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+    const textoCompleto = JSON.stringify(resultado.respuesta);
+    expect(textoCompleto).not.toMatch(/no entendí/i);
+    expect(resultado.respuesta.sugerencias.length).toBeGreaterThan(0);
+  });
+
+  it('responder "Sí" a una pregunta de confirmación pendiente relanza la búsqueda prometida, no "no entendí" (regresión)', async () => {
+    const contextResolver = {
+      execute: jest.fn().mockReturnValue({
+        esSeguimiento: true,
+        textoEnriquecido: 'sushi con promociones en Tepic',
+        contextoDisponible: true,
+        tipoSeguimiento: 'confirmacion_pendiente',
+      }),
+      generarRespuestaDetalle: jest.fn(),
+    } as any;
+
+    const { service, mocks } = crearServicio({ contextResolver });
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'sushi', subcategoria: null, ciudad: 'Tepic', especialidad: null },
+      filters: { abierto_ahora: false, promos: true, cerca_de_mi: false },
+      normalized_text: 'sushi con promociones en Tepic',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      resultados: [{ id: 2, nombre: 'Sushi Palace', categoria: 'sushi', ciudad: 'Tepic', promo: true }],
+      filtros_detectados: {},
+    });
+
+    const resultado = await service.processUserMessage('Si', 1, {}, undefined);
+
+    expect(mocks.jelpyAiService.interpretar).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'sushi con promociones en Tepic' }),
+    );
+    expect(mocks.conversationService.guardarPreguntaPendiente).toHaveBeenCalledWith('sesion-test', null);
+    const textoCompleto = JSON.stringify(resultado.respuesta);
+    expect(textoCompleto).not.toMatch(/dime qué necesitas|no entendí/i);
+  });
+
+  it('responder "No" a una pregunta de confirmación pendiente confirma y sigue la charla, sin ir a búsqueda (regresión)', async () => {
+    const contextResolver = {
+      execute: jest.fn().mockReturnValue({
+        esSeguimiento: true,
+        textoEnriquecido: 'No',
+        contextoDisponible: true,
+        tipoSeguimiento: 'confirmacion_pendiente',
+        respuestaDirecta: {
+          titulo: '¡Entendido! 👍',
+          mensaje: '¿En qué más te ayudo? Puedo buscar otro negocio, servicio o categoría cuando quieras.',
+        },
+      }),
+      generarRespuestaDetalle: jest.fn(),
+    } as any;
+
+    const { service, mocks } = crearServicio({ contextResolver });
+
+    const resultado = await service.processUserMessage('No', 1, {}, undefined);
+
+    expect(resultado.status).toBe('chat');
+    expect(resultado.respuesta.titulo).toMatch(/entendido/i);
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+    expect(mocks.conversationService.guardarPreguntaPendiente).toHaveBeenCalledWith('sesion-test', null);
   });
 
   it('usuario frustrado recibe respuesta empática y SIN chips', async () => {
