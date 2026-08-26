@@ -106,10 +106,15 @@ export class StreetsController {
   /**
    * Calles que pertenecen a una colonia específica.
    * GET /streets/colony/:coloniaId/streets
+   * GET /streets/colony/:coloniaId/streets?search=juarez  ← filtro opcional por nombre
+   *   (case-insensitive, ignora acentos, busca "contiene").
    */
   @Get('colony/:coloniaId/streets')
-  findStreetsByColoniaId(@Param('coloniaId') coloniaId: string) {
-    return this.streetsService.findStreetsByColoniaId(coloniaId);
+  findStreetsByColoniaId(
+    @Param('coloniaId') coloniaId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.streetsService.findStreetsByColoniaId(coloniaId, search);
   }
 
   /** Obtener una calle por ID */

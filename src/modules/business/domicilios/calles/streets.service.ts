@@ -306,22 +306,63 @@ export class StreetsService {
 
   // Dada una colonia, devuelve todas las calles que pertenecen a ella.
   // Incluye el código postal de la colonia para mostrar la cadena completa.
-  async findStreetsByColoniaId(coloniaId: string): Promise<StreetColony[]> {
-    return await this.streetColonyRepository.find({
-      where: {
-        colonia_id: coloniaId as any,
-        activo: true,
-      },
+  //
+  // JLP-CAMBIO-TEMPORAL (2026-08-25, por indicación explícita del usuario):
+  // el catálogo de calles todavía no tiene cobertura completa por colonia
+  // (la relación calles_colonias sigue muy incompleta). Mientras se sigue
+  // enriqueciendo esa relación, se retira como filtro de visibilidad: este
+  // método ya NO exige que la calle esté relacionada con la colonia vía
+  // `calles_colonias`, sino que devuelve TODAS las calles activas del
+  // catálogo global, para que ninguna colonia bloquee el registro de un
+  // negocio por falta de calles asociadas. La tabla `calles_colonias` y sus
+  // endpoints de administración (`street-colonies/*`) NO se tocan ni se
+  // borran — se puede revertir este método a la versión filtrada por
+  // relación en cuanto la cobertura de calles por colonia sea suficiente.
+  //
+  // JLP-H-SEARCH (2026-08-25): con el catálogo global ya en +5500 calles,
+  // se agrega el parámetro opcional `search` para poder filtrar por nombre
+  // (case-insensitive y sin acentos, igual que `findAll`). Si no se manda
+  // `search`, se mantiene el comportamiento anterior (devuelve el catálogo
+  // completo) para no romper a los consumidores que ya existían.
+  async findStreetsByColoniaId(
+    coloniaId: string,
+    search?: string,
+  ): Promise<any[]> {
+    const colonia = await this.coloniaRepository.findOne({
+      where: { id: coloniaId as any },
       relations: {
-        calle: true,
-        colonia: {
-          codigo_postal: {
-            ciudad: true,
-          },
+        codigo_postal: {
+          ciudad: true,
         },
       },
-      order: { calle: { nombre: 'ASC' } },
     });
+
+    if (!colonia) {
+      throw new NotFoundException(`Colonia con id ${coloniaId} no encontrada.`);
+    }
+
+    const query = this.streetRepository
+      .createQueryBuilder('street')
+      .where('street.activo = :activo', { activo: true });
+
+    if (search?.trim()) {
+      query.andWhere(
+        '(street.nombre LIKE :nombre OR street.nombre_normalizado LIKE :nombreNormalizado)',
+        {
+          nombre: `%${search.trim()}%`,
+          nombreNormalizado: `%${this.normalizeText(search.trim())}%`,
+        },
+      );
+    }
+
+    query.orderBy('street.nombre', 'ASC');
+
+    const calles = await query.getMany();
+
+    return calles.map((calle) => ({
+      calle,
+      colonia,
+    }));
   }
 
   async updateStreetColony(
