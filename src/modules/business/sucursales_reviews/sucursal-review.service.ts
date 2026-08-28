@@ -149,17 +149,21 @@ async findBySucursal(sucursalId: number) {
     .groupBy('rx.resenaId')
     .getRawMany();
 
-  const map = new Map<number, { likes: number; dislikes: number }>(
+  // OJO: `id` es BIGINT y el driver de MySQL/MariaDB lo devuelve como STRING,
+  // igual que `rx.resenaId` en getRawMany(). Se normaliza la clave con String()
+  // en ambos lados para que el lookup no falle (antes: Map<number> vs r.id string
+  // → siempre 0, los conteos se perdían al recargar la sucursal).
+  const map = new Map<string, { likes: number; dislikes: number }>(
     counts.map((c) => [
-      Number(c.resenaId),
+      String(c.resenaId),
       { likes: Number(c.likes) || 0, dislikes: Number(c.dislikes) || 0 },
     ]),
   );
 
   return reviews.map((r) => ({
     ...r,
-    likes: map.get(r.id)?.likes ?? 0,
-    dislikes: map.get(r.id)?.dislikes ?? 0,
+    likes: map.get(String(r.id))?.likes ?? 0,
+    dislikes: map.get(String(r.id))?.dislikes ?? 0,
   }));
 }
 
