@@ -6,9 +6,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SucursalReview } from './entities/sucursal-review.entity';
+import { SucursalReviewReaccion } from './entities/sucursal-review-reaccion.entity';
 import { CreateSucursalReviewDto } from './dtos/create-sucursal-review.dto';
 import { UpdateSucursalReviewDto } from './dtos/update-sucursal-review.dto';
 import { Suscriptor } from '../suscriptores/entities/suscriptores.entity';
+
+export type ReaccionTipo = 'like' | 'dislike';
 
 // JLP-H20 — Identidad y autoridad de reseñas:
 //  · La autoría se toma del token, nunca del body (evita spoofing).
@@ -24,23 +27,16 @@ export class SucursalReviewService {
 
     @InjectRepository(Suscriptor)
     private readonly suscriptorRepo: Repository<Suscriptor>,
+
+    @InjectRepository(SucursalReviewReaccion)
+    private readonly reaccionRepo: Repository<SucursalReviewReaccion>,
   ) {}
 
 
   // Crear reseña — la autoría (suscriptorId) proviene del token, no del body.
 async create(dto: CreateSucursalReviewDto, suscriptorId: number) {
-  const existe = await this.reviewRepo.findOne({
-    where: {
-      sucursal: { id: dto.sucursalId },
-      suscriptor: { id: suscriptorId },
-    },
-  });
-
-  if (existe) {
-    throw new BadRequestException(
-      'Ya has dejado una reseña en esta sucursal',
-    );
-  }
+  // Opción B: un suscriptor puede dejar múltiples reseñas en la misma
+  // sucursal, sin límite. No se valida la existencia de una reseña previa.
 
   const suscriptor = await this.suscriptorRepo.findOne({
     where: { id: suscriptorId },
@@ -117,16 +113,7 @@ async update(
     );
   }
 
-  const LIMITE_HORAS = 24;
-
-  const limite = new Date(review.fechaCreacion);
-  limite.setHours(limite.getHours() + LIMITE_HORAS);
-
-  if (new Date() > limite) {
-    throw new BadRequestException(
-      'Solo puedes editar tu reseña dentro de las primeras 24 horas',
-    );
-  }
+  // Opción B: sin límite de tiempo para editar la propia reseña.
 
   if (review.respuestaNegocio) {
     throw new BadRequestException(
@@ -141,13 +128,106 @@ async update(
 
 
 async findBySucursal(sucursalId: number) {
-  return this.reviewRepo.find({
+  const reviews = await this.reviewRepo.find({
     where: {
       sucursal: { id: sucursalId },
-      estado: 'publicada', 
+      estado: 'publicada',
     },
     order: { fechaCreacion: 'DESC' },
   });
+
+  if (!reviews.length) return reviews;
+
+  // Conteo de likes/dislikes por reseña, en una sola consulta agrupada.
+  const ids = reviews.map((r) => r.id);
+  const counts = await this.reaccionRepo
+    .createQueryBuilder('rx')
+    .select('rx.resenaId', 'resenaId')
+    .addSelect("SUM(CASE WHEN rx.tipo = 'like' THEN 1 ELSE 0 END)", 'likes')
+    .addSelect("SUM(CASE WHEN rx.tipo = 'dislike' THEN 1 ELSE 0 END)", 'dislikes')
+    .where('rx.resenaId IN (:...ids)', { ids })
+    .groupBy('rx.resenaId')
+    .getRawMany();
+
+  const map = new Map<number, { likes: number; dislikes: number }>(
+    counts.map((c) => [
+      Number(c.resenaId),
+      { likes: Number(c.likes) || 0, dislikes: Number(c.dislikes) || 0 },
+    ]),
+  );
+
+  return reviews.map((r) => ({
+    ...r,
+    likes: map.get(r.id)?.likes ?? 0,
+    dislikes: map.get(r.id)?.dislikes ?? 0,
+  }));
+}
+
+
+// ── REACCIONES (like / dislike) ────────────────────────────────────────────
+
+// Alterna la reacción del suscriptor sobre una reseña:
+//  · sin reacción previa   → la crea
+//  · misma reacción        → la elimina (toggle off)
+//  · reacción contraria    → la cambia (like ⇄ dislike)
+// Devuelve los conteos actualizados y la reacción vigente del usuario.
+async reaccionar(
+  resenaId: number,
+  suscriptorId: number,
+  tipo: ReaccionTipo,
+) {
+  const review = await this.reviewRepo.findOne({ where: { id: resenaId } });
+  if (!review) {
+    throw new BadRequestException('Reseña no encontrada');
+  }
+
+  const existente = await this.reaccionRepo.findOne({
+    where: { resenaId, suscriptorId },
+  });
+
+  if (existente) {
+    if (existente.tipo === tipo) {
+      await this.reaccionRepo.remove(existente);
+    } else {
+      existente.tipo = tipo;
+      await this.reaccionRepo.save(existente);
+    }
+  } else {
+    await this.reaccionRepo.save(
+      this.reaccionRepo.create({ resenaId, suscriptorId, tipo }),
+    );
+  }
+
+  return this.getReaccionEstado(resenaId, suscriptorId);
+}
+
+// Conteos de una reseña + la reacción vigente del suscriptor consultante.
+private async getReaccionEstado(resenaId: number, suscriptorId: number) {
+  const [likes, dislikes, mia] = await Promise.all([
+    this.reaccionRepo.count({ where: { resenaId, tipo: 'like' } }),
+    this.reaccionRepo.count({ where: { resenaId, tipo: 'dislike' } }),
+    this.reaccionRepo.findOne({ where: { resenaId, suscriptorId } }),
+  ]);
+
+  return { likes, dislikes, miReaccion: mia?.tipo ?? null };
+}
+
+// Reacciones del suscriptor sobre TODAS las reseñas de una sucursal, para
+// pintar el estado activo al cargar la lista (el GET de reseñas es público).
+async misReaccionesPorSucursal(sucursalId: number, suscriptorId: number) {
+  const rows = await this.reaccionRepo
+    .createQueryBuilder('rx')
+    .innerJoin(SucursalReview, 'r', 'r.id = rx.resenaId')
+    .where('r.sucursal_id = :sucursalId', { sucursalId })
+    .andWhere('rx.suscriptorId = :suscriptorId', { suscriptorId })
+    .select('rx.resenaId', 'resenaId')
+    .addSelect('rx.tipo', 'tipo')
+    .getRawMany();
+
+  return rows.map((x) => ({
+    resenaId: Number(x.resenaId),
+    tipo: x.tipo as ReaccionTipo,
+  }));
 }
 
 

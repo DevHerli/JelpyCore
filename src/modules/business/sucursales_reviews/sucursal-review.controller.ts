@@ -4,6 +4,7 @@ import { AdminGuard } from '../../../common/guards/admin.guard';
 import { SucursalReviewService, RequesterCtx } from './sucursal-review.service';
 import { CreateSucursalReviewDto } from './dtos/create-sucursal-review.dto';
 import { UpdateSucursalReviewDto } from './dtos/update-sucursal-review.dto';
+import { ReaccionSucursalReviewDto } from './dtos/reaccion-sucursal-review.dto';
 
 // JLP-H20 — Autoría desde token; respuesta = dueño del negocio; estado = admin.
 @Controller('sucursales-reviews')
@@ -29,6 +30,26 @@ export class SucursalReviewController {
   @Get('sucursal/:id/summary')
   summary(@Param('id') id: number) {
     return this.service.getRatingSummary(+id);
+  }
+
+  // Reacciones del usuario autenticado sobre las reseñas de una sucursal.
+  // Sirve para marcar el estado activo (like/dislike) al cargar la lista.
+  @Get('sucursal/:id/mis-reacciones')
+  @UseGuards(JwtAuthGuard)
+  misReacciones(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.service.misReaccionesPorSucursal(id, Number(req.user?.sub));
+  }
+
+  // Dar / quitar / cambiar reacción (manita arriba o abajo) a una reseña.
+  // La autoría se toma del token. Devuelve { likes, dislikes, miReaccion }.
+  @Post(':id/reaccion')
+  @UseGuards(JwtAuthGuard)
+  reaccionar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReaccionSucursalReviewDto,
+    @Req() req: any,
+  ) {
+    return this.service.reaccionar(id, Number(req.user?.sub), dto.tipo);
   }
 
   @Get('negocio/:id')
