@@ -35,6 +35,7 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../../common/guards/admin.guard';
 import { SuscriptoresService } from './suscriptores.service';
@@ -43,6 +44,7 @@ import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
 import { CompletarPerfilDto } from './dto/completar-perfil.dto';
 import { DatosFiscalesDto } from './dto/datos-fiscales.dto';
 import { UpdatePermisosDto } from './dto/update-permisos.dto';
+import { CambiarContrasenaDto } from './dto/cambiar-contrasena.dto';
 
 @Controller('suscriptores')
 export class SuscriptoresController {
@@ -164,6 +166,23 @@ export class SuscriptoresController {
   @HttpCode(HttpStatus.OK)
   eliminarCuenta(@Request() req: any) {
     return this.suscriptoresService.eliminarCuenta(req.user.sub);
+  }
+
+  // ── Cambio de contraseña (propia cuenta, vía JWT) ────────────────────────
+
+  /**
+   * PUT /suscriptores/me/password
+   * Requiere JWT válido; el id se toma de req.user.sub, nunca del body.
+   * El flujo de "olvidé mi contraseña" (OTP por correo) sigue existiendo
+   * como fallback en /auth y no se modifica.
+   * Rate limit: 5 intentos / 15 min por usuario — evita fuerza bruta sobre
+   * `contrasenaActual`.
+   */
+  @Put('me/password')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 900 } })
+  cambiarContrasena(@Body() dto: CambiarContrasenaDto, @Request() req: any) {
+    return this.suscriptoresService.cambiarContrasena(req.user.sub, dto);
   }
 
   // ── Eliminación administrativa ───────────────────────────────────────────

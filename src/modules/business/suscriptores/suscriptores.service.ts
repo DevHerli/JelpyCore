@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
@@ -12,6 +13,7 @@ import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
 import { CompletarPerfilDto } from './dto/completar-perfil.dto';
 import { DatosFiscalesDto } from './dto/datos-fiscales.dto';
 import { UpdatePermisosDto } from './dto/update-permisos.dto';
+import { CambiarContrasenaDto } from './dto/cambiar-contrasena.dto';
 
 import * as bcrypt from 'bcryptjs';
 import { Membresia } from '../membresias/entities/membresia.entity';
@@ -298,6 +300,80 @@ export class SuscriptoresService {
     );
 
     return { ok: true, message: 'Tu cuenta ha sido eliminada correctamente.' };
+  }
+
+  // ── Cambio de contraseña (propia cuenta, vía JWT) ───────────────────────
+
+  /**
+   * Requisitos mínimos de seguridad para la nueva contraseña:
+   * 8+ caracteres, al menos 1 mayúscula, 1 número y 1 carácter especial.
+   * Nunca se confía en la validación del cliente — se repite aquí server-side.
+   */
+  private esContrasenaSegura(contrasena: string): boolean {
+    const REGEX_SEGURIDAD =
+      /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+    return REGEX_SEGURIDAD.test(contrasena);
+  }
+
+  /**
+   * PUT /suscriptores/me/password
+   * El usuario ya está autenticado (JwtAuthGuard) y confirma su contraseña
+   * actual antes de poder cambiarla. El flujo de "olvidé mi contraseña" (OTP
+   * por correo, en AuthService.verifyOtpEmail) queda intacto como fallback
+   * para cuando el usuario no puede loguearse.
+   */
+  async cambiarContrasena(suscriptorId: number, dto: CambiarContrasenaDto) {
+    const { contrasenaActual, contrasenaNueva } = dto;
+
+    // contrasena tiene select:false en la entidad → QB con addSelect para leerla
+    const suscriptor = await this.suscriptorRepo
+      .createQueryBuilder('s')
+      .addSelect('s.contrasena')
+      .where('s.id = :id', { id: suscriptorId })
+      .andWhere('s.eliminado = :eliminado', { eliminado: false })
+      .getOne();
+
+    if (!suscriptor) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+
+    // Cuentas dadas de alta solo por OTP (sin contraseña) no tienen "actual"
+    // contra qué comparar — se rechaza con el mismo mensaje que un hash que
+    // no coincide, para no filtrar si la cuenta tiene o no contraseña.
+    const coincide = suscriptor.contrasena
+      ? await bcrypt.compare(contrasenaActual, suscriptor.contrasena)
+      : false;
+
+    if (!coincide) {
+      throw new UnauthorizedException('La contraseña actual es incorrecta');
+    }
+
+    if (!this.esContrasenaSegura(contrasenaNueva)) {
+      throw new BadRequestException(
+        'La contraseña no cumple los requisitos de seguridad',
+      );
+    }
+
+    const esIgualALaActual = await bcrypt.compare(
+      contrasenaNueva,
+      suscriptor.contrasena as string,
+    );
+    if (esIgualALaActual) {
+      throw new BadRequestException(
+        'La nueva contraseña debe ser diferente a la actual',
+      );
+    }
+
+    // contrasena y refreshToken tienen select:false → update() atómico.
+    // refreshToken:null invalida todas las sesiones activas (mismo mecanismo
+    // que logout()/eliminarCuenta()): el próximo POST /auth/refresh fallará
+    // con 401 y la app deberá pedir login de nuevo con la nueva contraseña.
+    await this.suscriptorRepo.update(suscriptorId, {
+      contrasena: await bcrypt.hash(contrasenaNueva, 10),
+      refreshToken: null,
+    } as any);
+
+    return { ok: true, message: 'Contraseña actualizada correctamente' };
   }
 
   // ── Permisos del dispositivo ─────────────────────────────────────────────
