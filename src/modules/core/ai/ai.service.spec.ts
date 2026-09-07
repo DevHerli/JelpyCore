@@ -178,6 +178,27 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.respuesta.titulo).not.toMatch(/entenderte mejor|qué tipo de lugar/i);
   });
 
+  it('responder "Comida" a la pregunta guiada de Capa 2 avanza con chips concretos, no repite la misma pregunta (regresión)', async () => {
+    const { service, mocks } = crearServicio();
+
+    // Primero Jelpy hace la pregunta guiada (mensaje ambiguo)...
+    const primeraRespuesta = await service.processUserMessage('algo bonito', 1, {}, undefined);
+    expect(primeraRespuesta.respuesta.titulo).toMatch(/entenderte mejor|qué tipo de lugar/i);
+
+    // ...y el usuario responde literalmente con una de las palabras que la
+    // propia pregunta sugería ("comida", "salud", "belleza" o "servicio").
+    for (const palabra of ['Comida', 'salud', 'servicios']) {
+      const resultado = await service.processUserMessage(palabra, 1, {}, undefined);
+
+      expect(resultado.status).toBe('chat');
+      expect(resultado.respuesta.titulo).not.toMatch(/entenderte mejor|qué tipo de lugar/i);
+      expect(resultado.respuesta.mensaje).not.toMatch(/es comida, salud, belleza/i);
+      expect(resultado.respuesta.sugerencias.length).toBeGreaterThan(0);
+    }
+
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+  });
+
   it('el chip "¿Buscas algo diferente en Tepic?" responde de forma informativa, no "no entendí" (regresión)', async () => {
     const { service, mocks } = crearServicio();
 

@@ -668,6 +668,36 @@ export class AiService {
       // le da al usuario un camino claro para continuar, con chips reales
       // de cada categoría para que retomar la conversación sea un solo tap.
       if (clasificacion.route === 'clarify' && clasificacion.chatIntent === 'fallback') {
+        // JLP-CATEGORIA-UMBRELLA-FIX: bug reportado por el usuario — Jelpy
+        // pregunta "¿Es comida, salud, belleza o algún servicio?" y, al
+        // responder literalmente "Comida", recibía la MISMA pregunta otra
+        // vez. Se intercepta ANTES de repetir la pregunta genérica: si el
+        // mensaje es una de esas palabras sombrilla, se avanza un paso más
+        // (chips concretos de esa familia) en vez de dar vueltas en círculo.
+        const categoriaUmbrella = ChatResponses.detectarCategoriaUmbrella(textoCorregido);
+
+        if (categoriaUmbrella) {
+          const respuestaUmbrella = ChatResponses.responderCategoriaUmbrella(
+            categoriaUmbrella,
+            contexto?.ciudad ?? sesion.ciudad,
+          );
+
+          await this.conversationService.guardarTurnoAsistente(
+            idSesionActiva,
+            respuestaUmbrella.mensaje,
+            { intent: 'categoria_umbrella', sugerencias: respuestaUmbrella.sugerencias },
+          );
+
+          return {
+            sessionId: idSesionActiva,
+            status: 'chat',
+            mensajeOriginal: input,
+            mensajeCorregido: textoCorregido,
+            respuesta: respuestaUmbrella,
+            debug: { aiIntent, clasificacion },
+          };
+        }
+
         const respuestaGuiada = ChatResponses.preguntarAclaracionBusqueda(
           contexto?.ciudad ?? sesion.ciudad,
         );

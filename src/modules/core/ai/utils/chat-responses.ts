@@ -205,6 +205,10 @@ export class ChatResponses {
     'Promociones de barbería', 'Promociones de farmacia',
   ];
 
+  private static readonly POOL_SERVICIOS = [
+    'Plomero cerca de mí', 'Electricista cerca de mí', 'Mecánico cerca de mí',
+  ];
+
   /** Elige N elementos distintos al azar de un array (sin repetir). */
   private static elegirVarios<T>(opciones: T[], n: number): T[] {
     const copia = [...opciones];
@@ -321,6 +325,80 @@ export class ChatResponses {
             '¿Qué tipo de lugar te interesa: comida, salud, belleza o servicios? Y ¿en qué ciudad buscas?',
           ]),
     };
+  }
+
+  /**
+   * JLP-CATEGORIA-UMBRELLA-FIX: bug reportado por el usuario — Jelpy
+   * pregunta "¿Es comida, salud, belleza o algún servicio?"
+   * (`preguntarAclaracionBusqueda`) y, cuando el usuario responde
+   * literalmente con una de esas palabras ("Comida"), la respuesta era...
+   * la MISMA pregunta otra vez ("No estoy seguro de qué buscas. ¿Es
+   * comida, salud...?"). Ridículo: Jelpy no reconocía su propia respuesta
+   * sugerida.
+   *
+   * Causa raíz: "comida", "salud", "servicio(s)" son palabras SOMBRILLA
+   * (paraguas) que agrupan muchas categorías reales de
+   * `JELPY_SEMANTIC_CATEGORIES` (comida → tacos, sushi, pizza, mariscos...;
+   * salud → doctor, dentista, farmacia...) pero NO son en sí mismas un
+   * alias de ninguna categoría específica, así que
+   * `ConversationClassifier.contieneTerminoDeNegocio` nunca las reconoce
+   * como término de negocio y el mensaje termina en "no sé qué buscas".
+   *
+   * En vez de intentar adivinar una sola categoría específica (sería
+   * arbitrario), se responde con un paso más de "Capa 2": chips concretos
+   * y autosuficientes de esa familia (ej. "comida" → "Tacos cerca de mí",
+   * "Sushi cerca de mí", "Restaurantes cerca de mí"), para que elegir sea
+   * un solo tap más, no un callejón sin salida.
+   */
+  static detectarCategoriaUmbrella(
+    texto: string,
+  ): 'comida' | 'salud' | 'belleza' | 'servicios' | null {
+    const t = this.normalizar(texto);
+
+    if (this.tieneFrase(t, 'comida')) return 'comida';
+    if (this.tieneFrase(t, 'salud')) return 'salud';
+    if (this.tieneFrase(t, 'belleza')) return 'belleza';
+    if (this.tieneFrase(t, 'servicios') || this.tieneFrase(t, 'servicio')) return 'servicios';
+
+    return null;
+  }
+
+  static responderCategoriaUmbrella(
+    categoria: 'comida' | 'salud' | 'belleza' | 'servicios',
+    ciudad?: string,
+  ): { titulo: string; mensaje: string; sugerencias: string[] } {
+    const tieneCiudad = !!(ciudad || '').trim();
+    const enCiudad = tieneCiudad ? ` en ${ciudad}` : '';
+
+    const config: Record<
+      'comida' | 'salud' | 'belleza' | 'servicios',
+      { titulo: string; mensaje: string; pool: string[] }
+    > = {
+      comida: {
+        titulo: '¡Buen provecho! 🍽️',
+        mensaje: `¿Qué se te antoja${enCiudad}? Elige una opción o dime qué buscas.`,
+        pool: this.POOL_COMIDA,
+      },
+      salud: {
+        titulo: '¡Vamos a cuidarte! 🩺',
+        mensaje: `¿Qué necesitas${enCiudad}? Elige una opción o dime qué buscas.`,
+        pool: this.POOL_SALUD,
+      },
+      belleza: {
+        titulo: '¡A consentirte! 💇',
+        mensaje: `¿Qué te gustaría${enCiudad}? Elige una opción o dime qué buscas.`,
+        pool: this.POOL_BELLEZA,
+      },
+      servicios: {
+        titulo: '¿Qué servicio necesitas? 🔧',
+        mensaje: `Elige una opción${enCiudad} o dime qué buscas.`,
+        pool: this.POOL_SERVICIOS,
+      },
+    };
+
+    const { titulo, mensaje, pool } = config[categoria];
+
+    return { titulo, mensaje, sugerencias: this.elegirVarios(pool, Math.min(3, pool.length)) };
   }
 
   /**
