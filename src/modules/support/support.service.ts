@@ -6,15 +6,16 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { JwtService, JwtVerifyOptions } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { randomInt } from 'crypto';
 
-import { SupportTicket } from './entities/support-ticket.entity';
+import { EstadoTicket, PrioridadTicket, SupportTicket, TipoTicket } from './entities/support-ticket.entity';
 import { Negocio } from '../business/negocios/entities/negocio.entity';
 import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
 import { CreateTicketDto } from './dtos/create-ticket.dto';
+import { AdminUpdateTicketDto } from './dtos/admin-update-ticket.dto';
 
 // Caracteres base36 en mayúsculas para el folio (sin caracteres ambiguos no aplica aquí)
 const FOLIO_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -175,6 +176,172 @@ export class SupportService {
       created_at:       ticket.createdAt,
       respuesta_agente: ticket.respuestaAgente ?? null,
     };
+  }
+
+  // ─── ADMIN: listar todos los tickets (JelpySystem) ─────────────────────────
+
+  /**
+   * Panel admin — a diferencia de listarPorNegocio(), esta NO filtra por
+   * negocio_id (los tickets de tipo reporte_bug ni siquiera tienen negocio
+   * asociado) y expone todos los campos de gestión (agente, notas internas).
+   * Protegido con AdminGuard a nivel de controller.
+   */
+  async listarAdmin(filters: {
+    estado?: EstadoTicket;
+    tipo?: TipoTicket;
+    prioridad?: PrioridadTicket;
+    categoria?: string;
+    q?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = filters.page && filters.page > 0 ? filters.page : 1;
+    const limit =
+      filters.limit && filters.limit > 0 && filters.limit <= 100 ? filters.limit : 20;
+
+    const qb = this.ticketRepo.createQueryBuilder('t').orderBy('t.createdAt', 'DESC');
+
+    if (filters.estado) qb.andWhere('t.estado = :estado', { estado: filters.estado });
+    if (filters.tipo) qb.andWhere('t.tipo = :tipo', { tipo: filters.tipo });
+    if (filters.prioridad) qb.andWhere('t.prioridad = :prioridad', { prioridad: filters.prioridad });
+    // Filtro exacto por categoría — usado por los tabs del panel admin
+    // (facturacion, promociones, tecnico, cuenta, pagos, privacidad, otro).
+    if (filters.categoria) qb.andWhere('t.categoria = :categoria', { categoria: filters.categoria });
+    if (filters.q) {
+      qb.andWhere(
+        '(t.folio LIKE :q OR t.categoriaLabel LIKE :q OR t.problemaLabel LIKE :q OR t.descripcion LIKE :q)',
+        { q: `%${filters.q}%` },
+      );
+    }
+
+    const [rows, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    const enriquecidos = await this.resolverNombres(rows);
+
+    return {
+      data: enriquecidos,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
+  /** Panel admin — detalle completo por id numérico (incluye notas internas). */
+  async obtenerDetalleAdmin(id: number) {
+    const ticket = await this.ticketRepo.findOne({ where: { id } });
+    if (!ticket) {
+      throw new NotFoundException(`No se encontró el ticket con id ${id}`);
+    }
+    const [enriquecido] = await this.resolverNombres([ticket]);
+    return enriquecido;
+  }
+
+  /**
+   * Panel admin — actualizar estado / respuesta / notas internas / agente.
+   * - resuelto_at / cerrado_at se llenan automáticamente al entrar a ese estado.
+   * - Si se marca 'en_atencion' y el ticket no tiene agente asignado, se
+   *   autoasigna al admin que hace el cambio (a menos que venga agente_id explícito).
+   */
+  async actualizarAdmin(id: number, dto: AdminUpdateTicketDto, adminSub: number) {
+    const ticket = await this.ticketRepo.findOne({ where: { id } });
+    if (!ticket) {
+      throw new NotFoundException(`No se encontró el ticket con id ${id}`);
+    }
+
+    if (dto.estado !== undefined) {
+      ticket.estado = dto.estado;
+      if (dto.estado === 'resuelto') ticket.resueltoAt = new Date();
+      if (dto.estado === 'cerrado') ticket.cerradoAt = new Date();
+    }
+
+    if (dto.respuesta_agente !== undefined) ticket.respuestaAgente = dto.respuesta_agente;
+    if (dto.notas_internas !== undefined) ticket.notasInternas = dto.notas_internas;
+
+    if (dto.agente_id !== undefined) {
+      ticket.agenteId = dto.agente_id;
+    } else if (dto.estado === 'en_atencion' && ticket.agenteId == null) {
+      ticket.agenteId = adminSub;
+    }
+
+    const saved = await this.ticketRepo.save(ticket);
+    const [enriquecido] = await this.resolverNombres([saved]);
+    return enriquecido;
+  }
+
+  /** Resuelve en batch nombre/correo de usuario solicitante, negocio y agente. */
+  private async resolverNombres(tickets: SupportTicket[]) {
+    if (!tickets.length) return [];
+
+    const usuarioIds = [...new Set(tickets.map((t) => t.usuarioId).filter((v): v is number => v != null))];
+    const negocioIds = [...new Set(tickets.map((t) => t.negocioId).filter((v): v is number => v != null))];
+    const agenteIds = [...new Set(tickets.map((t) => t.agenteId).filter((v): v is number => v != null))];
+    const subIds = [...new Set([...usuarioIds, ...agenteIds])];
+
+    const [suscriptores, negocios] = await Promise.all([
+      subIds.length
+        ? this.suscriptorRepo.find({
+            where: { id: In(subIds) },
+            select: { id: true, nombre: true, apellidoPaterno: true, correoElectronico: true } as any,
+          })
+        : [],
+      negocioIds.length
+        ? this.negocioRepo.find({
+            where: { id: In(negocioIds) },
+            select: { id: true, nombreNegocio: true } as any,
+          })
+        : [],
+    ]);
+
+    const subMap = new Map<number, Suscriptor>(
+      suscriptores.map((s): [number, Suscriptor] => [Number(s.id), s]),
+    );
+    const negocioMap = new Map<number, Negocio>(
+      negocios.map((n): [number, Negocio] => [Number(n.id), n]),
+    );
+
+    return tickets.map((t) => {
+      const usuario = t.usuarioId != null ? subMap.get(Number(t.usuarioId)) : undefined;
+      const agente = t.agenteId != null ? subMap.get(Number(t.agenteId)) : undefined;
+      const negocio = t.negocioId != null ? negocioMap.get(Number(t.negocioId)) : undefined;
+
+      return {
+        id: t.id,
+        folio: t.folio,
+        tipo: t.tipo,
+        estado: t.estado,
+        prioridad: t.prioridad,
+        categoria: t.categoria,
+        categoria_label: t.categoriaLabel,
+        problema: t.problema,
+        problema_label: t.problemaLabel,
+        descripcion: t.descripcion,
+        respuesta_agente: t.respuestaAgente,
+        notas_internas: t.notasInternas,
+        created_at: t.createdAt,
+        updated_at: t.updatedAt,
+        resuelto_at: t.resueltoAt,
+        cerrado_at: t.cerradoAt,
+        usuario: usuario
+          ? {
+              id: usuario.id,
+              nombre: `${usuario.nombre} ${usuario.apellidoPaterno ?? ''}`.trim(),
+              correo: usuario.correoElectronico ?? null,
+            }
+          : null,
+        negocio: negocio ? { id: negocio.id, nombre: negocio.nombreNegocio } : null,
+        agente: agente
+          ? {
+              id: agente.id,
+              nombre: `${agente.nombre} ${agente.apellidoPaterno ?? ''}`.trim(),
+              correo: agente.correoElectronico ?? null,
+            }
+          : null,
+      };
+    });
   }
 
   // ─── Helpers privados ───────────────────────────────────────────────────────

@@ -8,14 +8,18 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 import { SupportService } from './support.service';
 import { CreateTicketDto } from './dtos/create-ticket.dto';
+import { AdminUpdateTicketDto } from './dtos/admin-update-ticket.dto';
+import { EstadoTicket, PrioridadTicket, TipoTicket } from './entities/support-ticket.entity';
 
 @Controller('support')
 export class SupportController {
@@ -86,5 +90,59 @@ export class SupportController {
   obtenerPorFolio(@Param('folio') folio: string, @Req() req: any) {
     const { sub, isAdmin } = this.requesterCtx(req);
     return this.supportService.obtenerPorFolio(folio, sub, isAdmin);
+  }
+
+  // ─── ADMIN (JelpySystem — panel de gestión) ───────────────────────────────
+  //
+  // Prefijo 'admin/tickets' — distinto del segmento 'tickets' usado arriba,
+  // así que no hay ambigüedad de ruteo con GET /support/tickets/:folio sin
+  // importar el orden de declaración.
+
+  /**
+   * GET /support/admin/tickets?estado=&tipo=&prioridad=&categoria=&q=&page=&limit=
+   * Listado completo (todos los negocios / tickets anónimos incluidos) para
+   * el panel de soporte. Solo admin.
+   */
+  @Get('admin/tickets')
+  @UseGuards(AdminGuard)
+  listarAdmin(
+    @Query('estado') estado?: EstadoTicket,
+    @Query('tipo') tipo?: TipoTicket,
+    @Query('prioridad') prioridad?: PrioridadTicket,
+    @Query('categoria') categoria?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.supportService.listarAdmin({
+      estado,
+      tipo,
+      prioridad,
+      categoria,
+      q,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  /** GET /support/admin/tickets/:id — detalle completo (incluye notas internas). Solo admin. */
+  @Get('admin/tickets/:id')
+  @UseGuards(AdminGuard)
+  obtenerDetalleAdmin(@Param('id', ParseIntPipe) id: number) {
+    return this.supportService.obtenerDetalleAdmin(id);
+  }
+
+  /**
+   * PATCH /support/admin/tickets/:id — cambiar estado, responder al usuario,
+   * dejar notas internas y/o reasignar agente. Solo admin.
+   */
+  @Patch('admin/tickets/:id')
+  @UseGuards(AdminGuard)
+  actualizarAdmin(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AdminUpdateTicketDto,
+    @Req() req: any,
+  ) {
+    return this.supportService.actualizarAdmin(id, dto, Number(req.user?.sub));
   }
 }
