@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EstadisticasService } from '../../metrics/estadisticas/estadisticas.service';
+import { EstadisticasService, TipoEventoEstadistica } from '../../metrics/estadisticas/estadisticas.service';
 
 @Injectable()
 export class TrackMetricsUseCase {
@@ -8,7 +8,7 @@ export class TrackMetricsUseCase {
   constructor(private readonly estadisticasService: EstadisticasService) {}
 
   async execute(
-    tipo: 'vista' | 'clic' | 'busqueda',
+    tipo: TipoEventoEstadistica,
     entidad: 'negocio' | 'sucursal',
     id: number,
   ): Promise<void> {

@@ -1,8 +1,43 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Connection } from 'typeorm';
 
 // JLP-M24: contexto del solicitante para verificar propiedad del negocio.
 export type RequesterCtx = { sub: number; isAdmin: boolean };
+
+// METRICS-001: tipos de evento soportados por el tracking de estadísticas.
+// 'llamada' / 'whatsapp' / 'como_llegar' son la conversión ORGÁNICA (usuario
+// llega por búsqueda/categoría/chat de Jelpy, sin click de anuncio) — se
+// registran en paralelo (dual-fire) a la conversión de ads cuando SÍ hay
+// atribución de campaña. Ver business-details.modal.ts (frontend).
+export type TipoEventoEstadistica =
+  | 'vista'
+  | 'clic'
+  | 'busqueda'
+  | 'llamada'
+  | 'whatsapp'
+  | 'como_llegar';
+
+export const TIPOS_EVENTO_ESTADISTICA: TipoEventoEstadistica[] = [
+  'vista',
+  'clic',
+  'busqueda',
+  'llamada',
+  'whatsapp',
+  'como_llegar',
+];
+
+// Mapa explícito tipo → columna. Reemplaza la cadena de ternarios previa
+// (`tipo === 'vista' ? 'vistas' : tipo === 'clic' ? 'clics' : 'busquedas'`)
+// que degradaba SILENCIOSAMENTE cualquier tipo desconocido a `busquedas` —
+// bug latente nunca disparado porque antes solo existían 3 tipos válidos.
+const CAMPO_POR_TIPO: Record<TipoEventoEstadistica, string> = {
+  vista: 'vistas',
+  clic: 'clics',
+  busqueda: 'busquedas',
+  llamada: 'llamadas',
+  whatsapp: 'whatsapp',
+  como_llegar: 'direcciones',
+};
 
 @Injectable()
 export class EstadisticasService {
@@ -30,10 +65,18 @@ export class EstadisticasService {
   }
 
   /**
-   * Registrar evento genérico (vistas, clics, búsqueda)
+   * Registrar evento genérico (vistas, clics, búsqueda, y desde METRICS-001
+   * también llamadas/whatsapp/como_llegar — conversión orgánica).
+   *
+   * METRICS-001: pasado a upsert atómico (`INSERT ... ON DUPLICATE KEY
+   * UPDATE`) — reemplaza el patrón previo SELECT→INSERT/UPDATE, que era
+   * racy bajo concurrencia (dos requests casi simultáneos para el mismo
+   * negocio/sucursal podían ambos ver "no existe" e intentar INSERT, o
+   * perder un incremento). Requiere el UNIQUE KEY sobre negocio_id /
+   * sucursal_id agregado en migrations/metrics_001_conversion_organica.sql.
    */
   async registrarEvento(
-    tipo: 'vista' | 'clic' | 'busqueda',
+    tipo: TipoEventoEstadistica,
     entidad: 'negocio' | 'sucursal',
     id: number,
   ) {
@@ -42,30 +85,19 @@ export class EstadisticasService {
         ? 'estadisticas_negocios'
         : 'estadisticas_sucursales';
 
-    const campo =
-      tipo === 'vista'
-        ? 'vistas'
-        : tipo === 'clic'
-        ? 'clics'
-        : 'busquedas';
+    const campo = CAMPO_POR_TIPO[tipo];
+    if (!campo) {
+      // Defensa en profundidad: el controller ya valida contra la whitelist,
+      // pero el service no debe confiar ciegamente en el caller (también lo
+      // invoca TrackMetricsUseCase directamente).
+      throw new BadRequestException(`Tipo de evento inválido: ${tipo}`);
+    }
 
-    const existe = await this.connection.query(
-      `SELECT id FROM ${tabla} WHERE ${entidad}_id = ? LIMIT 1`,
+    await this.connection.query(
+      `INSERT INTO ${tabla} (${entidad}_id, ${campo}) VALUES (?, 1)
+       ON DUPLICATE KEY UPDATE ${campo} = ${campo} + 1`,
       [id],
     );
-
-    if (existe.length > 0) {
-      await this.connection.query(
-        `UPDATE ${tabla} SET ${campo} = ${campo} + 1 WHERE ${entidad}_id = ?`,
-        [id],
-      );
-    } else {
-      const columnas = `${entidad}_id, ${campo}`;
-      await this.connection.query(
-        `INSERT INTO ${tabla} (${columnas}) VALUES (?, 1)`,
-        [id],
-      );
-    }
 
     return { message: `${tipo} registrada para ${entidad} ${id}` };
   }
@@ -321,9 +353,12 @@ export class EstadisticasService {
     // 2. Estadísticas globales a nivel negocio
     const statsNegocio = await this.connection.query(
       `SELECT
-         COALESCE(vistas, 0)    AS vistas,
-         COALESCE(clics, 0)     AS clics,
-         COALESCE(busquedas, 0) AS busquedas
+         COALESCE(vistas, 0)      AS vistas,
+         COALESCE(clics, 0)       AS clics,
+         COALESCE(busquedas, 0)   AS busquedas,
+         COALESCE(llamadas, 0)    AS llamadas,
+         COALESCE(whatsapp, 0)    AS whatsapp,
+         COALESCE(direcciones, 0) AS direcciones
        FROM estadisticas_negocios
        WHERE negocio_id = ?
        LIMIT 1`,
@@ -339,6 +374,9 @@ export class EstadisticasService {
          COALESCE(es.vistas, 0)                         AS vistas,
          COALESCE(es.clics, 0)                          AS clics,
          COALESCE(es.busquedas, 0)                      AS busquedas,
+         COALESCE(es.llamadas, 0)                       AS llamadas,
+         COALESCE(es.whatsapp, 0)                       AS whatsapp,
+         COALESCE(es.direcciones, 0)                    AS direcciones,
          COALESCE(lk.total_likes, 0)                    AS likes,
          COALESCE(pr.total_promociones, 0)              AS promocionesActivas
        FROM sucursales_negocios s
@@ -363,14 +401,26 @@ export class EstadisticasService {
     // 4. Totales consolidados
     const totales = sucursalesStats.reduce(
       (acc: any, s: any) => {
-        acc.totalVistas     += Number(s.vistas);
-        acc.totalClics      += Number(s.clics);
-        acc.totalBusquedas  += Number(s.busquedas);
-        acc.totalLikes      += Number(s.likes);
+        acc.totalVistas      += Number(s.vistas);
+        acc.totalClics       += Number(s.clics);
+        acc.totalBusquedas   += Number(s.busquedas);
+        acc.totalLlamadas    += Number(s.llamadas);
+        acc.totalWhatsapp    += Number(s.whatsapp);
+        acc.totalDirecciones += Number(s.direcciones);
+        acc.totalLikes       += Number(s.likes);
         acc.totalPromociones += Number(s.promocionesActivas);
         return acc;
       },
-      { totalVistas: 0, totalClics: 0, totalBusquedas: 0, totalLikes: 0, totalPromociones: 0 },
+      {
+        totalVistas: 0,
+        totalClics: 0,
+        totalBusquedas: 0,
+        totalLlamadas: 0,
+        totalWhatsapp: 0,
+        totalDirecciones: 0,
+        totalLikes: 0,
+        totalPromociones: 0,
+      },
     );
 
     // 5. Tendencia mensual de búsquedas (últimos 6 meses) por sucursales del negocio
@@ -394,7 +444,14 @@ export class EstadisticasService {
     return {
       fechaGeneracion: new Date(),
       negocio: negocioInfo[0],
-      statsNegocio: statsNegocio[0] || { vistas: 0, clics: 0, busquedas: 0 },
+      statsNegocio: statsNegocio[0] || {
+        vistas: 0,
+        clics: 0,
+        busquedas: 0,
+        llamadas: 0,
+        whatsapp: 0,
+        direcciones: 0,
+      },
       totales: {
         sucursales: sucursalesStats.length,
         ...totales,

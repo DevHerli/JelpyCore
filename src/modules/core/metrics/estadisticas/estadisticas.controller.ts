@@ -1,8 +1,15 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { EstadisticasService, RequesterCtx } from './estadisticas.service';
+import { EstadisticasService, RequesterCtx, TIPOS_EVENTO_ESTADISTICA, TipoEventoEstadistica } from './estadisticas.service';
+import { TrackEventoDto } from './dto/track-evento.dto';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../../../common/guards/admin.guard';
+
+// METRICS-001: 'negocio'/'sucursal' llegan como string crudo desde el path
+// param — se valida contra whitelist igual que `tipo` (ver
+// registrarEvento más abajo). No se usa ParseEnumPipe porque TipoEventoEstadistica
+// es un union type de strings, no un enum de TS.
+const ENTIDADES_VALIDAS: Array<'negocio' | 'sucursal'> = ['negocio', 'sucursal'];
 
 @Controller('estadisticas')
 export class EstadisticasController {
@@ -13,23 +20,36 @@ export class EstadisticasController {
     return { sub: Number(req.user?.sub), isAdmin: req.user?.role === 'admin' };
   }
 
-  // JLP-M24: tracking de eventos (vista/clic/búsqueda) es anónimo por diseño
-  // (app pública + usecase de IA). Se mitiga la inyección con rate-limit, no con auth.
+  // JLP-M24: tracking de eventos (vista/clic/búsqueda/llamada/whatsapp/
+  // como_llegar) es anónimo por diseño (app pública + usecase de IA). Se
+  // mitiga la inyección con rate-limit, no con auth.
+  // METRICS-001: ahora valida con TrackEventoDto (class-validator + whitelist
+  // global en main.ts) — antes aceptaba cualquier string en tipo/entidad.
   @Throttle({ default: { limit: 60, ttl: 60 } })
   @Post('evento')
-  registrarEventoBody(@Body() body: { entidad: 'negocio' | 'sucursal', id: number, tipo: 'vista' | 'clic' | 'busqueda' }) {
+  registrarEventoBody(@Body() body: TrackEventoDto) {
     return this.estadisticasService.registrarEvento(body.tipo, body.entidad, body.id);
   }
 
-  // Registrar evento (vista, clic, búsqueda)
+  // Registrar evento (vista, clic, búsqueda, llamada, whatsapp, como_llegar)
   @Throttle({ default: { limit: 60, ttl: 60 } })
   @Post(':entidad/:id/:tipo')
   registrarEvento(
-    @Param('entidad') entidad: 'negocio' | 'sucursal',
-    @Param('id') id: number,
-    @Param('tipo') tipo: 'vista' | 'clic' | 'busqueda',
+    @Param('entidad') entidad: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('tipo') tipo: string,
   ) {
-    return this.estadisticasService.registrarEvento(tipo, entidad, id);
+    if (!ENTIDADES_VALIDAS.includes(entidad as 'negocio' | 'sucursal')) {
+      throw new BadRequestException(`Entidad inválida: ${entidad}`);
+    }
+    if (!TIPOS_EVENTO_ESTADISTICA.includes(tipo as TipoEventoEstadistica)) {
+      throw new BadRequestException(`Tipo de evento inválido: ${tipo}`);
+    }
+    return this.estadisticasService.registrarEvento(
+      tipo as TipoEventoEstadistica,
+      entidad as 'negocio' | 'sucursal',
+      id,
+    );
   }
 
   // JLP-M24: BI global de plataforma → solo admin.
