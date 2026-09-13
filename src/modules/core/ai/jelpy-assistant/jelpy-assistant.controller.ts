@@ -5,6 +5,8 @@ import { JelpyAssistantService } from './jelpy-assistant.service';
 import { OrthographyCheckUseCase } from '../use-cases/orthography-check.usecase';
 import { ProfanityCheckUseCase } from '../use-cases/profanity-check.usecase';
 import { TrackMetricsUseCase } from '../use-cases/track-metrics.usecase';
+import { SafetyPolicy } from '../utils/safety-policy';
+import { SearchTrendLoggerUseCase } from '../use-cases/search-trend-logger.usecase';
 
 /**
  * Controlador principal del asistente Jelpy
@@ -22,6 +24,7 @@ export class JelpyAssistantController {
     private readonly orthoUseCase: OrthographyCheckUseCase,
     private readonly profanityUseCase: ProfanityCheckUseCase,
     private readonly metricsUseCase: TrackMetricsUseCase,
+    private readonly searchTrendLogger: SearchTrendLoggerUseCase,
   ) {}
 
   /**
@@ -71,6 +74,29 @@ export class JelpyAssistantController {
       };
     }
 
+    const seguridad = SafetyPolicy.check(textoCorregido);
+
+    if (seguridad.blocked) {
+      return {
+        status: 'bloqueado',
+        motivo: seguridad.category,
+        mensajeOriginal: mensaje,
+        mensajeCorregido: textoCorregido,
+        filtros_detectados: { intent: 'bloqueado', motivo: seguridad.category },
+        resultados: { items: [] },
+        sin_resultados: false,
+        mensaje_sin_resultados: null,
+        respuesta: {
+          titulo: seguridad.title,
+          mensaje: seguridad.message,
+          sugerencias: [],
+        },
+        titulo: seguridad.title,
+        mensaje: seguridad.message,
+        suggestedQueries: [],
+      };
+    }
+
     // 3️⃣ Interpretar intención (detecta ciudad, categoría, "cerca de mí", etc.)
     const resultado = await this.jelpyService.interpretar(
       textoCorregido,
@@ -98,6 +124,52 @@ export class JelpyAssistantController {
       }
     } catch (error) {
       console.warn('⚠️ No se pudo registrar la métrica:', error.message);
+    }
+
+    try {
+      const items = Array.isArray(resultado?.resultados)
+        ? resultado.resultados
+        : resultado?.resultados?.items ?? [];
+      const filtros = resultado?.filtros_detectados ?? {};
+      const primerItem = items[0] ?? {};
+
+      this.searchTrendLogger
+        .execute({
+          usuarioId: suscriptorId || null,
+          sessionId: null,
+          queryOriginal: mensaje,
+          queryNormalizada: textoCorregido,
+          ciudad: filtros.ciudad ?? primerItem.ciudad ?? null,
+          categoriaId: filtros.categoriaId ?? filtros.categoria_id ?? null,
+          subcategoriaId: filtros.subcategoriaId ?? filtros.subcategoria_id ?? null,
+          especialidadId: filtros.especialidadId ?? filtros.especialidad_id ?? null,
+          categoriaNombre:
+            filtros.categoriaNombre ??
+            filtros.categoria ??
+            primerItem.categoria ??
+            primerItem.categoria_nombre ??
+            null,
+          subcategoriaNombre:
+            filtros.subcategoriaNombre ??
+            filtros.subcategoria ??
+            primerItem.subcategoria ??
+            primerItem.subcategoria_nombre ??
+            null,
+          especialidadNombre:
+            filtros.especialidadNombre ??
+            filtros.especialidad ??
+            primerItem.especialidad ??
+            primerItem.especialidad_nombre ??
+            null,
+          intent: filtros.intent ?? 'buscar_negocios',
+          totalResultados: items.length,
+          sinResultados: items.length === 0,
+          lat: latitud ?? null,
+          lng: longitud ?? null,
+        })
+        .catch(() => null);
+    } catch (error) {
+      console.warn('⚠️ No se pudo registrar Jelpy Trend:', error.message);
     }
 
     // 5️⃣ Devolver resultado completo

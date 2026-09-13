@@ -25,6 +25,10 @@ export class SugerenciasUtil {
     ciudad: string,
     yaUsadas: string[] = [],
   ): string[] {
+    if (process.env.JELPY_ENABLE_CHAT_CHIPS !== 'true') {
+      return [];
+    }
+
     const ciudadNombre = ciudad || 'tu ciudad';
 
     // Sin resultados → sugerencias de recuperación

@@ -13,14 +13,16 @@ import { SearchCacheService } from './utils/search-cache.service';
 import { sugerirCorreccion } from './utils/levenshtein.util';
 import { RateLimiterService } from './utils/rate-limiter.service';
 import { ZeroResultLoggerUseCase } from './use-cases/zero-result-logger.usecase';
+import { SearchTrendLoggerUseCase } from './use-cases/search-trend-logger.usecase';
 import { JELPY_SEMANTIC_CATEGORIES } from './jelpy-assistant/constants/jelpy-semantic-categories';
 import { PublicidadChatService } from '../publicidad-chat/publicidad-chat.service';
 import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-preferencias.service';
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
 import { JelpyAiService } from '../../jelpy-ai/jelpy-ai.service';
 import { ConversationService } from '../conversation/conversation.service';
-import { SugerenciasUtil } from './utils/suggestions.util';
 import { ConversationClassifier } from './utils/conversation-classifier';
+import { SocialQueryNormalizer } from './utils/social-query-normalizer';
+import { SafetyPolicy } from './utils/safety-policy';
 
 @Injectable()
 export class AiService {
@@ -53,6 +55,7 @@ export class AiService {
     private readonly searchCache: SearchCacheService,
     private readonly rateLimiter: RateLimiterService,
     private readonly zeroResultLogger: ZeroResultLoggerUseCase,
+    private readonly searchTrendLogger: SearchTrendLoggerUseCase,
 
     @Inject(forwardRef(() => JelpyAssistantService))
     private readonly jelpyAssistant: JelpyAssistantService,
@@ -174,6 +177,70 @@ export class AiService {
     );
   }
 
+  private registrarTendenciaBusqueda(params: {
+    usuarioId?: number;
+    sessionId?: string;
+    queryOriginal: string;
+    queryNormalizada: string;
+    textoCorregido: string;
+    ciudadBusqueda?: string | null;
+    contexto?: any;
+    aiIntent?: any;
+    interpretacion?: any;
+    items: any[];
+  }): void {
+    const filtros = params.interpretacion?.filtros_detectados ?? {};
+    const primerItem = params.items[0] ?? {};
+    const entities = params.aiIntent?.entities ?? {};
+
+    this.searchTrendLogger
+      .execute({
+        usuarioId: params.usuarioId ?? null,
+        sessionId: params.sessionId ?? null,
+        queryOriginal: params.queryOriginal,
+        queryNormalizada:
+          params.aiIntent?.normalized_text ??
+          params.queryNormalizada ??
+          params.textoCorregido,
+        ciudad:
+          filtros.ciudad ??
+          entities.ciudad ??
+          params.ciudadBusqueda ??
+          params.contexto?.ciudad ??
+          null,
+        categoriaId: filtros.categoriaId ?? filtros.categoria_id ?? null,
+        subcategoriaId: filtros.subcategoriaId ?? filtros.subcategoria_id ?? null,
+        especialidadId: filtros.especialidadId ?? filtros.especialidad_id ?? null,
+        categoriaNombre:
+          filtros.categoriaNombre ??
+          filtros.categoria ??
+          entities.categoria ??
+          primerItem.categoria ??
+          primerItem.categoria_nombre ??
+          null,
+        subcategoriaNombre:
+          filtros.subcategoriaNombre ??
+          filtros.subcategoria ??
+          entities.subcategoria ??
+          primerItem.subcategoria ??
+          primerItem.subcategoria_nombre ??
+          null,
+        especialidadNombre:
+          filtros.especialidadNombre ??
+          filtros.especialidad ??
+          entities.especialidad ??
+          primerItem.especialidad ??
+          primerItem.especialidad_nombre ??
+          null,
+        intent: params.aiIntent?.intent ?? filtros.intent ?? null,
+        totalResultados: params.items.length,
+        sinResultados: params.items.length === 0,
+        lat: params.contexto?.latitud ?? null,
+        lng: params.contexto?.longitud ?? null,
+      })
+      .catch(() => null);
+  }
+
   async processUserMessage(
     input: string,
     usuarioId?: number,
@@ -212,8 +279,8 @@ export class AiService {
         respuesta: {
           titulo: 'Ups, algo salió mal 🙈',
           mensaje:
-            'Tuve un problema para procesar tu mensaje. ¿Puedes intentarlo de nuevo en un momento?',
-          sugerencias: ['Promociones', 'Restaurantes', 'Servicios cerca de mí'],
+            ChatResponses.agregarCierreGenerico('Tuve un problema para procesar tu mensaje. ¿Puedes intentarlo de nuevo en un momento?'),
+          sugerencias: [],
         },
       };
     }
@@ -327,6 +394,37 @@ export class AiService {
       };
     }
 
+    const seguridad = SafetyPolicy.check(textoCorregido);
+
+    if (seguridad.blocked) {
+      const mensajeSeguro = ChatResponses.agregarCierreGenerico(seguridad.message ?? '');
+
+      await this.conversationService.guardarTurnoUsuario(
+        idSesionActiva,
+        input,
+        `bloqueado_${seguridad.category}`,
+      );
+
+      await this.conversationService.guardarTurnoAsistente(
+        idSesionActiva,
+        mensajeSeguro,
+        { intent: `bloqueado_${seguridad.category}`, sugerencias: [] },
+      );
+
+      return {
+        sessionId: idSesionActiva,
+        status: 'bloqueado',
+        mensajeOriginal: input,
+        mensajeCorregido: textoCorregido,
+        motivo: seguridad.category,
+        respuesta: {
+          titulo: seguridad.title,
+          mensaje: mensajeSeguro,
+          sugerencias: [],
+        },
+      };
+    }
+
     // JLP-CHIP-RECUPERACION-FIX: los chips de recuperación que Jelpy ofrece
     // tras una búsqueda SIN resultados ("¿Quieres intentar con otra
     // palabra?", "¿Buscas algo diferente en {ciudad}?", "¿Quieres ampliar
@@ -344,7 +442,7 @@ export class AiService {
         chipRecuperacion,
         contexto?.ciudad ?? sesion.ciudad,
       );
-      const sugerenciasRecuperacion = ChatResponses.generarSugerencias('clarificar_busqueda');
+      const sugerenciasRecuperacion: string[] = [];
 
       await this.conversationService.guardarTurnoUsuario(idSesionActiva, input, 'chip_recuperacion');
       await this.conversationService.guardarTurnoAsistente(
@@ -445,7 +543,8 @@ export class AiService {
       }
     }
 
-    const textoParaProcesar = resolucion.textoEnriquecido;
+    const normalizacionSocial = SocialQueryNormalizer.normalize(resolucion.textoEnriquecido);
+    const textoParaProcesar = normalizacionSocial.text;
 
     // ── FAST-PATH LOCAL (chat) ──────────────────────────────────────────
     // Saludos, agradecimientos, despedidas, quejas, dudas simples, etc. se
@@ -574,13 +673,12 @@ export class AiService {
 
     if (aiIntent.reply?.mode === 'direct_reply' && !esBusquedaReal) {
       const respuestaTexto = aiIntent.reply.message || '';
-      const sugerencias = ChatResponses.generarSugerencias(
-        ChatResponses.detectarIntent(textoCorregido),
-      );
+      const respuestaConCierre = ChatResponses.agregarCierreGenerico(respuestaTexto);
+      const sugerencias: string[] = [];
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
-        respuestaTexto,
+        respuestaConCierre,
         { intent: aiIntent.intent, sugerencias },
       );
 
@@ -591,7 +689,7 @@ export class AiService {
         mensajeCorregido: textoCorregido,
         respuesta: {
           titulo: aiIntent.reply.title,
-          mensaje: respuestaTexto,
+          mensaje: respuestaConCierre,
           sugerencias,
         },
         debug: { aiIntent },
@@ -647,12 +745,13 @@ export class AiService {
           mensajeCorregido: textoCorregido,
           respuesta: {
             titulo: 'Lo siento',
-            mensaje:
+            mensaje: ChatResponses.agregarCierreGenerico(
               'Entiendo que no encontraste lo que buscabas 😔 Cuéntame qué necesitas con otras palabras y hago mi mejor esfuerzo para ayudarte.',
+            ),
             // Sin chips aquí a propósito: el usuario está frustrado, no es
             // momento de empujarle más sugerencias/opciones (ver 'queja' en
             // ChatResponses.generarSugerencias).
-            sugerencias: ChatResponses.generarSugerencias('queja'),
+            sugerencias: [],
           },
         };
       }
@@ -685,7 +784,7 @@ export class AiService {
           await this.conversationService.guardarTurnoAsistente(
             idSesionActiva,
             respuestaUmbrella.mensaje,
-            { intent: 'categoria_umbrella', sugerencias: respuestaUmbrella.sugerencias },
+            { intent: 'categoria_umbrella', sugerencias: [] },
           );
 
           return {
@@ -694,14 +793,14 @@ export class AiService {
             mensajeOriginal: input,
             mensajeCorregido: textoCorregido,
             respuesta: respuestaUmbrella,
-            debug: { aiIntent, clasificacion },
+        debug: { aiIntent, clasificacion, normalizacionSocial },
           };
         }
 
         const respuestaGuiada = ChatResponses.preguntarAclaracionBusqueda(
           contexto?.ciudad ?? sesion.ciudad,
         );
-        const sugerenciasGuiadas = ChatResponses.generarSugerencias('clarificar_busqueda');
+        const sugerenciasGuiadas: string[] = [];
 
         await this.conversationService.guardarTurnoAsistente(
           idSesionActiva,
@@ -718,7 +817,7 @@ export class AiService {
             ...respuestaGuiada,
             sugerencias: sugerenciasGuiadas,
           },
-          debug: { aiIntent, clasificacion },
+          debug: { aiIntent, clasificacion, normalizacionSocial },
         };
       }
 
@@ -743,6 +842,10 @@ export class AiService {
         historialTurnos: turnosAsistentePrevios.length,
         ultimaIntencionChat,
       });
+      const respuestaChatConCierre = {
+        ...respuestaChat,
+        mensaje: ChatResponses.agregarCierreGenerico(respuestaChat.mensaje),
+      };
 
       const intentGranular = ChatResponses.detectarIntent(textoCorregido);
 
@@ -752,11 +855,11 @@ export class AiService {
       // toca uno, SIEMPRE se interprete correctamente en el siguiente turno
       // (antes eran 2 preguntas fijas que ni siquiera coincidían con ningún
       // patrón de detección, y tocar el chip devolvía "No entendí bien").
-      const sugerencias = ChatResponses.generarSugerencias(intentGranular);
+      const sugerencias: string[] = [];
 
       await this.conversationService.guardarTurnoAsistente(
         idSesionActiva,
-        respuestaChat.mensaje,
+        respuestaChatConCierre.mensaje,
         { intent: intentGranular, sugerencias },
       );
 
@@ -766,14 +869,14 @@ export class AiService {
         mensajeOriginal: input,
         mensajeCorregido: textoCorregido,
         respuesta: {
-          ...respuestaChat,
+          ...respuestaChatConCierre,
           sugerencias,
         },
-        debug: { aiIntent },
+        debug: { aiIntent, normalizacionSocial },
       };
     }
 
-    await this.historyUseCase.saveQuery(usuarioId ?? 0, textoCorregido);
+    await this.historyUseCase.saveQuery(usuarioId ?? 0, textoParaProcesar);
 
     const ciudadBusqueda = contexto?.ciudad ?? sesion.ciudad ?? '';
     const cacheKey = `${ciudadBusqueda}:${textoParaProcesar.toLowerCase().trim()}`;
@@ -808,6 +911,19 @@ export class AiService {
     const items = Array.isArray(interpretacion.resultados)
       ? interpretacion.resultados
       : interpretacion.resultados?.items ?? [];
+
+    this.registrarTendenciaBusqueda({
+      usuarioId,
+      sessionId: idSesionActiva,
+      queryOriginal: input,
+      queryNormalizada: textoParaProcesar,
+      textoCorregido,
+      ciudadBusqueda,
+      contexto,
+      aiIntent,
+      interpretacion,
+      items,
+    });
 
     try {
       const sucursalIds = items
@@ -1136,34 +1252,14 @@ export class AiService {
     );
 
     if (contextoMsg) friendly.contexto = contextoMsg;
+    if (normalizacionSocial.userFacingHint) {
+      friendly.contexto = normalizacionSocial.userFacingHint;
+    }
 
-    // ── SUGERENCIAS CONTEXTUALES SIN REPETICIÓN ───────────────────────
-    // 1. Carga sugerencias ya mostradas en turnos anteriores (historial DB)
-    const historialParaSugerencias = await this.conversationService.obtenerHistorial(idSesionActiva);
-    const sugerenciasDeHistorial: string[] = historialParaSugerencias
-      .filter((t) => t.rol === 'assistant' && Array.isArray((t.metadata as any)?.sugerencias))
-      .flatMap((t) => (t.metadata as any).sugerencias as string[]);
-
-    // 2. Añadir el texto actual del usuario → la sugerencia tocada nunca reaparece
-    //    aunque el sessionId no sea persistente entre requests.
-    const yaUsadas = Array.from(new Set([...sugerenciasDeHistorial, input, textoCorregido]));
-
-    // 3. Generar pool contextual según categoría/subcategoría/característica
     const filtrosDetectados = interpretacion.filtros_detectados ?? {};
-    const sugerencias = SugerenciasUtil.generar(
-      {
-        categoriaId:       filtrosDetectados.categoriaId,
-        subcategoriaId:    filtrosDetectados.subcategoriaId,
-        subcategoriaHint:  items[0]?.subcategoria ?? filtrosDetectados.subcategoriaHint ?? '',
-        categoriaHint:     items[0]?.categoria    ?? filtrosDetectados.categoriaHint    ?? '',
-        caracteristica:    filtrosDetectados.caracteristica ?? null,
-      },
-      items,
-      filtrosDetectados.ciudad ?? ciudadBusqueda,
-      yaUsadas,
-    );
-
-    if (sugerencias.length > 0) friendly.sugerencias = sugerencias;
+    const sugerencias: string[] = [];
+    friendly.sugerencias = [];
+    friendly.seguimiento = ChatResponses.cierreGenerico();
 
     await this.conversationService.guardarTurnoAsistente(
       idSesionActiva,
@@ -1172,7 +1268,7 @@ export class AiService {
         intent: aiIntent.intent,
         totalResultados: items.length,
         filtros: filtrosDetectados,
-        sugerencias,   // se persiste para deduplicar en el próximo turno
+        sugerencias,
       },
     );
 

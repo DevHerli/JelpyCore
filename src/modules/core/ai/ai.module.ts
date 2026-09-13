@@ -21,6 +21,8 @@ import { IntentDetectorUseCase } from './use-cases/intent-detector.usecase';
 import { UserQueryHistory } from '../metrics/estadistica-historico/entities/user-query-history.entity';
 import { ZeroResultQuery } from './zero-result/entities/zero-result-query.entity';
 import { ZeroResultLoggerUseCase } from './use-cases/zero-result-logger.usecase';
+import { SearchTrendEvent } from './search-trends/entities/search-trend-event.entity';
+import { SearchTrendLoggerUseCase } from './use-cases/search-trend-logger.usecase';
 
 // Módulos externos requeridos
 import { ReportesModeracionModule } from '../reports/reportes-moderacion/reportes-moderacion.module';
@@ -41,7 +43,7 @@ import { CaracteristicasSucursalModule } from '../../business/caracteristicas_su
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserQueryHistory, ZeroResultQuery]),
+    TypeOrmModule.forFeature([UserQueryHistory, ZeroResultQuery, SearchTrendEvent]),
 
     // Conexión circular con Jelpy Assistant
     forwardRef(() => JelpyAssistantModule),
@@ -78,6 +80,7 @@ import { CaracteristicasSucursalModule } from '../../business/caracteristicas_su
     SearchCacheService,
     RateLimiterService,
     ZeroResultLoggerUseCase,
+    SearchTrendLoggerUseCase,
   ],
 
   exports: [

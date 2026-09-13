@@ -235,54 +235,27 @@ export class ChatResponses {
    *    azar cada vez, para que no se sientan repetitivos.
    */
   static generarSugerencias(intentGranular: string): string[] {
-    switch (intentGranular) {
-      case 'queja':
-      case 'humano_escalar':
-      case 'despedida':
-        return [];
+    void intentGranular;
+    return [];
+  }
 
-      // Capa 2 — búsqueda guiada: un chip representativo de cada categoría
-      // grande (comida, salud, belleza, explorar) para que la pregunta de
-      // aclaración ("¿comida, salud, belleza o servicios?") tenga una
-      // respuesta de un solo tap, cubriendo las áreas más buscadas.
-      case 'clarificar_busqueda':
-        return [
-          this.elegir(this.POOL_COMIDA),
-          this.elegir(this.POOL_SALUD),
-          this.elegir(this.POOL_BELLEZA),
-          this.elegir(this.POOL_EXPLORAR),
-        ];
+  static cierreGenerico(): string {
+    return this.elegir([
+      '¿Hay algo más en lo que pueda ayudarte?',
+      '¿Te interesa buscar otra cosa?',
+      'Dime qué más puedo hacer por ti.',
+      'Si necesitas algo más, aquí estoy para ayudarte.',
+    ]);
+  }
 
-      case 'promociones':
-        return this.elegirVarios(this.POOL_PROMOS, 3);
+  static agregarCierreGenerico(mensaje: string): string {
+    const texto = (mensaje || '').trim();
+    const cierre = this.cierreGenerico();
 
-      case 'agendar_cita':
-        return this.elegirVarios([...this.POOL_SALUD, ...this.POOL_BELLEZA], 3);
+    if (!texto) return cierre;
+    if (texto.includes(cierre)) return texto;
 
-      case 'precio':
-      case 'ubicacion':
-        return this.elegirVarios([...this.POOL_COMIDA, ...this.POOL_SALUD], 2);
-
-      case 'capacidades':
-      case 'guia_uso':
-      case 'recomendacion_general':
-        return this.elegirVarios(
-          [...this.POOL_COMIDA, ...this.POOL_EXPLORAR, ...this.POOL_PROMOS],
-          3,
-        );
-
-      case 'saludo':
-      case 'presencia':
-      case 'gracias':
-      case 'confuso':
-      case 'no_entiende':
-      case 'fallback':
-      default:
-        return this.elegirVarios(
-          [...this.POOL_COMIDA, ...this.POOL_SALUD, ...this.POOL_BELLEZA, ...this.POOL_PROMOS],
-          3,
-        );
-    }
+    return `${texto}\n\n${cierre}`;
   }
 
   /**
@@ -398,7 +371,8 @@ export class ChatResponses {
 
     const { titulo, mensaje, pool } = config[categoria];
 
-    return { titulo, mensaje, sugerencias: this.elegirVarios(pool, Math.min(3, pool.length)) };
+    void pool;
+    return { titulo, mensaje: this.agregarCierreGenerico(mensaje), sugerencias: [] };
   }
 
   /**
@@ -526,6 +500,7 @@ export class ChatResponses {
 
     if (
       this.tieneFrase(t, 'que puedes hacer') || this.tieneFrase(t, 'para que sirves') || this.tieneFrase(t, 'que haces') ||
+      this.tieneFrase(t, 'que sabes hacer') || this.tieneFrase(t, 'que sabes') ||
       this.tieneFrase(t, 'como funcionas') || this.tieneFrase(t, 'puedes ayudarme') || this.tieneFrase(t, 'me ayudas') ||
       this.tieneFrase(t, 'puedes recomendarme') || this.tieneFrase(t, 'me recomiendas') ||
       // JLP-DETECTAR-INTENT-GAP-FIX: responder() ya reconocía estas frases
@@ -680,9 +655,9 @@ export class ChatResponses {
       return {
         titulo: this.elegir(['Soy Jelpy 🤖✨', 'Me llamo Jelpy 💙', '¡Hola! Soy Jelpy 😊']),
         mensaje: this.elegir([
-          'Soy tu asistente virtual para encontrar negocios, servicios, doctores, promociones y lugares cerca de ti.',
-          'Soy Jelpy, un asistente diseñado para ayudarte a descubrir lo mejor de tu ciudad: restaurantes, farmacias, doctores, barberías y mucho más.',
-          `Soy un asistente local 📍 Te ayudo a encontrar negocios y servicios${enCiudad}. Solo dime qué necesitas.`,
+          `Soy tu asistente local para encontrar lugares, negocios y servicios${enCiudad}. Me puedes hablar normal: "taquitos buenos", "chelitas baratas", "un lugar para cenar con mi pareja" o "farmacia abierta".`,
+          'Soy Jelpy: te ayudo a descubrir comida, bares, doctores, farmacias, barberías, promociones y servicios sin que tengas que buscar en mil lados.',
+          `Soy un asistente local 📍 Entiendo planes y antojos en lenguaje natural: salir a cenar, pistear con amigos, buscar tacos, encontrar un doctor o ubicar algo cerca de ti.`,
         ]),
       };
     }
@@ -873,19 +848,20 @@ export class ChatResponses {
     // --------------------------------------------------
     if (
       this.tieneFrase(t, 'que puedes hacer') || this.tieneFrase(t, 'para que sirves') ||
-      this.tieneFrase(t, 'que haces') || this.tieneFrase(t, 'como funcionas') ||
+      this.tieneFrase(t, 'que haces') || this.tieneFrase(t, 'que sabes hacer') ||
+      this.tieneFrase(t, 'que sabes') || this.tieneFrase(t, 'como funcionas') ||
       this.tieneFrase(t, 'cuales son tus funciones')
     ) {
       return {
         titulo: 'Puedo ayudarte con mucho 🧠',
         mensaje: tieneCiudad
           ? this.elegir([
-              `Busco restaurantes, doctores, farmacias, barberías, tiendas, hoteles, servicios, promociones y más en ${ciudad}. Solo dime qué necesitas.`,
-              `Encuentro negocios, servicios y promociones en ${ciudad}. Dime qué te interesa y empezamos.`,
+              `Busco restaurantes, taquerías, bares, doctores, farmacias, barberías, tiendas, hoteles, servicios y promociones en ${ciudad}. Me puedes pedir cosas como "dónde pistear", "taquitos buenos" o "un lugar para cenar con mi novia".`,
+              `Encuentro negocios, servicios y planes en ${ciudad}. Puedes hablarme casual: "chelitas baratas", "comida para llevar", "farmacia abierta" o "algo para salir hoy".`,
             ])
           : this.elegir([
-              'Busco negocios, doctores, servicios, promociones y lugares según tu ciudad o ubicación. También puedo responder dudas sobre los resultados.',
-              'Encuentro restaurantes, doctores, farmacias, servicios y promociones cerca de ti. Solo dime qué buscas y en qué ciudad.',
+              'Busco negocios, comida, bares, doctores, servicios, promociones y lugares según tu ciudad o ubicación. También puedo responder dudas sobre los resultados.',
+              'Encuentro restaurantes, tacos, chelas, farmacias, servicios y promociones cerca de ti. Solo dime qué buscas y en qué ciudad.',
             ]),
       };
     }
@@ -916,12 +892,12 @@ export class ChatResponses {
         titulo: this.elegir(['Claro ✨', 'Con gusto 🌟', 'Puedo orientarte 😊']),
         mensaje: tieneCiudad
           ? this.elegir([
-              `Puedo recomendarte según lo que busques en ${ciudad}. ¿Qué tipo de lugar te interesa?`,
-              `Dime qué se te antoja o qué necesitas y te doy opciones en ${ciudad}.`,
+              `Sí. Dime el plan y te ayudo en ${ciudad}: cena tranqui, tacos buenos, bares para ir con amigos, algo barato, algo familiar o algo más especial.`,
+              `Cuéntame el mood: ¿comida, chelas, cita, antojo, salud o servicio? Con eso te busco opciones en ${ciudad}.`,
             ])
           : this.elegir([
-              'Dime qué categoría te interesa y te oriento: comida, salud, servicios, mascotas, turismo…',
-              'Cuéntame qué buscas y te doy opciones cercanas a ti.',
+              'Sí. Dime el plan y la ciudad: cena tranqui, tacos buenos, bares con amigos, algo barato, algo familiar o algo más especial.',
+              'Cuéntame el mood: ¿comida, chelas, cita, antojo, salud o servicio? Si me dices la ciudad, te doy mejores opciones.',
             ]),
       };
     }

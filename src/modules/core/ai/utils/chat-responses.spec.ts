@@ -6,6 +6,7 @@ describe('ChatResponses.detectarIntent', () => {
     { texto: 'buenas tardes', intent: 'saludo' },
     { texto: 'quién eres', intent: 'identidad' },
     { texto: 'qué puedes hacer', intent: 'capacidades' },
+    { texto: 'qué sabes hacer', intent: 'capacidades' },
     { texto: 'gracias', intent: 'gracias' },
     { texto: 'adiós', intent: 'despedida' },
     { texto: 'promociones', intent: 'promociones' },
@@ -126,6 +127,13 @@ describe('ChatResponses.responder', () => {
     expect(respuesta.mensaje.toLowerCase()).not.toContain('activas');
   });
 
+  it('"qué sabes hacer" responde con ejemplos naturales y útiles', () => {
+    const respuesta = ChatResponses.responder('qué sabes hacer');
+    const texto = `${respuesta.titulo} ${respuesta.mensaje}`.toLowerCase();
+
+    expect(texto).toMatch(/taquitos|chelitas|pistear|cena|farmacia|promociones/);
+  });
+
   it('un saludo en sesión nueva da la bienvenida completa; en sesión con historial es más corto', () => {
     const nueva = ChatResponses.responder('hola', { historialTurnos: 0 });
     const conHistorial = ChatResponses.responder('hola', { historialTurnos: 3 });
@@ -148,28 +156,19 @@ describe('ChatResponses.generarSugerencias', () => {
     expect(ChatResponses.generarSugerencias('despedida')).toEqual([]);
   });
 
-  it('"clarificar_busqueda" (Capa 2) da exactamente 4 chips, uno por categoría grande', () => {
+  it('"clarificar_busqueda" (Capa 2) no genera chips', () => {
     const sugerencias = ChatResponses.generarSugerencias('clarificar_busqueda');
 
-    expect(sugerencias).toHaveLength(4);
-    expect(new Set(sugerencias).size).toBe(sugerencias.length); // sin duplicados
+    expect(sugerencias).toEqual([]);
   });
 
-  it('cada chip generado es reconocible por el propio clasificador de intención (nunca produce "No entendí")', () => {
-    // Regresión del bug: antes los chips eran preguntas fijas que no
-    // coincidían con ningún patrón de detección, y tocar uno devolvía
-    // "No entendí bien". Verificamos que cada chip posible, si se
-    // reenvía tal cual como mensaje del usuario, sea reconocido como
-    // negocio real (contiene alias de JELPY_SEMANTIC_CATEGORIES).
+  it('no genera chips para ninguna intención conversacional', () => {
     const intents = [
       'saludo', 'promociones', 'agendar_cita', 'precio', 'capacidades', 'clarificar_busqueda',
     ];
 
     for (const intent of intents) {
-      const chips = ChatResponses.generarSugerencias(intent);
-      for (const chip of chips) {
-        expect(chip.length).toBeGreaterThan(0);
-      }
+      expect(ChatResponses.generarSugerencias(intent)).toEqual([]);
     }
   });
 });

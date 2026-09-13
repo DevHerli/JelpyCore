@@ -19,6 +19,8 @@ import { ItemNegocio } from '../../../business/catalogo_productos/entities/item-
 
 import { CaracteristicaSucursal } from '../../../business/caracteristicas_sucursales/entities/caracteristica-sucursal.entity';
 import { CaracteristicaAlias } from '../../../business/caracteristicas_sucursales/entities/caracteristica-alias.entity';
+import { SearchTrendEvent } from '../search-trends/entities/search-trend-event.entity';
+import { SearchTrendLoggerUseCase } from '../use-cases/search-trend-logger.usecase';
 
 @Module({
   imports: [
@@ -31,6 +33,7 @@ import { CaracteristicaAlias } from '../../../business/caracteristicas_sucursale
       ItemNegocio,
       CaracteristicaSucursal,
       CaracteristicaAlias,
+      SearchTrendEvent,
     ]),
 
     forwardRef(() => SearchModule),
@@ -40,7 +43,7 @@ import { CaracteristicaAlias } from '../../../business/caracteristicas_sucursale
     forwardRef(() => JelpyAiModule),
   ],
   controllers: [JelpyAssistantController],
-  providers: [JelpyAssistantService],
+  providers: [JelpyAssistantService, SearchTrendLoggerUseCase],
   exports: [JelpyAssistantService],
 })
 export class JelpyAssistantModule {}

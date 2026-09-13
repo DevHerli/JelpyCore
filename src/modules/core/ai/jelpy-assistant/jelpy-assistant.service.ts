@@ -116,11 +116,11 @@ export class JelpyAssistantService {
       ciudad: ciudad ?? undefined,
       historialTurnos: 0,
     });
-    const suggestedQueries = ChatResponses.generarSugerencias(intent).map((query) => ({
-      label: query,
-      query,
-      filter: `chat_${intent}`,
-    }));
+    const respuestaConCierre = {
+      ...respuesta,
+      mensaje: ChatResponses.agregarCierreGenerico(respuesta.mensaje),
+    };
+    const suggestedQueries: Array<{ label: string; query: string; filter: string }> = [];
 
     return {
       filtros_detectados: {
@@ -133,9 +133,9 @@ export class JelpyAssistantService {
       sin_resultados: false,
       mensaje_sin_resultados: null,
       esMensajeConversacional: true,
-      respuesta,
-      titulo: respuesta.titulo,
-      mensaje: respuesta.mensaje,
+      respuesta: respuestaConCierre,
+      titulo: respuestaConCierre.titulo,
+      mensaje: respuestaConCierre.mensaje,
       suggestedQueries,
     };
   }
@@ -796,6 +796,10 @@ for (const a of aliases) {
     filtros: any,
     filtersApplied: string[] = [],
   ): Promise<Array<{ label: string; query: string; filter: string }>> {
+    if (process.env.JELPY_ENABLE_CHAT_CHIPS !== 'true') {
+      return [];
+    }
+
     const sugerencias: Array<{ label: string; query: string; filter: string }> = [];
     const yaAplicados = new Set<string>(filtersApplied);
 
@@ -950,6 +954,10 @@ for (const a of aliases) {
     ciudad: string | undefined,
     filtersApplied: string[],
   ): Array<{ label: string; query: string; filter: string }> {
+    if (process.env.JELPY_ENABLE_CHAT_CHIPS !== 'true') {
+      return [];
+    }
+
     const sugerencias: Array<{ label: string; query: string; filter: string }> = [];
     const yaAplicados = new Set<string>(filtersApplied);
     const ciudadLabel = ciudad ? ` en ${ciudad}` : '';

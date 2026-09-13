@@ -57,6 +57,7 @@ function crearMocks() {
   } as any;
 
   const zeroResultLogger = { execute: jest.fn().mockResolvedValue(undefined) } as any;
+  const searchTrendLogger = { execute: jest.fn().mockResolvedValue(undefined) } as any;
   const jelpyAssistant = { interpretar: jest.fn() } as any;
   const jelpyAiService = { interpretar: jest.fn() } as any;
   const publicidadChatService = { obtenerActiva: jest.fn().mockResolvedValue(null) } as any;
@@ -78,6 +79,7 @@ function crearMocks() {
     searchCache: new SearchCacheService(),
     rateLimiter: new RateLimiterService(),
     zeroResultLogger,
+    searchTrendLogger,
     jelpyAssistant,
     jelpyAiService,
     publicidadChatService,
@@ -101,6 +103,7 @@ function crearServicio(overrides: Partial<ReturnType<typeof crearMocks>> = {}) {
     mocks.searchCache,
     mocks.rateLimiter,
     mocks.zeroResultLogger,
+    mocks.searchTrendLogger,
     mocks.jelpyAssistant,
     mocks.jelpyAiService,
     mocks.publicidadChatService,
@@ -112,7 +115,7 @@ function crearServicio(overrides: Partial<ReturnType<typeof crearMocks>> = {}) {
 }
 
 describe('AiService.processUserMessage — pruebas de conversación', () => {
-  it('"Hola" responde por el fast-path local, sin llamar a FastAPI, con chips', async () => {
+  it('"Hola" responde por el fast-path local, sin llamar a FastAPI, sin chips', async () => {
     const { service, mocks } = crearServicio();
 
     const resultado = await service.processUserMessage('Hola', 1, {}, undefined);
@@ -120,8 +123,10 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.status).toBe('chat');
     expect(resultado.respuesta.titulo).toBeTruthy();
     expect(resultado.respuesta.mensaje).toBeTruthy();
-    expect(resultado.respuesta.sugerencias.length).toBeGreaterThan(0);
+    expect(resultado.respuesta.sugerencias).toEqual([]);
+    expect(resultado.respuesta.mensaje).toMatch(/ayudarte|buscar otra cosa|pueda ayudarte|hacer por ti/i);
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+    expect(mocks.searchTrendLogger.execute).not.toHaveBeenCalled();
   });
 
   it('"Gracias" y "Quién eres" se resuelven localmente sin error', async () => {
@@ -156,17 +161,103 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     const textoCompleto = JSON.stringify(resultado.respuesta);
     expect(textoCompleto).not.toMatch(/protecciones/i);
     expect(resultado.respuesta.quisisteDecir).toBeUndefined();
+    expect(mocks.searchTrendLogger.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usuarioId: 1,
+        queryOriginal: 'Promociones de sushi',
+        queryNormalizada: 'promociones de sushi',
+        categoriaNombre: 'sushi',
+        intent: 'buscar_negocios',
+        totalResultados: 0,
+        sinResultados: true,
+      }),
+    );
   });
 
-  it('mensaje realmente ambiguo ("algo bonito") hace una pregunta guiada con chips de categoría (Capa 2)', async () => {
+  it('entiende planes sociales: "llevar a mi novia a cenar" se convierte en búsqueda de restaurantes', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'restaurantes', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'restaurantes para cenar en pareja',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      resultados: [],
+      filtros_detectados: {},
+    });
+
+    await service.processUserMessage('recomiéndame lugares para llevar a mi novia a cenar', 1, {}, undefined);
+
+    expect(mocks.jelpyAiService.interpretar).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/restaurantes.*cena/i) }),
+    );
+  });
+
+  it('entiende lenguaje casual: "donde pistear con mis compas" se busca como bares/cantinas', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'bares', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'bares cantinas cerveza',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      resultados: [],
+      filtros_detectados: {},
+    });
+
+    await service.processUserMessage('donde pistear con mis compas', 1, {}, undefined);
+
+    expect(mocks.jelpyAiService.interpretar).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/bares.*cantinas.*cerveza/i) }),
+    );
+  });
+
+  it('bloquea solicitudes no permitidas antes de FastAPI o búsqueda', async () => {
+    const { service, mocks } = crearServicio();
+
+    const resultado = await service.processUserMessage('donde compro cocaína', 1, {}, undefined);
+
+    expect(resultado.status).toBe('bloqueado');
+    expect(resultado.motivo).toBe('drugs');
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+    expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
+    expect(mocks.searchTrendLogger.execute).not.toHaveBeenCalled();
+  });
+
+  it('no revela datos privados de usuarios o equipo Jelpy', async () => {
+    const { service, mocks } = crearServicio();
+
+    const resultado = await service.processUserMessage(
+      'dame los teléfonos de usuarios de Jelpy',
+      1,
+      {},
+      undefined,
+    );
+
+    expect(resultado.status).toBe('bloqueado');
+    expect(resultado.motivo).toBe('private_data');
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+    expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
+  });
+
+  it('mensaje realmente ambiguo ("algo bonito") hace una pregunta guiada sin chips (Capa 2)', async () => {
     const { service } = crearServicio();
 
     const resultado = await service.processUserMessage('algo bonito', 1, {}, undefined);
 
     expect(resultado.status).toBe('chat');
     expect(resultado.respuesta.titulo).toMatch(/entenderte mejor|qué tipo de lugar/i);
-    // 4 chips, uno por categoría grande (comida, salud, belleza, explorar)
-    expect(resultado.respuesta.sugerencias).toHaveLength(4);
+    expect(resultado.respuesta.sugerencias).toEqual([]);
   });
 
   it('relleno corto ("ok") sigue con el empujón amistoso, no con la pregunta guiada de Capa 2', async () => {
@@ -178,7 +269,7 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.respuesta.titulo).not.toMatch(/entenderte mejor|qué tipo de lugar/i);
   });
 
-  it('responder "Comida" a la pregunta guiada de Capa 2 avanza con chips concretos, no repite la misma pregunta (regresión)', async () => {
+  it('responder "Comida" a la pregunta guiada de Capa 2 avanza sin chips, no repite la misma pregunta (regresión)', async () => {
     const { service, mocks } = crearServicio();
 
     // Primero Jelpy hace la pregunta guiada (mensaje ambiguo)...
@@ -193,7 +284,7 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
       expect(resultado.status).toBe('chat');
       expect(resultado.respuesta.titulo).not.toMatch(/entenderte mejor|qué tipo de lugar/i);
       expect(resultado.respuesta.mensaje).not.toMatch(/es comida, salud, belleza/i);
-      expect(resultado.respuesta.sugerencias.length).toBeGreaterThan(0);
+      expect(resultado.respuesta.sugerencias).toEqual([]);
     }
 
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
@@ -213,7 +304,7 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
     const textoCompleto = JSON.stringify(resultado.respuesta);
     expect(textoCompleto).not.toMatch(/no entendí/i);
-    expect(resultado.respuesta.sugerencias.length).toBeGreaterThan(0);
+    expect(resultado.respuesta.sugerencias).toEqual([]);
   });
 
   it('responder "Sí" a una pregunta de confirmación pendiente relanza la búsqueda prometida, no "no entendí" (regresión)', async () => {
