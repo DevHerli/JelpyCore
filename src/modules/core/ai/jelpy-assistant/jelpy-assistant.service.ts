@@ -72,6 +72,10 @@ export class JelpyAssistantService {
     'en', 'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
     'a', 'para', 'por', 'con', 'que', 'mi', 'mí', 'me', 'donde', 'hay', 'busca',
     'buscas', 'buscar', 'quiero', 'quieres', 'quieras', 'necesito',
+    'dime', 'lugar', 'lugares', 'negocio', 'negocios',
+    'esta', 'está', 'estan', 'están', 'mas', 'más',
+    'vende', 'venden', 'vendan', 'vender', 'venta', 'encuentro', 'encontrar',
+    'consigo', 'comprar', 'compra',
     'cerca', 'cerquita', 'abierto', 'ahora', 'ahorita', 'promo', 'promos',
     'oferta', 'descuento',
   ];
@@ -485,7 +489,17 @@ for (const a of aliases) {
       return undefined;
     }
 
-    return filtros.q ?? textoNorm;
+    if (filtros.q) return filtros.q;
+
+    const limpio = this.normalizar(textoNorm)
+      .replace(/[¿?¡!.,;:()]/g, ' ')
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 2 && !this.stopwords.includes(token))
+      .join(' ')
+      .trim();
+
+    return limpio || textoNorm;
   }
 
   private hasResults(resultados: any): boolean {

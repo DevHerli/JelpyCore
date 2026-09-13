@@ -34,6 +34,10 @@ export class SearchService {
     'en', 'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
     'y', 'o', 'para', 'por', 'con', 'sin', 'que',
     'quiero', 'busco', 'buscar', 'donde', 'dónde',
+    'dime', 'lugar', 'lugares', 'negocio', 'negocios',
+    'esta', 'está', 'estan', 'están', 'mas', 'más',
+    'vende', 'venden', 'vendan', 'vender', 'venta',
+    'encuentro', 'encontrar', 'consigo', 'comprar', 'compra',
     'hay', 'me', 'mi', 'mí',
     'cerca', 'cerquita',
     'abierto', 'abiertos', 'ahora', 'ahorita',
@@ -71,6 +75,17 @@ export class SearchService {
 
     // Duplicar última letra (tacos → tacoss)
     variantes.add(w + w[w.length - 1]);
+
+    // Singular/plural simple para productos: "tamales" debe poder matchear
+    // "tamal", y "tamal" debe poder matchear "tamales".
+    if (w.length >= 5 && w.endsWith('es')) {
+      variantes.add(w.slice(0, -2));
+    } else if (w.length >= 4 && w.endsWith('s')) {
+      variantes.add(w.slice(0, -1));
+    } else if (w.length >= 4) {
+      variantes.add(`${w}s`);
+      variantes.add(`${w}es`);
+    }
 
     // Truncados solo para palabras largas (≥7 chars) para evitar tokens genéricos
     // "alitas"(6) NO genera "litas" — "farmacia"(8) SÍ genera "farmaci"

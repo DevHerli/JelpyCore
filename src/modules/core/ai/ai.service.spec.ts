@@ -61,6 +61,9 @@ function crearMocks() {
   const jelpyAssistant = { interpretar: jest.fn() } as any;
   const jelpyAiService = { interpretar: jest.fn() } as any;
   const publicidadChatService = { obtenerActiva: jest.fn().mockResolvedValue(null) } as any;
+  const promocionesSucursalesService = {
+    listarPromocionesActivas: jest.fn().mockResolvedValue([]),
+  } as any;
   const usuarioPreferenciasService = { registrarPreferencia: jest.fn().mockResolvedValue(undefined) } as any;
   const likesService = {
     contarLikesBatch: jest.fn().mockResolvedValue(new Map()),
@@ -83,6 +86,7 @@ function crearMocks() {
     jelpyAssistant,
     jelpyAiService,
     publicidadChatService,
+    promocionesSucursalesService,
     usuarioPreferenciasService,
     likesService,
   };
@@ -107,6 +111,7 @@ function crearServicio(overrides: Partial<ReturnType<typeof crearMocks>> = {}) {
     mocks.jelpyAssistant,
     mocks.jelpyAiService,
     mocks.publicidadChatService,
+    mocks.promocionesSucursalesService,
     mocks.usuarioPreferenciasService,
     mocks.likesService,
   );
@@ -137,6 +142,48 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
       expect(resultado.status).toBe('chat');
       expect(resultado.respuesta.titulo).toBeTruthy();
     }
+  });
+
+  it('"promos activas" trae las últimas 5 promociones generales y pregunta por categoría', async () => {
+    const promociones = Array.from({ length: 6 }, (_, index) => ({
+      id: index + 1,
+      titulo: `Promo ${index + 1}`,
+      descripcion: `Descripción ${index + 1}`,
+      tipoPromocion: 'Descuento',
+      valorDescuento: null,
+      fechaInicio: '2026-09-01',
+      fechaFin: '2026-09-30',
+      imagenUrl: null,
+      sucursal: {
+        id: 100 + index,
+        nombreSucursal: `Sucursal ${index + 1}`,
+        ciudad: { nombre: 'Tepic' },
+        negocio: { nombreNegocio: `Negocio ${index + 1}` },
+      },
+    }));
+    const { service, mocks } = crearServicio({
+      promocionesSucursalesService: {
+        listarPromocionesActivas: jest.fn().mockResolvedValue(promociones),
+      } as any,
+    });
+
+    const resultado = await service.processUserMessage('promos activas', 1, {}, undefined);
+
+    expect(resultado.status).toBe('aceptado');
+    expect(resultado.respuesta.titulo).toBe('Promociones activas');
+    expect(resultado.respuesta.items).toHaveLength(5);
+    expect(resultado.respuesta.mensaje).toMatch(/promoción en especial|categoría/i);
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+    expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
+    expect(mocks.searchTrendLogger.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryOriginal: 'promos activas',
+        categoriaNombre: 'promociones',
+        intent: 'buscar_promociones',
+        totalResultados: 5,
+        sinResultados: false,
+      }),
+    );
   });
 
   it('"Promociones de sushi" sin resultados NO sugiere "protecciones" (regresión del bug reportado)', async () => {
@@ -172,6 +219,33 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
         sinResultados: true,
       }),
     );
+  });
+
+  it('"dónde venden tamales/pozole" no usa "venden" para sugerir correcciones absurdas', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockImplementation(async ({ text }: { text: string }) => ({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: null, subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: text,
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    }));
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      resultados: [],
+      filtros_detectados: {},
+    });
+
+    for (const mensaje of ['donde venden tamales', 'donde venden pozole']) {
+      const resultado = await service.processUserMessage(mensaje, 1, {}, undefined);
+      const textoCompleto = JSON.stringify(resultado.respuesta);
+
+      expect(textoCompleto).not.toMatch(/venden/i);
+      expect(textoCompleto).not.toMatch(/lentes/i);
+      expect(resultado.respuesta.quisisteDecir).toBeUndefined();
+    }
   });
 
   it('entiende planes sociales: "llevar a mi novia a cenar" se convierte en búsqueda de restaurantes', async () => {
@@ -220,6 +294,61 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(mocks.jelpyAiService.interpretar).toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringMatching(/bares.*cantinas.*cerveza/i) }),
     );
+  });
+
+  it('entiende "dime lugar de pistear" como bares/antros, no como búsqueda literal de lugar', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'bares', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'bares antros cantinas cerveza',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      resultados: [],
+      filtros_detectados: {},
+    });
+
+    const resultado = await service.processUserMessage('dime lugar de pistear', 1, {}, undefined);
+
+    expect(mocks.jelpyAiService.interpretar).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/bares.*antros.*cantinas/i) }),
+    );
+    expect(JSON.stringify(resultado.respuesta)).not.toMatch(/no encontré "lugar"|lentes/i);
+  });
+
+  it('entiende "donde están las chelitas más baras" como chelas/caguamas baratas, no como "están"', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'licorerías', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: true, cerca_de_mi: false },
+      normalized_text: 'caguamerias licorerias cerveza barata',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      resultados: [],
+      filtros_detectados: {},
+    });
+
+    const resultado = await service.processUserMessage(
+      'dime donde estan las chelitas mas baras',
+      1,
+      {},
+      undefined,
+    );
+
+    expect(mocks.jelpyAiService.interpretar).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringMatching(/caguamerias.*licorerias.*cerveza barata/i) }),
+    );
+    expect(JSON.stringify(resultado.respuesta)).not.toMatch(/no encontré "estan"|lentes/i);
   });
 
   it('bloquea solicitudes no permitidas antes de FastAPI o búsqueda', async () => {

@@ -40,6 +40,9 @@ export class SocialQueryNormalizer {
 
     if (
       this.has(t, 'pistear') ||
+      this.has(t, 'lugar de pistear') ||
+      this.has(t, 'lugares para pistear') ||
+      this.has(t, 'lugar para pistear') ||
       this.has(t, 'pistear con mis compas') ||
       this.has(t, 'salir de peda') ||
       this.has(t, 'ir de peda') ||
@@ -50,26 +53,46 @@ export class SocialQueryNormalizer {
       this.has(t, 'tomar con mis amigos') ||
       this.has(t, 'tomar con compas') ||
       this.has(t, 'ir por cheves') ||
-      this.has(t, 'ir por chelas')
+      this.has(t, 'ir por chelas') ||
+      this.has(t, 'echar drinks') ||
+      this.has(t, 'beber alcohol') ||
+      this.has(t, 'tomar alcohol') ||
+      this.has(t, 'tomar unas chelas') ||
+      this.has(t, 'unas chelitas') ||
+      this.has(t, 'kiwas') ||
+      this.has(t, 'kiwasakis') ||
+      this.has(t, 'caguamitas')
     ) {
       return {
-        text: 'bares cantinas cerveza micheladas para tomar con amigos',
+        text: 'bares antros cantinas restaurantes con cerveza micheladas para tomar con amigos',
         detectedPlan: 'drinks',
-        userFacingHint: 'Busqué bares y lugares para tomar algo con amigos.',
+        userFacingHint: 'Busqué bares, antros y lugares para tomar algo.',
       };
     }
 
     if (
       this.has(t, 'chelitas') ||
       this.has(t, 'chelas baratas') ||
+      this.has(t, 'chelitas baratas') ||
+      this.has(t, 'chelitas mas baratas') ||
+      this.has(t, 'chelitas más baratas') ||
+      this.has(t, 'chelitas mas baras') ||
+      this.has(t, 'chelitas más baras') ||
+      this.has(t, 'donde estan las chelitas') ||
+      this.has(t, 'donde están las chelitas') ||
       this.has(t, 'cheve barata') ||
       this.has(t, 'cerveza barata') ||
-      this.has(t, 'caguamas baratas')
+      this.has(t, 'cerveza bara') ||
+      this.has(t, 'cervezas baratas') ||
+      this.has(t, 'caguamas baratas') ||
+      this.has(t, 'caguamitas baratas') ||
+      this.has(t, 'kiwas baratas') ||
+      this.has(t, 'kiwasakis baratas')
     ) {
       return {
-        text: 'caguamerias licorerias cerveza barata chelas caguamas',
+        text: 'caguamerias licorerias bares cantinas cerveza barata chelas caguamas promociones',
         detectedPlan: 'drinks',
-        userFacingHint: 'Busqué opciones para chelas o caguamas.',
+        userFacingHint: 'Busqué opciones para chelas, caguamas o promociones de bebidas.',
       };
     }
 

@@ -84,6 +84,7 @@ export class AiController {
       contexto,
       sessionId,
     );
+    const retencionChat = this.conversationService.obtenerPoliticaRetencion();
 
     const respuesta: any = resultado?.respuesta ?? {};
     const items: any[] = Array.isArray(respuesta.items) ? respuesta.items : [];
@@ -111,7 +112,11 @@ export class AiController {
     return {
       exito: true,
       sessionId: resultado.sessionId,   // ← devolvemos el sessionId al frontend
-      data: resultado,
+      retencionChat,
+      data: {
+        ...resultado,
+        retencionChat,
+      },
     };
   }
 
@@ -164,6 +169,7 @@ export class AiController {
       ciudad: sesion.ciudad,
       ultimoIntent: sesion.ultimoIntent,
       totalTurnos: historial.length,
+      retencionChat: this.conversationService.obtenerPoliticaRetencion(),
       historial,
     };
   }

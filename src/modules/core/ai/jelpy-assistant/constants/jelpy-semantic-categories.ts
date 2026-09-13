@@ -3530,9 +3530,12 @@ export const JELPY_SEMANTIC_CATEGORIES: SemanticCategory[] = [
     aliases: [
       // Coloquial caguama/cheve
       'caguameria', 'caguamería',
-      'caguama', 'caguamas',
-      'cheve', 'chevas', 'chela', 'chelas', 'chelita', 'chelitas',
-      'chelas baratas', 'chelitas baratas', 'cheve barata', 'cerveza barata',
+      'caguama', 'caguamas', 'caguamita', 'caguamitas',
+      'cheve', 'cheves', 'chevas', 'chela', 'chelas', 'chelita', 'chelitas',
+      'kiwa', 'kiwas', 'kiwasaki', 'kiwasakis',
+      'chelas baratas', 'chelitas baratas', 'chelitas mas baras',
+      'chelitas más baras', 'cheve barata', 'cerveza barata',
+      'cervecha', 'cervechas',
       'michelada', 'micheladas',
       'chelada', 'cheladas',
       // Licores y vinos
@@ -3549,6 +3552,8 @@ export const JELPY_SEMANTIC_CATEGORIES: SemanticCategory[] = [
       'botella de vino', 'whisky', 'ron', 'vodka',
       'donde comprar alcohol', 'donde venden caguamas',
       'donde hay caguamas', 'donde hay cheves',
+      'donde estan las chelitas', 'donde están las chelitas',
+      'echar drinks', 'beber alcohol', 'tomar alcohol',
     ],
     categoriaHint: 'Tiendas y Negocios',
     subcategoriaHint: 'Licorerías y Caguamerías',

@@ -11,5 +11,6 @@ import { EventosNegociosModule } from '../eventos_negocios/eventos-negocios.modu
   EventosNegociosModule],
   controllers: [PromocionesSucursalesController],
   providers: [PromocionesSucursalesService],
+  exports: [PromocionesSucursalesService],
 })
 export class PromocionesSucursalesModule {}

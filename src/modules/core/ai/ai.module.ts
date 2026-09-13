@@ -40,6 +40,7 @@ import { ChatResponses } from './utils/chat-responses';
 import { SearchCacheService } from './utils/search-cache.service';
 import { RateLimiterService } from './utils/rate-limiter.service';
 import { CaracteristicasSucursalModule } from '../../business/caracteristicas_sucursales/caracteristicas-sucursal.module';
+import { PromocionesSucursalesModule } from '../../business/promociones_sucursal/promociones-sucursales.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { CaracteristicasSucursalModule } from '../../business/caracteristicas_su
     UsuarioPreferenciasModule,
     SucursalLikesModule,
     JelpyAiModule,
+    PromocionesSucursalesModule,
 
     // ← Memoria conversacional
     ConversationModule,

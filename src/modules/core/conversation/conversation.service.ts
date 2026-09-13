@@ -6,7 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { ConversationSession } from './entities/conversation-session.entity';
 import { ConversationTurn } from './entities/conversation-turn.entity';
 
-const INACTIVIDAD_MINUTOS = 30;
+const RETENCION_CHAT_HORAS = 24;
+const INACTIVIDAD_MINUTOS = RETENCION_CHAT_HORAS * 60;
 const MAX_TURNS_HISTORIAL = 6; // últimos 6 turnos (3 intercambios) al cargar contexto
 
 @Injectable()
@@ -20,6 +21,14 @@ export class ConversationService {
     @InjectRepository(ConversationTurn)
     private readonly turnRepo: Repository<ConversationTurn>,
   ) {}
+
+  obtenerPoliticaRetencion() {
+    return {
+      ttlHoras: RETENCION_CHAT_HORAS,
+      mensaje:
+        'Los mensajes de este chat se eliminan automáticamente después de 24 horas. Jelpy conserva métricas de búsqueda agregadas para mejorar el servicio.',
+    };
+  }
 
   // ------------------------------------------------------------------
   // OBTENER O CREAR SESIÓN
@@ -234,13 +243,19 @@ export class ConversationService {
   }
 
   // ------------------------------------------------------------------
-  // LIMPIAR SESIONES INACTIVAS (llamar periódicamente o en cada request)
+  // LIMPIAR SESIONES INACTIVAS Y BORRAR CHATS EXPIRADOS
   // ------------------------------------------------------------------
   async limpiarSesionesViejas(): Promise<void> {
     const limite = new Date();
     limite.setMinutes(limite.getMinutes() - INACTIVIDAD_MINUTOS);
 
     try {
+      // Primero borramos turnos viejos. Las métricas de búsqueda viven en
+      // tablas separadas, así que esto elimina conversación, no aprendizaje.
+      await this.turnRepo.delete({ creadoEn: LessThan(limite) });
+
+      await this.sessionRepo.delete({ actualizadoEn: LessThan(limite) });
+
       await this.sessionRepo.update(
         { activa: true, actualizadoEn: LessThan(limite) },
         { activa: false },

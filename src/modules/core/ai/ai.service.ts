@@ -23,6 +23,7 @@ import { ConversationService } from '../conversation/conversation.service';
 import { ConversationClassifier } from './utils/conversation-classifier';
 import { SocialQueryNormalizer } from './utils/social-query-normalizer';
 import { SafetyPolicy } from './utils/safety-policy';
+import { PromocionesSucursalesService } from '../../business/promociones_sucursal/promociones-sucursales.service';
 
 @Injectable()
 export class AiService {
@@ -62,6 +63,7 @@ export class AiService {
 
     private readonly jelpyAiService: JelpyAiService,
     private readonly publicidadChatService: PublicidadChatService,
+    private readonly promocionesSucursalesService: PromocionesSucursalesService,
     private readonly usuarioPreferenciasService: UsuarioPreferenciasService,
     private readonly likesService: SucursalLikesService,
   ) {}
@@ -239,6 +241,113 @@ export class AiService {
         lng: params.contexto?.longitud ?? null,
       })
       .catch(() => null);
+  }
+
+  private esSolicitudPromosGenerales(texto: string, aiIntent?: any): boolean {
+    const textoNorm = this.normalizarTexto(texto);
+    const mencionaPromo = /\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos|rebaja|rebajas|cupon|cupones|2x1)\b/.test(textoNorm);
+
+    if (!mencionaPromo) return false;
+
+    const tieneEntidadEspecifica =
+      !!aiIntent?.entities?.categoria ||
+      !!aiIntent?.entities?.subcategoria ||
+      !!aiIntent?.entities?.especialidad ||
+      this.contieneTerminoDeNegocio(texto);
+
+    return !tieneEntidadEspecifica;
+  }
+
+  private formatearPromoChat(promo: any, index: number): string {
+    const negocio =
+      promo?.sucursal?.negocio?.nombreNegocio ??
+      promo?.sucursal?.nombreSucursal ??
+      'Negocio Jelpy';
+    const ciudad = promo?.sucursal?.ciudad?.nombre ? ` en ${promo.sucursal.ciudad.nombre}` : '';
+    const vigencia = promo?.fechaFin ? ` Vigente hasta ${promo.fechaFin}.` : '';
+    const descripcion = promo?.descripcion ? ` ${promo.descripcion}` : '';
+
+    return `${index + 1}. ${promo.titulo} - ${negocio}${ciudad}.${descripcion}${vigencia}`;
+  }
+
+  private async responderPromocionesGenerales(params: {
+    input: string;
+    textoCorregido: string;
+    textoParaProcesar: string;
+    sessionId: string;
+    usuarioId?: number;
+    contexto?: any;
+  }): Promise<any> {
+    const promociones = (await this.promocionesSucursalesService.listarPromocionesActivas())
+      .slice(0, 5);
+
+    const items = promociones.map((promo) => ({
+      id: promo.id,
+      titulo: promo.titulo,
+      descripcion: promo.descripcion ?? null,
+      tipoPromocion: promo.tipoPromocion,
+      valorDescuento: promo.valorDescuento ?? null,
+      fechaInicio: promo.fechaInicio,
+      fechaFin: promo.fechaFin,
+      imagenUrl: promo.imagenUrl ?? null,
+      sucursalId: promo.sucursal?.id ?? null,
+      sucursal: promo.sucursal?.nombreSucursal ?? null,
+      negocio: promo.sucursal?.negocio?.nombreNegocio ?? null,
+      ciudad: promo.sucursal?.ciudad?.nombre ?? null,
+    }));
+
+    const mensajeBase = items.length
+      ? `Encontré estas promociones activas:\n\n${promociones
+          .map((promo, index) => this.formatearPromoChat(promo, index))
+          .join('\n')}`
+      : 'Por ahora no encontré promociones activas disponibles.';
+
+    const mensaje =
+      `${mensajeBase}\n\n¿Alguna promoción en especial de alguna categoría que te interese que te muestre?`;
+
+    this.searchTrendLogger
+      .execute({
+        usuarioId: params.usuarioId ?? null,
+        sessionId: params.sessionId,
+        queryOriginal: params.input,
+        queryNormalizada: params.textoParaProcesar,
+        ciudad: params.contexto?.ciudad ?? null,
+        categoriaNombre: 'promociones',
+        intent: 'buscar_promociones',
+        totalResultados: items.length,
+        sinResultados: items.length === 0,
+        lat: params.contexto?.latitud ?? null,
+        lng: params.contexto?.longitud ?? null,
+      })
+      .catch(() => null);
+
+    await this.conversationService.guardarTurnoAsistente(
+      params.sessionId,
+      mensaje,
+      {
+        intent: 'buscar_promociones',
+        totalResultados: items.length,
+        sugerencias: [],
+      },
+    );
+
+    return {
+      sessionId: params.sessionId,
+      status: 'aceptado',
+      mensajeOriginal: params.input,
+      mensajeCorregido: params.textoCorregido,
+      respuesta: {
+        titulo: items.length ? 'Promociones activas' : 'Sin promociones activas',
+        mensaje,
+        items,
+        sugerencias: [],
+        seguimiento: '¿Alguna promoción en especial de alguna categoría que te interese que te muestre?',
+      },
+      debug: {
+        aiIntent: { intent: 'buscar_promociones', source: 'local_promos_generales' },
+        totalResultados: items.length,
+      },
+    };
   }
 
   async processUserMessage(
@@ -665,6 +774,17 @@ export class AiService {
       aiIntent.intent,
     );
 
+    if (this.esSolicitudPromosGenerales(textoParaProcesar, aiIntent)) {
+      return this.responderPromocionesGenerales({
+        input,
+        textoCorregido,
+        textoParaProcesar,
+        sessionId: idSesionActiva,
+        usuarioId,
+        contexto,
+      });
+    }
+
     const esBusquedaReal =
       !!aiIntent.entities?.categoria ||
       !!aiIntent.entities?.subcategoria ||
@@ -1056,11 +1176,31 @@ export class AiService {
         'busca',
         'buscar',
         'buscas',
+        'vende',
+        'venden',
+        'vendan',
+        'vender',
+        'venta',
+        'encuentro',
+        'encontrar',
+        'consigo',
+        'comprar',
+        'compra',
         'necesito',
         'necesita',
         'necesitas',
         'dame',
         'dime',
+        'lugar',
+        'lugares',
+        'negocio',
+        'negocios',
+        'esta',
+        'está',
+        'estan',
+        'están',
+        'mas',
+        'más',
         'muestra',
         'muestrame',
         'muéstrame',

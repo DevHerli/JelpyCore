@@ -9,7 +9,7 @@ import { ConversationTurn } from './conversation-turn.entity';
 /**
  * Sesión de conversación por usuario.
  * Guarda el contexto de la última búsqueda y el historial de turnos.
- * TTL de inactividad: 30 minutos (manejado por ConversationService).
+ * TTL de retención: 24 horas (manejado por ConversationService).
  */
 @Entity('conversation_sessions')
 export class ConversationSession {
