@@ -255,6 +255,7 @@ export class SuscriptoresService {
       correoElectronico: suscriptor.correoElectronico,
       registroCompleto: suscriptor.registroCompleto,
       tieneNegocios: suscriptor.tieneNegocios,
+      role: suscriptor.role ?? 'user',
     };
   
     const newToken = this.jwtService.sign(payload, { expiresIn: '15m' });

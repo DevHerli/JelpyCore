@@ -4,6 +4,7 @@
  * Modelo de autorización:
  *  - POST /suscriptores                     → público (registro inicial)
  *  - GET  /suscriptores                     → AdminGuard (listado sensible)
+ *  - GET  /suscriptores/me                  → JwtAuthGuard (perfil propio)
  *  - GET  /suscriptores/:id                 → JwtAuthGuard + propiedad o admin
  *  - PUT  /suscriptores/:id                 → JwtAuthGuard + propiedad o admin
  *  - PUT  /suscriptores/:id/completar       → AdminGuard (operación administrativa)
@@ -75,6 +76,17 @@ export class SuscriptoresController {
   @UseGuards(AdminGuard)
   listar() {
     return this.suscriptoresService.listar();
+  }
+
+  /**
+   * GET /suscriptores/me
+   * Perfil del usuario autenticado. Esta es la ruta que debe usar la app cuando
+   * necesita refrescar los datos de sesión sin pedir el listado administrativo.
+   */
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  obtenerPerfilActual(@Request() req: any) {
+    return this.suscriptoresService.obtenerPorId(Number(req.user.sub));
   }
 
   // ── Obtener por ID ───────────────────────────────────────────────────────

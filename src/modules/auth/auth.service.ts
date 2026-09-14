@@ -174,6 +174,7 @@ export class AuthService {
         telefonoCelular: suscriptor.telefonoCelular,
         registroCompleto: suscriptor.registroCompleto,
         tieneNegocios: suscriptor.tieneNegocios,
+        role: suscriptor.role ?? 'user',
       },
     };
   }
@@ -309,6 +310,7 @@ export class AuthService {
       apellidoPaterno: suscriptor.apellidoPaterno,
       registroCompleto: suscriptor.registroCompleto,
       tieneNegocios: suscriptor.tieneNegocios,
+      role: suscriptor.role ?? 'user',
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
@@ -327,6 +329,16 @@ export class AuthService {
       message: 'OTP verificado.',
       access_token: accessToken,
       refresh_token: refreshToken,
+      user: {
+        id: suscriptor.id,
+        nombre: suscriptor.nombre,
+        apellidoPaterno: suscriptor.apellidoPaterno,
+        correoElectronico: suscriptor.correoElectronico,
+        telefonoCelular: suscriptor.telefonoCelular,
+        registroCompleto: suscriptor.registroCompleto,
+        tieneNegocios: suscriptor.tieneNegocios,
+        role: suscriptor.role ?? 'user',
+      },
     };
   }
 
