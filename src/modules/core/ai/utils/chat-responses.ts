@@ -250,9 +250,23 @@ export class ChatResponses {
 
   static agregarCierreGenerico(mensaje: string): string {
     const texto = (mensaje || '').trim();
-    const cierre = this.cierreGenerico();
 
-    if (!texto) return cierre;
+    if (!texto) return this.cierreGenerico();
+
+    // JLP-DOBLE-PREGUNTA-FIX: el usuario reportó que Jelpy siempre hace DOS
+    // preguntas seguidas (ej. "¿Qué se te antoja en Tepic? Elige una
+    // opción o dime qué buscas." + "¿Hay algo más en lo que pueda
+    // ayudarte?") y que eso es "muy abrumador para el suscriptor" — pidió
+    // que se deje contestar la primera pregunta antes de lanzar otra.
+    // Causa raíz: este método pegaba el cierre genérico (que SIEMPRE trae
+    // su propia pregunta) a CUALQUIER mensaje, sin fijarse si el mensaje
+    // ya traía una pregunta propia (chips de categoría, aclaración
+    // guiada, "¿puedes intentarlo de nuevo?"...). Si el mensaje ya hace
+    // una pregunta, esa es la única que debe quedar — no se le agrega una
+    // segunda pregunta genérica encima.
+    if (texto.includes('?')) return texto;
+
+    const cierre = this.cierreGenerico();
     if (texto.includes(cierre)) return texto;
 
     return `${texto}\n\n${cierre}`;

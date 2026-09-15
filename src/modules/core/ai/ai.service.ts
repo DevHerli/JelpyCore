@@ -861,9 +861,13 @@ export class AiService {
           mensajeCorregido: textoCorregido,
           respuesta: {
             titulo: 'Lo siento',
-            mensaje: ChatResponses.agregarCierreGenerico(
+            // JLP-DOBLE-PREGUNTA-FIX: este mensaje ya invita a responder
+            // ("Cuéntame qué necesitas..."); no se le agrega el cierre
+            // genérico (que trae su propia pregunta "¿Hay algo más en lo
+            // que pueda ayudarte?") para no hacerle dos peticiones seguidas
+            // a un usuario que ya está frustrado.
+            mensaje:
               'Entiendo que no encontraste lo que buscabas 😔 Cuéntame qué necesitas con otras palabras y hago mi mejor esfuerzo para ayudarte.',
-            ),
             // Sin chips aquí a propósito: el usuario está frustrado, no es
             // momento de empujarle más sugerencias/opciones (ver 'queja' en
             // ChatResponses.generarSugerencias).

@@ -193,3 +193,53 @@ describe('ChatResponses.preguntarAclaracionBusqueda (Capa 2 — búsqueda guiada
     expect(r.mensaje).toBeTruthy();
   });
 });
+
+/**
+ * JLP-DOBLE-PREGUNTA-FIX: el usuario reportó que Jelpy hace SIEMPRE dos
+ * preguntas seguidas en el mismo mensaje (ej. la respuesta de categoría
+ * sombrilla "¿Qué se te antoja en Tepic? Elige una opción o dime qué
+ * buscas." terminaba con un cierre genérico añadido: "¿Hay algo más en lo
+ * que pueda ayudarte?"), y que eso es "muy abrumador para el suscriptor" —
+ * pidió dejar contestar la primera pregunta antes de lanzar otra.
+ *
+ * Esta suite fija que `agregarCierreGenerico` ya NO agrega una segunda
+ * pregunta cuando el mensaje original ya trae una pregunta propia, y que
+ * `responderCategoriaUmbrella` (el caso real reportado) queda con una sola
+ * pregunta en el mensaje final.
+ */
+describe('ChatResponses.agregarCierreGenerico (JLP-DOBLE-PREGUNTA-FIX)', () => {
+  it('no agrega una segunda pregunta si el mensaje ya contiene una pregunta propia', () => {
+    const original = '¿Qué se te antoja en Tepic? Elige una opción o dime qué buscas.';
+
+    const resultado = ChatResponses.agregarCierreGenerico(original);
+
+    expect(resultado).toBe(original);
+    expect(resultado.match(/\?/g)?.length).toBe(1);
+  });
+
+  it('sí agrega el cierre genérico cuando el mensaje NO trae ninguna pregunta propia', () => {
+    const original = 'Fue un placer ayudarte.';
+
+    const resultado = ChatResponses.agregarCierreGenerico(original);
+
+    expect(resultado).toContain(original);
+    expect(resultado.length).toBeGreaterThan(original.length);
+    expect(resultado).toContain('\n\n');
+  });
+
+  it('no duplica el cierre si el mensaje ya lo trae incluido', () => {
+    const conCierre = 'Listo.\n\n¿Hay algo más en lo que pueda ayudarte?';
+
+    const resultado = ChatResponses.agregarCierreGenerico(conCierre);
+
+    expect(resultado).toBe(conCierre);
+  });
+
+  it('la respuesta de categoría sombrilla ("comida") queda con una sola pregunta, no dos', () => {
+    const respuesta = ChatResponses.responderCategoriaUmbrella('comida', 'Tepic');
+
+    expect(respuesta.mensaje.match(/\?/g)?.length).toBe(1);
+    expect(respuesta.mensaje).not.toContain('¿Hay algo más en lo que pueda ayudarte?');
+    expect(respuesta.mensaje).not.toContain('¿Te interesa buscar otra cosa?');
+  });
+});
