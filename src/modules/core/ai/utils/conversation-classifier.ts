@@ -197,7 +197,22 @@ export class ConversationClassifier {
     // anterior) en vez de responder "no entendí" y romper el hilo de la
     // conversación — que es exactamente lo que los usuarios reportan como
     // "Jelpy no funciona".
-    if (contexto.hasSearchContext) {
+    // JLP-UMBRELLA-CONTEXTO-FIX: las palabras SOMBRILLA (comida/salud/
+    // belleza/servicios — ver `ChatResponses.detectarCategoriaUmbrella`)
+    // NUNCA son un término de negocio (`containsBusinessTerm` es siempre
+    // `false` para ellas, por diseño: son categorías amplias, no alias
+    // específicos de `JELPY_SEMANTIC_CATEGORIES`). Sin este guard, caían
+    // aquí abajo igual que un chip de seguimiento real y, si había una
+    // búsqueda anterior activa (aunque fuera de otro tema — ej. el usuario
+    // reportó buscar "promociones sushi" y luego escribir "comida"), se
+    // clasificaban como `route: 'search'` (refinamiento de ESA búsqueda),
+    // lo que en `AiService` evita por completo la respuesta amigable de
+    // categoría sombrilla (que solo se dispara cuando `route === 'clarify'`
+    // y `chatIntent === 'fallback'`) y en su lugar dispara una búsqueda
+    // real que casi siempre falla (0 resultados / sugerencia ortográfica
+    // absurda tipo "¿Quisiste decir 'cocido'?"). Una palabra sombrilla
+    // SIEMPRE debe tratarse como navegación de categoría nueva.
+    if (contexto.hasSearchContext && !ChatResponses.detectarCategoriaUmbrella(texto)) {
       return { ...base, intent: 'search_refinement', route: 'search', confidence: 0.5 };
     }
 

@@ -163,4 +163,65 @@ describe('ConversationClassifier', () => {
       expect(result.chatIntent).toBe('saludo');
     });
   });
+
+  // --------------------------------------------------------------------
+  // JLP-UMBRELLA-CONTEXTO-FIX: el usuario reportó que, tras buscar
+  // "promociones sushi" y luego escribir solo "comida" (esperando ver
+  // negocios de la categoría comida), Jelpy le devolvía la promoción de
+  // sushi de la búsqueda anterior. Causa raíz (parte 2, en este archivo):
+  // "comida"/"salud"/"belleza"/"servicios" son palabras SOMBRILLA — nunca
+  // son `containsBusinessTerm` (no son alias de `JELPY_SEMANTIC_CATEGORIES`,
+  // son categorías amplias) — así que, con una búsqueda anterior activa
+  // (`hasSearchContext: true`, sin importar si es del mismo tema o no),
+  // caían en la rama "asumir que es refinamiento" y se devolvía
+  // `route: 'search'` en vez de `route: 'clarify'`. Eso evitaba por
+  // completo la respuesta amigable de categoría sombrilla en `AiService`
+  // (que solo se dispara cuando `route === 'clarify'` y
+  // `chatIntent === 'fallback'`) y en su lugar disparaba una búsqueda real
+  // que heredaba/ensuciaba el contexto anterior.
+  // --------------------------------------------------------------------
+  describe('palabras sombrilla (comida/salud/belleza/servicios) con contexto de búsqueda activo', () => {
+    // "comida", "salud", "servicios"/"servicio" NO son alias de ninguna
+    // categoría en `JELPY_SEMANTIC_CATEGORIES` (a propósito: son
+    // categorías amplias, no negocios concretos), así que
+    // `containsBusinessTerm` es `false` para ellas y son las que
+    // necesitaban el guard de este fix.
+    it.each(['comida', 'salud', 'servicios', 'servicio'])(
+      '"%s" cae en clarify/fallback aunque haya una búsqueda anterior activa (no se trata como refinamiento)',
+      (texto) => {
+        const result = ConversationClassifier.classify(texto, { hasSearchContext: true });
+
+        expect(result.route).toBe('clarify');
+        expect(result.chatIntent).toBe('fallback');
+        expect(result.intent).toBe('ambiguous');
+      },
+    );
+
+    // "belleza" es un caso distinto: SÍ es un alias explícito de la
+    // categoría "salones_belleza" en `JELPY_SEMANTIC_CATEGORIES`, así que
+    // `containsBusinessTerm` es `true` y ya se clasifica como una
+    // búsqueda de negocio real (más específico y mejor que la pregunta
+    // guiada) desde antes de llegar a este guard — no necesitaba el fix.
+    it('"belleza" (sí es alias de negocio) se clasifica como business_search/route search, con o sin contexto previo', () => {
+      const result = ConversationClassifier.classify('belleza', { hasSearchContext: true });
+
+      expect(result.route).toBe('search');
+      expect(result.intent).toBe('business_search');
+      expect(result.containsBusinessTerm).toBe(true);
+    });
+
+    it('sin contexto de búsqueda, "comida" también cae en clarify/fallback (comportamiento previo intacto)', () => {
+      const result = ConversationClassifier.classify('comida');
+
+      expect(result.route).toBe('clarify');
+      expect(result.chatIntent).toBe('fallback');
+    });
+
+    it('un chip de seguimiento real (no sombrilla, ej. "más barato") sigue clasificándose como refinamiento de búsqueda', () => {
+      const result = ConversationClassifier.classify('más barato', { hasSearchContext: true });
+
+      expect(result.route).toBe('search');
+      expect(result.intent).toBe('search_refinement');
+    });
+  });
 });

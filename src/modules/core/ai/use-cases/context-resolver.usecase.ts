@@ -329,11 +329,29 @@ export class ContextResolverUseCase {
     // continuación de la búsqueda anterior y anteponemos la query previa.
     // Esto es exactamente simétrico a la ampliación que se hizo en
     // `ConversationClassifier.classify()` para el mismo caso.
+    //
+    // JLP-UMBRELLA-CONTEXTO-FIX: bug reportado por el usuario — tras buscar
+    // "promociones sushi" (o cualquier otra búsqueda previa concreta),
+    // escribir solo "comida" (una palabra SOMBRILLA de categoría, ver
+    // `ChatResponses.detectarCategoriaUmbrella`) devolvía una promoción de
+    // sushi completamente ajena a lo pedido, en vez de tratar "comida" como
+    // lo que es: una navegación de categoría nueva e independiente. Causa
+    // raíz: "comida"/"salud"/"belleza"/"servicios" NO son alias de ninguna
+    // categoría específica en `JELPY_SEMANTIC_CATEGORIES` (son términos
+    // sombrilla, ver JLP-CATEGORIA-UMBRELLA-FIX), así que
+    // `ConversationClassifier.contieneTerminoDeNegocio` nunca las reconoce
+    // como "término de negocio nuevo" y esta regla las trataba como simple
+    // continuación de lo anterior, concatenando "promociones sushi" +
+    // "comida" y disparando una búsqueda real con la query vieja pegada.
+    // Se excluyen explícitamente estas palabras sombrilla para que sigan su
+    // propio camino (la pregunta guiada de categoría) en vez de heredar el
+    // contexto de una búsqueda previa no relacionada.
     // ------------------------------------------------------------------
     if (
       sesion.ultimaQuery &&
       ChatResponses.detectarIntent(mensajeActual) === 'fallback' &&
-      !ConversationClassifier.contieneTerminoDeNegocio(mensajeActual)
+      !ConversationClassifier.contieneTerminoDeNegocio(mensajeActual) &&
+      !ChatResponses.detectarCategoriaUmbrella(mensajeActual)
     ) {
       const textoEnriquecido = `${sesion.ultimaQuery} ${mensajeActual}`;
       return {
