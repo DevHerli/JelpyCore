@@ -48,6 +48,7 @@ import { RankingModule } from './modules/core/ranking/ranking.module';
 import { CatalogoProductosModule } from './modules/business/catalogo_productos/catalogo-productos.module';
 import { SucursalReviewModule } from './modules/business/sucursales_reviews/sucursal-review.module';
 import { BookmarksModule } from './modules/business/bookmark_branch/bookmarks.module';
+import { PromocionesFavoritosModule } from './modules/business/bookmark_promocion/promociones-favoritos.module';
 import { AnunciosModule } from './modules/business/anuncios/anuncios.module';
 import { PromocionesNegociosModule } from './modules/business/promociones_negocio/promociones-negocios.module';
 import { SuscripcionesModule } from './modules/suscripciones/suscripciones.module';
@@ -135,6 +136,7 @@ const SQL_MODE_ESTRICTO =
     RankingModule,
     SucursalReviewModule,
     BookmarksModule,
+    PromocionesFavoritosModule,
     AnunciosModule,
     PromocionesNegociosModule,
     SuscripcionesModule,

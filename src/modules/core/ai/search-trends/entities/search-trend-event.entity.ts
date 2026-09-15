@@ -13,6 +13,9 @@ import {
 @Index('idx_search_trends_especialidad_fecha', ['especialidadId', 'fecha'])
 @Index('idx_search_trends_ciudad_categoria_fecha', ['ciudad', 'categoriaId', 'fecha'])
 @Index('idx_search_trends_hora_fecha', ['hora', 'fecha'])
+// JLP-TREND-SUSCRIPTOR-FIX: índice para consultas de "Jelpy Trend" por
+// suscriptor (qué busca más / qué no encuentra cada suscriptor).
+@Index('idx_search_trends_usuario_fecha', ['usuarioId', 'fecha'])
 export class SearchTrendEvent {
   @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true })
   id: number;

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, MoreThanOrEqual } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 
 import { ConversationSession } from './entities/conversation-session.entity';
@@ -8,7 +8,13 @@ import { ConversationTurn } from './entities/conversation-turn.entity';
 
 const RETENCION_CHAT_HORAS = 24;
 const INACTIVIDAD_MINUTOS = RETENCION_CHAT_HORAS * 60;
-const MAX_TURNS_HISTORIAL = 6; // últimos 6 turnos (3 intercambios) al cargar contexto
+const MAX_TURNS_HISTORIAL = 6; // últimos 6 turnos (3 intercambios) al cargar contexto interno de IA
+// Tope de seguridad (no de negocio) para el historial COMPLETO que ve el
+// usuario: evita respuestas gigantes en el caso extremo de una sesión con
+// muchísimos turnos dentro de la ventana de retención. Muy por encima de
+// cualquier conversación real, así que no reintroduce el bug de truncar
+// historial reciente.
+const MAX_TURNS_HISTORIAL_COMPLETO = 200;
 
 @Injectable()
 export class ConversationService {
@@ -110,25 +116,60 @@ export class ConversationService {
   // ------------------------------------------------------------------
   // GUARDAR TURNO DE USUARIO
   // ------------------------------------------------------------------
+  // JLP-TURNO-BLINDADO-FIX: bug reportado por el usuario — "promo suchi"
+  // (y, en general, mensajes ocasionales sin patrón aparente) devolvían de
+  // golpe "Tuve un problema para procesar tu mensaje..." (el catch-all de
+  // último nivel en `AiService.processUserMessage()`). Se investigó a fondo
+  // la hipótesis de que fuera un problema de "sushi" específicamente
+  // (ortografía, detección de categoría, filtro de promos) y, tras
+  // reproducir el flujo completo punta a punta contra la BD y el
+  // microservicio de FastAPI reales (con y sin FastAPI disponible, con y
+  // sin sesión previa, con distintos usuarios), NUNCA se logró reproducir
+  // un error para ese mensaje puntual — la ortografía sí corrige
+  // "suchi" → "sushi" correctamente (ver `OrthographyCheckUseCase`) y el
+  // resto del pipeline responde bien en todos los escenarios probados.
+  //
+  // Lo que sí se encontró: estos métodos de guardado de turno (llamados
+  // en CASI cada rama de `AiService.processUserMessageInterno()`, es decir,
+  // en la gran mayoría de mensajes que procesa Jelpy) NO tenían ningún
+  // manejo de errores — a diferencia de otros efectos secundarios no
+  // críticos del mismo archivo (métricas, tendencias de búsqueda,
+  // publicidad, likes), que sí están blindados con try/catch para que un
+  // fallo transitorio de BD (conexión caída, deadlock, timeout puntual)
+  // nunca tumbe la respuesta completa al usuario. Guardar el turno en el
+  // historial es importante pero NO crítico para poder responder: es
+  // preferible devolver la respuesta sin guardar ese turno puntual, que
+  // hacer fallar TODA la conversación con el mensaje genérico de error.
+  // Esto es coherente con el resto del archivo y cierra la fuente más
+  // plausible (y más frecuente, al tocar casi cualquier mensaje) de este
+  // tipo de error intermitente y difícil de reproducir.
   async guardarTurnoUsuario(
     sessionId: string,
     mensaje: string,
     intent?: string,
   ): Promise<void> {
-    await this.turnRepo.save(
-      this.turnRepo.create({
-        sessionId,
-        rol: 'user',
-        mensaje,
-        intent,
-        creadoEn: new Date(),
-      }),
-    );
+    try {
+      await this.turnRepo.save(
+        this.turnRepo.create({
+          sessionId,
+          rol: 'user',
+          mensaje,
+          intent,
+          creadoEn: new Date(),
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo guardar el turno de usuario de la sesión ${sessionId}`,
+        err,
+      );
+    }
   }
 
   // ------------------------------------------------------------------
   // GUARDAR TURNO DEL ASISTENTE
   // ------------------------------------------------------------------
+  // JLP-TURNO-BLINDADO-FIX: ver comentario en `guardarTurnoUsuario()`.
   async guardarTurnoAsistente(
     sessionId: string,
     respuesta: string,
@@ -139,21 +180,32 @@ export class ConversationService {
       sugerencias?: string[];  // sugerencias mostradas al usuario en este turno
     },
   ): Promise<void> {
-    await this.turnRepo.save(
-      this.turnRepo.create({
-        sessionId,
-        rol: 'assistant',
-        mensaje: respuesta,
-        intent: metadata?.intent,
-        metadata,
-        creadoEn: new Date(),
-      }),
-    );
+    try {
+      await this.turnRepo.save(
+        this.turnRepo.create({
+          sessionId,
+          rol: 'assistant',
+          mensaje: respuesta,
+          intent: metadata?.intent,
+          metadata,
+          creadoEn: new Date(),
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo guardar el turno del asistente de la sesión ${sessionId}`,
+        err,
+      );
+    }
   }
 
   // ------------------------------------------------------------------
   // ACTUALIZAR CONTEXTO DE BÚSQUEDA EN LA SESIÓN
   // ------------------------------------------------------------------
+  // JLP-TURNO-BLINDADO-FIX: ver comentario en `guardarTurnoUsuario()`. Si
+  // esto falla, el usuario igual recibe sus resultados de búsqueda — solo
+  // se pierde el contexto de seguimiento de ESE turno puntual, en vez de
+  // perder la respuesta completa.
   async actualizarContextoBusqueda(
     sessionId: string,
     intent: string,
@@ -161,31 +213,38 @@ export class ConversationService {
     resultado: any[],
     query: string,
   ): Promise<void> {
-    // Guardamos un resumen de los items (máx. 10) para no inflar el JSON
-    const resumenItems = (resultado || []).slice(0, 10).map((item: any) => ({
-      id: item.id,
-      sucursalId: item.sucursalId || item.sucursal_id || item.sucursal?.id,
-      nombre: item.nombre || item.nombre_negocio || item.name,
-      categoria: item.categoria || item.nombreCategoria,
-      ciudad: item.ciudad || item.nombreCiudad,
-      telefono: item.telefono,
-      horario: item.horario,
-      tieneDomicilio: item.domicilio || item.a_domicilio || false,
-      promo: item.promo || false,
-      distancia: item.distancia,
-      likes: item.likes,
-    }));
+    try {
+      // Guardamos un resumen de los items (máx. 10) para no inflar el JSON
+      const resumenItems = (resultado || []).slice(0, 10).map((item: any) => ({
+        id: item.id,
+        sucursalId: item.sucursalId || item.sucursal_id || item.sucursal?.id,
+        nombre: item.nombre || item.nombre_negocio || item.name,
+        categoria: item.categoria || item.nombreCategoria,
+        ciudad: item.ciudad || item.nombreCiudad,
+        telefono: item.telefono,
+        horario: item.horario,
+        tieneDomicilio: item.domicilio || item.a_domicilio || false,
+        promo: item.promo || false,
+        distancia: item.distancia,
+        likes: item.likes,
+      }));
 
-    await this.sessionRepo.update(
-      { id: sessionId },
-      {
-        ultimoIntent: intent,
-        ultimosFiltros: filtros,
-        ultimoResultado: resumenItems,
-        ultimaQuery: query,
-        actualizadoEn: new Date(),
-      },
-    );
+      await this.sessionRepo.update(
+        { id: sessionId },
+        {
+          ultimoIntent: intent,
+          ultimosFiltros: filtros,
+          ultimoResultado: resumenItems,
+          ultimaQuery: query,
+          actualizadoEn: new Date(),
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo actualizar el contexto de búsqueda de la sesión ${sessionId}`,
+        err,
+      );
+    }
   }
 
   // ------------------------------------------------------------------
@@ -204,35 +263,103 @@ export class ConversationService {
   // ninguna confirmación), para que una pregunta pendiente nunca quede
   // "viva" más de un turno sin resolverse.
   // ------------------------------------------------------------------
+  // JLP-TURNO-BLINDADO-FIX: ver comentario en `guardarTurnoUsuario()` — se
+  // llama en casi cualquier respuesta de seguimiento/detalle, así que un
+  // fallo transitorio de BD aquí no debe tumbar toda la respuesta.
   async guardarPreguntaPendiente(
     sessionId: string,
     pendiente: { tipo: string; categoria?: string; ciudad?: string } | null,
   ): Promise<void> {
-    const sesion = await this.sessionRepo.findOne({ where: { id: sessionId } });
-    if (!sesion) return;
+    try {
+      const sesion = await this.sessionRepo.findOne({ where: { id: sessionId } });
+      if (!sesion) return;
 
-    const filtrosActuales = { ...(sesion.ultimosFiltros || {}) };
-    delete filtrosActuales.pendienteConfirmacion;
+      const filtrosActuales = { ...(sesion.ultimosFiltros || {}) };
+      delete filtrosActuales.pendienteConfirmacion;
 
-    if (pendiente) {
-      filtrosActuales.pendienteConfirmacion = pendiente;
+      if (pendiente) {
+        filtrosActuales.pendienteConfirmacion = pendiente;
+      }
+
+      await this.sessionRepo.update(
+        { id: sessionId },
+        { ultimosFiltros: filtrosActuales, actualizadoEn: new Date() },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo guardar la pregunta pendiente de la sesión ${sessionId}`,
+        err,
+      );
     }
-
-    await this.sessionRepo.update(
-      { id: sessionId },
-      { ultimosFiltros: filtrosActuales, actualizadoEn: new Date() },
-    );
   }
 
   // ------------------------------------------------------------------
   // OBTENER HISTORIAL DE TURNOS RECIENTES
   // ------------------------------------------------------------------
+  // JLP-TURNO-BLINDADO-FIX: usado en el fast-path de chat para decidir el
+  // tono del saludo (primera interacción vs. continuación) — si la lectura
+  // falla, es preferible asumir "sin historial" que tumbar la respuesta.
   async obtenerHistorial(sessionId: string): Promise<ConversationTurn[]> {
-    return this.turnRepo.find({
-      where: { sessionId },
-      order: { creadoEn: 'DESC' },
-      take: MAX_TURNS_HISTORIAL,
-    });
+    try {
+      return await this.turnRepo.find({
+        where: { sessionId },
+        order: { creadoEn: 'DESC' },
+        take: MAX_TURNS_HISTORIAL,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo obtener el historial de la sesión ${sessionId}`,
+        err,
+      );
+      return [];
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // OBTENER HISTORIAL COMPLETO (para mostrarle al usuario en el chat)
+  // ------------------------------------------------------------------
+  // JLP-RETENCION-HISTORIAL-FIX: bug reportado por el usuario — el chat le
+  // dice que los mensajes se conservan 24 horas (`obtenerPoliticaRetencion`)
+  // pero, en la práctica, al reabrir el chat "los mensajes no se guardan ni
+  // una hora". Se investigó a fondo (incluyendo lectura directa de datos
+  // reales en la BD de producción) y la retención en BD SÍ funciona: los
+  // turnos de conversación permanecen en `conversation_turns` hasta que
+  // `limpiarSesionesViejas()` los borra pasadas las 24 horas configuradas
+  // (`RETENCION_CHAT_HORAS`). El bug real es OTRO: el endpoint público
+  // `GET /ai/historial/:sessionId` (que el frontend usa para mostrar
+  // mensajes previos al abrir el chat) reutilizaba `obtenerHistorial()`,
+  // cuyo límite `MAX_TURNS_HISTORIAL = 6` fue pensado para un propósito
+  // DISTINTO: alimentar con muy poco contexto la lógica interna de
+  // saludo/tono de `AiService` en cada mensaje nuevo (a propósito, un
+  // límite chico ahí). Al conflictar ambos usos, cualquier sesión con más
+  // de 3 intercambios (6 turnos) — algo muy común en pocos minutos de
+  // conversación — mostraba solo los últimos 3 intercambios al reabrir el
+  // chat, sin importar qué tan reciente fuera el resto: parecía que los
+  // mensajes "se borraban" casi de inmediato, cuando en realidad seguían
+  // vivos en BD, solo que el endpoint no los devolvía.
+  //
+  // Este método es la separación explícita: devuelve TODOS los turnos de
+  // la sesión dentro de la ventana real de retención (24 horas), sin el
+  // límite de 6 turnos, para que el historial que ve el usuario coincida
+  // con lo que el mensaje de política de retención promete. `obtenerHistorial()`
+  // se deja intacto para su propósito original (contexto interno de IA).
+  async obtenerHistorialCompleto(sessionId: string): Promise<ConversationTurn[]> {
+    try {
+      const limite = new Date();
+      limite.setHours(limite.getHours() - RETENCION_CHAT_HORAS);
+
+      return await this.turnRepo.find({
+        where: { sessionId, creadoEn: MoreThanOrEqual(limite) },
+        order: { creadoEn: 'DESC' },
+        take: MAX_TURNS_HISTORIAL_COMPLETO,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo obtener el historial completo de la sesión ${sessionId}`,
+        err,
+      );
+      return [];
+    }
   }
 
   // ------------------------------------------------------------------

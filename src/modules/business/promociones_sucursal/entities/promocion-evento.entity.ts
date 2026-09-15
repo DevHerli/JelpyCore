@@ -17,7 +17,7 @@ import {
 // "Alcanzados" NO es un tipo de evento: se calcula como
 // COUNT(DISTINCT COALESCE(usuario_id, device_id)) sobre las filas 'vista'.
 export type TipoEventoPromocion = 'vista' | 'conversion';
-export type TipoConversionPromocion = 'llamada' | 'whatsapp' | 'como_llegar';
+export type TipoConversionPromocion = 'llamada' | 'whatsapp' | 'como_llegar' | 'ver_negocio';
 export type OrigenEventoPromocion = 'home' | 'chat';
 
 @Entity('promociones_eventos')
@@ -47,7 +47,7 @@ export class PromocionEvento {
   @Column({
     name: 'tipo_conversion',
     type: 'enum',
-    enum: ['llamada', 'whatsapp', 'como_llegar'],
+    enum: ['llamada', 'whatsapp', 'como_llegar', 'ver_negocio'],
     nullable: true,
   })
   tipoConversion: TipoConversionPromocion | null;

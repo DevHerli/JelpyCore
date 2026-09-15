@@ -28,6 +28,16 @@ export class ZeroResultQuery {
   @Column({ type: 'varchar', length: 100, nullable: true })
   intent: string | null;
 
+  // JLP-TREND-SUSCRIPTOR-FIX: se necesita saber QUÉ suscriptor buscó algo que
+  // no se encontró (no solo el dato anónimo/agregado), para poder mostrar en
+  // "Jelpy Trend" qué está buscando cada suscriptor y no encuentra.
+  @Index()
+  @Column({ name: 'usuario_id', type: 'int', nullable: true })
+  usuarioId: number | null;
+
+  @Column({ name: 'session_id', type: 'varchar', length: 80, nullable: true })
+  sessionId: string | null;
+
   @Index()
   @CreateDateColumn({ name: 'creado_en' })
   creadoEn: Date;

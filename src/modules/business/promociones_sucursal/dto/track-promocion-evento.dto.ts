@@ -12,8 +12,8 @@ export class TrackPromocionEventoDto {
   tipoEvento!: 'vista' | 'conversion';
 
   @IsOptional()
-  @IsIn(['llamada', 'whatsapp', 'como_llegar'])
-  tipoConversion?: 'llamada' | 'whatsapp' | 'como_llegar';
+  @IsIn(['llamada', 'whatsapp', 'como_llegar', 'ver_negocio'])
+  tipoConversion?: 'llamada' | 'whatsapp' | 'como_llegar' | 'ver_negocio';
 
   @IsOptional()
   @IsIn(['home', 'chat'])

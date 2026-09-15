@@ -23,6 +23,11 @@ export class ZeroResultLoggerUseCase {
       categoriaId?: number | null;
       subcategoriaId?: number | null;
       intent?: string | null;
+      // JLP-TREND-SUSCRIPTOR-FIX: atribuir la búsqueda sin resultados a un
+      // suscriptor/sesión concreto, para "Jelpy Trend" (qué busca y no
+      // encuentra cada suscriptor).
+      usuarioId?: number | null;
+      sessionId?: string | null;
     },
   ): Promise<void> {
     try {
@@ -32,6 +37,8 @@ export class ZeroResultLoggerUseCase {
         categoriaId: filtros?.categoriaId ?? null,
         subcategoriaId: filtros?.subcategoriaId ?? null,
         intent: filtros?.intent?.substring(0, 100) ?? null,
+        usuarioId: filtros?.usuarioId ?? null,
+        sessionId: filtros?.sessionId?.substring(0, 80) ?? null,
       });
       await this.repo.save(registro);
       this.logger.log(`[ZeroResult] "${query}" en ${ciudad ?? 'sin ciudad'}`);

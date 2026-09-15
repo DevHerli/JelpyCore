@@ -1146,6 +1146,10 @@ export class AiService {
           categoriaId: f.categoriaId,
           subcategoriaId: f.subcategoriaId,
           intent: aiIntent.intent,
+          // JLP-TREND-SUSCRIPTOR-FIX: atribuir el zero-result al suscriptor
+          // y a la sesión para poder mostrarlo en "Jelpy Trend".
+          usuarioId: usuarioId ?? null,
+          sessionId: idSesionActiva ?? null,
         })
         .catch(() => null);
     }

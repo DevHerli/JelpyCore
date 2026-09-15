@@ -152,7 +152,11 @@ export class AiController {
       throw new ForbiddenException('No tienes acceso a esta sesión');
     }
 
-    const turnos = await this.conversationService.obtenerHistorial(sessionId);
+    // JLP-RETENCION-HISTORIAL-FIX: usar el historial COMPLETO dentro de la
+    // ventana real de retención (24h), no el recorte de 6 turnos pensado
+    // para el contexto interno de IA (ver comentario en
+    // `ConversationService.obtenerHistorialCompleto`).
+    const turnos = await this.conversationService.obtenerHistorialCompleto(sessionId);
 
     // Invertimos para que vengan en orden cronológico (más viejo primero)
     const historial = turnos.reverse().map((t) => ({
