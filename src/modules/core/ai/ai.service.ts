@@ -297,9 +297,21 @@ export class AiService {
         : `Encontré ${items.length} promociones activas para ti:`
       : 'Por ahora no encontré promociones activas disponibles.';
 
-    const mensaje = items.length
-      ? `${mensajeBase}\n\n¿Alguna promoción en especial de alguna categoría que te interese que te muestre?`
-      : mensajeBase;
+    // JLP-ORDEN-PREGUNTA-CARDS-FIX: el usuario reportó que la pregunta de
+    // seguimiento ("¿Alguna promoción en especial de alguna categoría que
+    // te interese que te muestre?") aparecía ANTES de las tarjetas de
+    // promociones en el chat — la pregunta se metía dentro de `mensaje`
+    // (el texto que el frontend pinta primero, arriba de las tarjetas),
+    // así que el usuario la leía antes de siquiera ver lo que ya se
+    // encontró. Igual que en el flujo de búsqueda real (ver más abajo,
+    // `friendly.seguimiento` separado de `friendly.mensaje`), la pregunta
+    // de seguimiento va SOLO en el campo `seguimiento` — pensado para que
+    // el frontend lo muestre DESPUÉS de las tarjetas — y `mensaje` se
+    // queda solo con la introducción breve.
+    const mensaje = mensajeBase;
+    const preguntaSeguimiento = items.length
+      ? '¿Alguna promoción en especial de alguna categoría que te interese que te muestre?'
+      : '';
 
     this.searchTrendLogger
       .execute({
@@ -337,7 +349,7 @@ export class AiService {
         mensaje,
         items,
         sugerencias: [],
-        seguimiento: '¿Alguna promoción en especial de alguna categoría que te interese que te muestre?',
+        seguimiento: preguntaSeguimiento,
       },
       debug: {
         aiIntent: { intent: 'buscar_promociones', source: 'local_promos_generales' },

@@ -129,7 +129,12 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.respuesta.titulo).toBeTruthy();
     expect(resultado.respuesta.mensaje).toBeTruthy();
     expect(resultado.respuesta.sugerencias).toEqual([]);
-    expect(resultado.respuesta.mensaje).toMatch(/ayudarte|buscar otra cosa|pueda ayudarte|hacer por ti/i);
+    expect(resultado.respuesta.mensaje).toMatch(/ayudarte|cuéntame|qué necesitas/i);
+    // JLP-DOBLE-PREGUNTA-FIX: el saludo ya invita a responder por sí solo
+    // ("¿Cómo estás? Cuéntame qué necesitas..."); no debe traer pegado un
+    // segundo cierre genérico con otra pregunta ("¿Hay algo más en lo que
+    // pueda ayudarte?") — una sola pregunta por mensaje.
+    expect((resultado.respuesta.mensaje.match(/\?/g) || []).length).toBeLessThanOrEqual(1);
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
     expect(mocks.searchTrendLogger.execute).not.toHaveBeenCalled();
   });
@@ -172,7 +177,14 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.status).toBe('aceptado');
     expect(resultado.respuesta.titulo).toBe('Promociones activas');
     expect(resultado.respuesta.items).toHaveLength(5);
-    expect(resultado.respuesta.mensaje).toMatch(/promoción en especial|categoría/i);
+    // JLP-ORDEN-PREGUNTA-CARDS-FIX: el usuario reportó que la pregunta de
+    // seguimiento aparecía ANTES de las tarjetas de promociones porque
+    // estaba metida dentro de `mensaje` (el texto que el frontend pinta
+    // arriba de las tarjetas). Ahora `mensaje` es solo la intro breve y la
+    // pregunta vive en `seguimiento` — pensado para mostrarse DESPUÉS de
+    // las tarjetas.
+    expect(resultado.respuesta.mensaje).not.toMatch(/promoción en especial|categoría/i);
+    expect(resultado.respuesta.seguimiento).toMatch(/promoción en especial|categoría/i);
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
     expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
     expect(mocks.searchTrendLogger.execute).toHaveBeenCalledWith(
@@ -184,6 +196,16 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
         sinResultados: false,
       }),
     );
+  });
+
+  it('"promos activas" sin promociones disponibles no pregunta por categoría (no hay nada que filtrar)', async () => {
+    const { service } = crearServicio();
+
+    const resultado = await service.processUserMessage('promos activas', 1, {}, undefined);
+
+    expect(resultado.respuesta.items).toHaveLength(0);
+    expect(resultado.respuesta.mensaje).not.toMatch(/promoción en especial|categoría/i);
+    expect(resultado.respuesta.seguimiento).toBeFalsy();
   });
 
   it('"Promociones de sushi" sin resultados NO sugiere "protecciones" (regresión del bug reportado)', async () => {
