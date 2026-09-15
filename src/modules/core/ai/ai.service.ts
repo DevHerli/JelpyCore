@@ -258,18 +258,6 @@ export class AiService {
     return !tieneEntidadEspecifica;
   }
 
-  private formatearPromoChat(promo: any, index: number): string {
-    const negocio =
-      promo?.sucursal?.negocio?.nombreNegocio ??
-      promo?.sucursal?.nombreSucursal ??
-      'Negocio Jelpy';
-    const ciudad = promo?.sucursal?.ciudad?.nombre ? ` en ${promo.sucursal.ciudad.nombre}` : '';
-    const vigencia = promo?.fechaFin ? ` Vigente hasta ${promo.fechaFin}.` : '';
-    const descripcion = promo?.descripcion ? ` ${promo.descripcion}` : '';
-
-    return `${index + 1}. ${promo.titulo} - ${negocio}${ciudad}.${descripcion}${vigencia}`;
-  }
-
   private async responderPromocionesGenerales(params: {
     input: string;
     textoCorregido: string;
@@ -296,14 +284,22 @@ export class AiService {
       ciudad: promo.sucursal?.ciudad?.nombre ?? null,
     }));
 
+    // JLP-PROMO-CHAT-TEXT-FIX: antes este mensaje repetía en texto plano
+    // TODA la lista de promociones (título, negocio, ciudad, descripción,
+    // vigencia) vía formatearPromoChat(), duplicando exactamente lo que
+    // ya muestran las tarjetas (cards) debajo. Se deja sólo una intro
+    // breve, igual que hace mensajeGlobal() para negocios/sucursales
+    // (ai-response-builder.ts), delegando el detalle de cada promoción a
+    // su tarjeta.
     const mensajeBase = items.length
-      ? `Encontré estas promociones activas:\n\n${promociones
-          .map((promo, index) => this.formatearPromoChat(promo, index))
-          .join('\n')}`
+      ? items.length === 1
+        ? 'Encontré esta promoción activa para ti:'
+        : `Encontré ${items.length} promociones activas para ti:`
       : 'Por ahora no encontré promociones activas disponibles.';
 
-    const mensaje =
-      `${mensajeBase}\n\n¿Alguna promoción en especial de alguna categoría que te interese que te muestre?`;
+    const mensaje = items.length
+      ? `${mensajeBase}\n\n¿Alguna promoción en especial de alguna categoría que te interese que te muestre?`
+      : mensajeBase;
 
     this.searchTrendLogger
       .execute({
