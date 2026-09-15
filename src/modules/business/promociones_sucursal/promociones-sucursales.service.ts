@@ -1,11 +1,14 @@
 import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
 
 import { PromocionSucursal } from './entities/promocion-sucursal.entity';
+import { PromocionEvento } from './entities/promocion-evento.entity';
 import { SucursalNegocio } from '../sucursales_negocios/entities/sucursal-negocio.entity';
 import { CreatePromocionSucursalDto } from './dto/create-promocion-sucursal.dto';
 import { UpdatePromocionSucursalDto } from './dto/update-promocion-sucursal.dto';
+import { TrackPromocionEventoDto } from './dto/track-promocion-evento.dto';
 import { EventosNegociosService } from '../eventos_negocios/eventos-negocios.service';
 
 /** Identidad del solicitante para verificación de propiedad (JLP-C11). */
@@ -16,6 +19,9 @@ export class PromocionesSucursalesService {
   constructor(
     @InjectRepository(PromocionSucursal)
     private readonly promoRepo: Repository<PromocionSucursal>,
+
+    @InjectRepository(PromocionEvento)
+    private readonly promoEventoRepo: Repository<PromocionEvento>,
 
     @InjectRepository(SucursalNegocio)
     private readonly sucursalRepo: Repository<SucursalNegocio>,
@@ -148,63 +154,150 @@ export class PromocionesSucursalesService {
   }
 
   // =========================================================
-  // CREATE
+  // ALCANCE (una sucursal / varias / todo el negocio)
   // =========================================================
-  async crear(dto: CreatePromocionSucursalDto, requester?: RequesterCtx): Promise<PromocionSucursal> {
-    const sucursalId = Number(dto.sucursalId);
+  /**
+   * Resuelve el conjunto de sucursales destino de una creación:
+   *  - Por defecto: sólo `dto.sucursalId` (comportamiento histórico).
+   *  - `dto.aplicarATodas === true`: todas las sucursales activas del
+   *    negocio dueño de `dto.sucursalId`.
+   *  - `dto.sucursalIds` con elementos: `dto.sucursalId` + esas sucursales
+   *    (deben pertenecer al mismo negocio que la sucursal ancla).
+   * Verifica propiedad de CADA sucursal resultante antes de devolverlas.
+   */
+  private async resolveTargetSucursales(
+    dto: CreatePromocionSucursalDto,
+    requester?: RequesterCtx,
+  ): Promise<SucursalNegocio[]> {
+    const anchorId = Number(dto.sucursalId);
 
-    if (!Number.isFinite(sucursalId) || sucursalId <= 0) {
+    if (!Number.isFinite(anchorId) || anchorId <= 0) {
       throw new BadRequestException('sucursalId inválido.');
     }
 
-    const sucursal = await this.sucursalRepo.findOne({
-      where: { id: sucursalId },
+    const anchor = await this.sucursalRepo.findOne({
+      where: { id: anchorId },
       relations: ['negocio', 'negocio.suscriptor'],
     });
 
-    if (!sucursal) {
+    if (!anchor) {
       throw new NotFoundException('Sucursal no encontrada');
     }
 
-    this.assertOwnerOfSucursal(sucursal, requester);
+    this.assertOwnerOfSucursal(anchor, requester);
 
+    const negocioId = Number(anchor.negocio?.id);
+
+    if (dto.aplicarATodas) {
+      const todas = await this.sucursalRepo.find({
+        where: { negocio: { id: negocioId } as any, eliminado: false },
+        relations: ['negocio', 'negocio.suscriptor'],
+      });
+
+      return todas.length ? todas : [anchor];
+    }
+
+    if (Array.isArray(dto.sucursalIds) && dto.sucursalIds.length > 0) {
+      const idsUnicos = Array.from(
+        new Set<number>([anchorId, ...dto.sucursalIds.map((id) => Number(id))]),
+      );
+
+      const seleccionadas = await this.sucursalRepo.find({
+        where: { id: In(idsUnicos), eliminado: false },
+        relations: ['negocio', 'negocio.suscriptor'],
+      });
+
+      const fueraDeNegocio = seleccionadas.filter(
+        (s) => Number(s.negocio?.id) !== negocioId,
+      );
+
+      if (fueraDeNegocio.length > 0) {
+        throw new ForbiddenException(
+          'Todas las sucursales seleccionadas deben pertenecer al mismo negocio.',
+        );
+      }
+
+      seleccionadas.forEach((s) => this.assertOwnerOfSucursal(s, requester));
+
+      return seleccionadas.length ? seleccionadas : [anchor];
+    }
+
+    return [anchor];
+  }
+
+  // =========================================================
+  // CREATE
+  // =========================================================
+  /**
+   * Si el alcance resuelto es una sola sucursal devuelve la promoción tal
+   * cual (compatibilidad con el comportamiento histórico). Si son 2+
+   * sucursales, crea una fila por sucursal —todas compartiendo un
+   * `loteGlobalId` y `origen: 'BUSINESS'`— y devuelve un resumen del lote.
+   */
+  async crear(
+    dto: CreatePromocionSucursalDto,
+    requester?: RequesterCtx,
+  ): Promise<
+    | PromocionSucursal
+    | { loteGlobalId: string; origen: 'BUSINESS'; total: number; promociones: PromocionSucursal[] }
+  > {
+    const targets = await this.resolveTargetSucursales(dto, requester);
+    const esLote = targets.length > 1;
+    const loteGlobalId = esLote ? randomUUID() : null;
     const diasVigenciaNormalizados = this.normalizeDiasVigencia(dto.diasVigencia);
 
-    const nuevaPromo = this.promoRepo.create({
-      titulo: dto.titulo?.trim(),
-      descripcion: dto.descripcion ?? null,
-      tipoPromocion: dto.tipoPromocion,
-      valorDescuento: dto.valorDescuento ?? null,
-      fechaInicio: dto.fechaInicio,
-      fechaFin: dto.fechaFin,
-      diasVigencia: diasVigenciaNormalizados,
-      horaInicio: dto.horaInicio ?? null,
-      horaFin: dto.horaFin ?? null,
-      condiciones: dto.condiciones ?? null,
-      imagenUrl: dto.imagenUrl ?? null,
-      activa: dto.activa ?? true,
-      eliminado: false,
-      sucursal,
-    });
+    const promociones: PromocionSucursal[] = [];
 
-    const promoGuardada = await this.promoRepo.save(nuevaPromo);
+    for (const sucursal of targets) {
+      const nuevaPromo = this.promoRepo.create({
+        titulo: dto.titulo?.trim(),
+        descripcion: dto.descripcion ?? null,
+        tipoPromocion: dto.tipoPromocion,
+        valorDescuento: dto.valorDescuento ?? null,
+        fechaInicio: dto.fechaInicio,
+        fechaFin: dto.fechaFin,
+        diasVigencia: diasVigenciaNormalizados,
+        horaInicio: dto.horaInicio ?? null,
+        horaFin: dto.horaFin ?? null,
+        condiciones: dto.condiciones ?? null,
+        imagenUrl: dto.imagenUrl ?? null,
+        activa: dto.activa ?? true,
+        eliminado: false,
+        origen: esLote ? 'BUSINESS' : 'BRANCH',
+        loteGlobalId,
+        sucursal,
+      });
 
-    await this.registrarEventoPromocionSucursal({
-      tipoEvento: 'promocion_sucursal_creada',
-      negocioId: Number(sucursal.negocio.id),
-      sucursalId: Number(sucursal.id),
-      promocionId: Number(promoGuardada.id),
-      tituloPromocion: promoGuardada.titulo,
-      nombreSucursal: sucursal.nombreSucursal,
-      descripcion: promoGuardada.descripcion,
-      tipoPromocion: promoGuardada.tipoPromocion,
-      valorDescuento: promoGuardada.valorDescuento,
-      fechaInicio: promoGuardada.fechaInicio,
-      fechaFin: promoGuardada.fechaFin,
-      imagenUrl: promoGuardada.imagenUrl,
-    });
+      const promoGuardada = await this.promoRepo.save(nuevaPromo);
 
-    return promoGuardada;
+      await this.registrarEventoPromocionSucursal({
+        tipoEvento: 'promocion_sucursal_creada',
+        negocioId: Number(sucursal.negocio.id),
+        sucursalId: Number(sucursal.id),
+        promocionId: Number(promoGuardada.id),
+        tituloPromocion: promoGuardada.titulo,
+        nombreSucursal: sucursal.nombreSucursal,
+        descripcion: promoGuardada.descripcion,
+        tipoPromocion: promoGuardada.tipoPromocion,
+        valorDescuento: promoGuardada.valorDescuento,
+        fechaInicio: promoGuardada.fechaInicio,
+        fechaFin: promoGuardada.fechaFin,
+        imagenUrl: promoGuardada.imagenUrl,
+      });
+
+      promociones.push(promoGuardada);
+    }
+
+    if (!esLote) {
+      return promociones[0];
+    }
+
+    return {
+      loteGlobalId: loteGlobalId as string,
+      origen: 'BUSINESS',
+      total: promociones.length,
+      promociones,
+    };
   }
 
   // =========================================================
@@ -694,5 +787,258 @@ export class PromocionesSucursalesService {
       .andWhere('negocio.id = :negocioId', { negocioId: businessId })
       .orderBy('promo.fecha_inicio', 'DESC')
       .getMany();
+  }
+
+  // =========================================================
+  // METRICS-002: TRACKING REAL (vistas / alcance / conversiones)
+  // =========================================================
+
+  /**
+   * Registra un evento de descubrimiento/interacción con una promoción
+   * (vista o conversión). Público/anónimo por diseño (mismo criterio que
+   * EstadisticasController.registrarEvento) — se mitiga con Throttle en el
+   * controller, no con auth.
+   *
+   * La categoría/subcategoría/especialidad se resuelven y "fotografían" AQUÍ
+   * en el servidor (no se confía en lo que mande el cliente): se derivan de
+   * promocion.sucursal.negocio, la única fuente de verdad hoy (la promoción
+   * no tiene esa relación directa).
+   */
+  async registrarEventoPromocion(
+    promocionId: number,
+    dto: TrackPromocionEventoDto,
+  ): Promise<{ message: string; promocionId: number }> {
+    const promoId = Number(promocionId);
+
+    if (!Number.isFinite(promoId) || promoId <= 0) {
+      throw new BadRequestException('id inválido.');
+    }
+
+    if (dto.tipoEvento === 'conversion' && !dto.tipoConversion) {
+      throw new BadRequestException(
+        'tipoConversion es requerido para eventos de conversión.',
+      );
+    }
+
+    const promo = await this.promoRepo.findOne({
+      where: { id: promoId, eliminado: false },
+      relations: [
+        'sucursal',
+        'sucursal.negocio',
+        'sucursal.negocio.categoria',
+        'sucursal.negocio.subcategoria',
+        'sucursal.negocio.especialidad',
+      ],
+    });
+
+    if (!promo) {
+      throw new NotFoundException('Promoción no encontrada');
+    }
+
+    const negocio = promo.sucursal.negocio;
+    const now = new Date();
+
+    const evento = this.promoEventoRepo.create({
+      promocionId: promo.id,
+      sucursalId: Number(promo.sucursal.id),
+      negocioId: Number(negocio.id),
+      tipoEvento: dto.tipoEvento,
+      tipoConversion:
+        dto.tipoEvento === 'conversion' ? (dto.tipoConversion ?? null) : null,
+      origen: dto.origen ?? 'home',
+      categoriaId: (negocio.categoria as any)?.id ?? null,
+      subcategoriaId: (negocio.subcategoria as any)?.id ?? null,
+      especialidadId: (negocio.especialidad as any)?.id ?? null,
+      categoriaNombre: (negocio.categoria as any)?.nombre ?? null,
+      subcategoriaNombre: (negocio.subcategoria as any)?.nombre ?? null,
+      especialidadNombre: (negocio.especialidad as any)?.nombre ?? null,
+      usuarioId: dto.usuarioId ?? null,
+      deviceId: dto.deviceId?.trim() || null,
+      fecha: this.toLocalDate(now),
+      hora: now.getHours(),
+      diaSemana: now.getDay(),
+    });
+
+    await this.promoEventoRepo.save(evento);
+
+    return { message: 'Evento registrado', promocionId: promo.id };
+  }
+
+  /** Métricas reales de UNA sucursal (alimenta app-branch-promotion-section). */
+  async obtenerMetricasSucursal(
+    sucursalId: number,
+    requester?: RequesterCtx,
+  ): Promise<any> {
+    const branchId = Number(sucursalId);
+
+    if (!Number.isFinite(branchId) || branchId <= 0) {
+      throw new BadRequestException('sucursalId inválido.');
+    }
+
+    const sucursal = await this.sucursalRepo.findOne({
+      where: { id: branchId },
+      relations: ['negocio', 'negocio.suscriptor'],
+    });
+
+    if (!sucursal) {
+      throw new NotFoundException('Sucursal no encontrada');
+    }
+
+    this.assertOwnerOfSucursal(sucursal, requester);
+
+    return this.calcularMetricas({ sucursalId: branchId });
+  }
+
+  /** Métricas reales agregadas de TODAS las sucursales de un negocio (alimenta Promociones Globales). */
+  async obtenerMetricasNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<any> {
+    const businessId = Number(negocioId);
+
+    if (!Number.isFinite(businessId) || businessId <= 0) {
+      throw new BadRequestException('negocioId inválido.');
+    }
+
+    await this.assertOwnerOfNegocio(businessId, requester);
+
+    return this.calcularMetricas({ negocioId: businessId });
+  }
+
+  /** Verifica propiedad de un negocio directamente (sin pasar por una sucursal ancla). */
+  private async assertOwnerOfNegocio(
+    negocioId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester || requester.isAdmin) return;
+
+    const rows = await this.promoRepo.query(
+      `SELECT suscriptor_id FROM negocios WHERE id = ? LIMIT 1`,
+      [negocioId],
+    );
+
+    if (!rows.length) {
+      throw new NotFoundException('Negocio no encontrado');
+    }
+
+    if (Number(rows[0].suscriptor_id) !== Number(requester.sub)) {
+      throw new ForbiddenException('No tienes permiso sobre este negocio');
+    }
+  }
+
+  /**
+   * Calcula vistas / alcanzados / conversiones (+ desgloses) a partir de
+   * `promociones_eventos`, filtrando por sucursal o por negocio (agregando
+   * todas sus sucursales).
+   *
+   * "Alcanzados" = personas ÚNICAS entre las vistas, identificadas por
+   * usuario_id si está logueado, o por device_id (anónimo) si no —
+   * COUNT(DISTINCT COALESCE(usuario_id, device_id)).
+   */
+  private async calcularMetricas(filtro: {
+    sucursalId?: number;
+    negocioId?: number;
+  }): Promise<any> {
+    const base = this.promoEventoRepo.createQueryBuilder('ev');
+
+    if (filtro.sucursalId) {
+      base.andWhere('ev.sucursalId = :sucursalId', {
+        sucursalId: filtro.sucursalId,
+      });
+    }
+
+    if (filtro.negocioId) {
+      base.andWhere('ev.negocioId = :negocioId', {
+        negocioId: filtro.negocioId,
+      });
+    }
+
+    const vistas = await base
+      .clone()
+      .andWhere("ev.tipoEvento = 'vista'")
+      .getCount();
+
+    const alcanzadosRow = await base
+      .clone()
+      .andWhere("ev.tipoEvento = 'vista'")
+      .select(
+        'COUNT(DISTINCT COALESCE(ev.usuarioId, ev.deviceId))',
+        'total',
+      )
+      .getRawOne();
+
+    const conversiones = await base
+      .clone()
+      .andWhere("ev.tipoEvento = 'conversion'")
+      .getCount();
+
+    const conversionesPorTipo = await base
+      .clone()
+      .andWhere("ev.tipoEvento = 'conversion'")
+      .select('ev.tipoConversion', 'tipo')
+      .addSelect('COUNT(*)', 'total')
+      .groupBy('ev.tipoConversion')
+      .getRawMany();
+
+    const porOrigen = await base
+      .clone()
+      .andWhere("ev.tipoEvento = 'vista'")
+      .select('ev.origen', 'origen')
+      .addSelect('COUNT(*)', 'total')
+      .groupBy('ev.origen')
+      .getRawMany();
+
+    const porCategoria = await base
+      .clone()
+      .andWhere("ev.tipoEvento = 'vista'")
+      .andWhere('ev.categoriaNombre IS NOT NULL')
+      .select('ev.categoriaNombre', 'categoria')
+      .addSelect('ev.subcategoriaNombre', 'subcategoria')
+      .addSelect('COUNT(*)', 'total')
+      .groupBy('ev.categoriaNombre')
+      .addGroupBy('ev.subcategoriaNombre')
+      .orderBy('total', 'DESC')
+      .limit(10)
+      .getRawMany();
+
+    const topPromociones = await base
+      .clone()
+      .andWhere("ev.tipoEvento = 'vista'")
+      .select('ev.promocionId', 'promocionId')
+      .addSelect('COUNT(*)', 'vistas')
+      .groupBy('ev.promocionId')
+      .orderBy('vistas', 'DESC')
+      .limit(5)
+      .getRawMany();
+
+    return {
+      vistas,
+      alcanzados: Number(alcanzadosRow?.total ?? 0),
+      conversiones,
+      conversionesPorTipo: conversionesPorTipo.map((r) => ({
+        tipo: r.tipo,
+        total: Number(r.total),
+      })),
+      porOrigen: porOrigen.map((r) => ({
+        origen: r.origen,
+        total: Number(r.total),
+      })),
+      porCategoria: porCategoria.map((r) => ({
+        categoria: r.categoria,
+        subcategoria: r.subcategoria,
+        total: Number(r.total),
+      })),
+      topPromociones: topPromociones.map((r) => ({
+        promocionId: Number(r.promocionId),
+        vistas: Number(r.vistas),
+      })),
+    };
+  }
+
+  private toLocalDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 }

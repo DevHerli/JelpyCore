@@ -17,6 +17,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Express } from 'express';
+import { Throttle } from '@nestjs/throttler';
 
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { CloudinaryService } from '../../../common/cloudinary/cloudinary.service';
@@ -26,6 +27,7 @@ import {
 } from './promociones-sucursales.service';
 import { CreatePromocionSucursalDto } from './dto/create-promocion-sucursal.dto';
 import { UpdatePromocionSucursalDto } from './dto/update-promocion-sucursal.dto';
+import { TrackPromocionEventoDto } from './dto/track-promocion-evento.dto';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
 const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -83,9 +85,32 @@ export class PromocionesSucursalesController {
     return this.promoService.listarPorNegocio(negocioId);
   }
 
+  // METRICS-002: métricas reales agregadas de TODAS las sucursales del
+  // negocio — alimenta la sección "Promociones Globales" del negocio.
+  @Get('negocio/:negocioId/metricas')
+  @UseGuards(JwtAuthGuard)
+  obtenerMetricasNegocio(
+    @Param('negocioId', ParseIntPipe) negocioId: number,
+    @Request() req: any,
+  ) {
+    return this.promoService.obtenerMetricasNegocio(negocioId, this.requester(req));
+  }
+
   @Get('sucursal/:sucursalId')
   listarPorSucursal(@Param('sucursalId', ParseIntPipe) sucursalId: number) {
     return this.promoService.listarPorSucursal(sucursalId);
+  }
+
+  // METRICS-002: métricas reales (vistas/alcanzados/conversiones) de una
+  // sucursal — alimenta app-branch-promotion-section en branch-detail.
+  // Sólo el dueño de la sucursal (o admin) puede verlas.
+  @Get('sucursal/:sucursalId/metricas')
+  @UseGuards(JwtAuthGuard)
+  obtenerMetricasSucursal(
+    @Param('sucursalId', ParseIntPipe) sucursalId: number,
+    @Request() req: any,
+  ) {
+    return this.promoService.obtenerMetricasSucursal(sucursalId, this.requester(req));
   }
 
   @Get('activas')
@@ -155,6 +180,19 @@ export class PromocionesSucursalesController {
   @Post(':id/clic')
   registrarClic(@Param('id', ParseIntPipe) id: number) {
     return this.promoService.registrarClic(id);
+  }
+
+  // METRICS-002: tracking real de descubrimiento/interacción con una
+  // promoción (vista/conversión). Público/anónimo por diseño (igual que
+  // /vista y /clic arriba, y que EstadisticasController.registrarEvento) —
+  // se mitiga con rate-limit, no con auth.
+  @Throttle({ default: { limit: 60, ttl: 60 } })
+  @Post(':id/evento')
+  registrarEventoPromocion(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: TrackPromocionEventoDto,
+  ) {
+    return this.promoService.registrarEventoPromocion(id, dto);
   }
 
   // =========================================================
