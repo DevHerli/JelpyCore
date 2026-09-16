@@ -12,6 +12,7 @@ import {
   Post,
   Query,
   Req,
+  UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -55,23 +56,33 @@ export class SupportController {
   }
 
   /**
-   * JLP-C11 — Listar tickets de un negocio (para "Mis solicitudes" en el panel).
+   * JLP-C11 — Listar tickets ("Mis solicitudes" en el panel / soporte).
    *
-   * GET /support/tickets?negocio_id=42
+   * GET /support/tickets?negocio_id=42  → tickets de ese negocio (dueño o admin).
+   * GET /support/tickets                → todos los tickets del suscriptor
+   *                                        autenticado, sin importar el negocio
+   *                                        (entrada desde perfil/mensajes).
+   *
    * Devuelve: id, folio, estado, prioridad, categoria_label, problema_label, created_at
-   * Ordenado por created_at DESC.
-   *
-   * Requiere JWT: el usuario autenticado debe ser dueño del negocio (o admin).
-   * ParseIntPipe previene inyección de NaN (antes: Number(undefined) = NaN).
+   * Ordenado por created_at DESC. Requiere JWT.
    */
   @Get('tickets')
   @UseGuards(JwtAuthGuard)
-  listarPorNegocio(
-    @Query('negocio_id', ParseIntPipe) negocioId: number,
+  listarTickets(
+    @Query('negocio_id') negocioIdRaw: string | undefined,
     @Req() req: any,
   ) {
     const { sub, isAdmin } = this.requesterCtx(req);
-    return this.supportService.listarPorNegocio(negocioId, sub, isAdmin);
+
+    if (negocioIdRaw !== undefined && negocioIdRaw !== '') {
+      const negocioId = Number(negocioIdRaw);
+      if (!Number.isFinite(negocioId)) {
+        throw new UnprocessableEntityException('negocio_id inválido');
+      }
+      return this.supportService.listarPorNegocio(negocioId, sub, isAdmin);
+    }
+
+    return this.supportService.listarPorUsuario(sub);
   }
 
   /**

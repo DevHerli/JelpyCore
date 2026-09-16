@@ -147,6 +147,33 @@ export class SupportService {
     }));
   }
 
+  // ─── Listar tickets del suscriptor autenticado (sin importar negocio) ──────
+
+  /**
+   * Todos los tickets levantados por el suscriptor autenticado, sin importar
+   * desde dónde entró a soporte (perfil, mensajes o ficha de un negocio en
+   * particular). Se filtra por usuarioId (columna independiente de negocioId
+   * en SupportTicket, seteada en todo ticket creado por un usuario autenticado).
+   * No requiere ownership check adicional: el propio JWT ya limita el alcance
+   * a los tickets del usuario que hace la petición.
+   */
+  async listarPorUsuario(usuarioId: number) {
+    const tickets = await this.ticketRepo.find({
+      where: { usuarioId },
+      order: { createdAt: 'DESC' },
+    });
+
+    return tickets.map((t) => ({
+      id:              t.id,
+      folio:           t.folio,
+      estado:          t.estado,
+      prioridad:       t.prioridad,
+      categoria_label: t.categoriaLabel,
+      problema_label:  t.problemaLabel,
+      created_at:      t.createdAt,
+    }));
+  }
+
   // ─── Detalle de un ticket por folio ─────────────────────────────────────────
 
   /**

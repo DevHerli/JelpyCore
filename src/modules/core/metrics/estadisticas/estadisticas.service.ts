@@ -302,22 +302,35 @@ export class EstadisticasService {
   }
 
   /**
-   * Obtener KPIs ligeros (totales) de una sucursal específica
+   * Obtener KPIs ligeros (totales) de una sucursal específica.
+   *
+   * `likes` antes NO se incluía aquí (solo vistas/clics/busquedas), por lo
+   * que el front (branch-detail) siempre mostraba 0 en esa tarjeta sin
+   * importar los favoritos reales. Se agrega el mismo conteo de
+   * `sucursal_likes` que ya usa getGlobalMetricsNegocio (favoritos reales de
+   * suscriptores sobre la sucursal).
    */
   async getKpisSucursal(sucursalId: number) {
     const res = await this.connection.query(
       `SELECT
-         COALESCE(vistas, 0) as vistas,
-         COALESCE(clics, 0) as clics,
-         COALESCE(busquedas, 0) as busquedas
-       FROM estadisticas_sucursales
-       WHERE sucursal_id = ?
+         COALESCE(es.vistas, 0) as vistas,
+         COALESCE(es.clics, 0) as clics,
+         COALESCE(es.busquedas, 0) as busquedas,
+         COALESCE(lk.total_likes, 0) as likes
+       FROM sucursales_negocios s
+       LEFT JOIN estadisticas_sucursales es ON es.sucursal_id = s.id
+       LEFT JOIN (
+           SELECT sucursal_id, COUNT(id) AS total_likes
+           FROM sucursal_likes
+           GROUP BY sucursal_id
+       ) lk ON lk.sucursal_id = s.id
+       WHERE s.id = ?
        LIMIT 1`,
       [sucursalId],
     );
 
     // Si no hay registros aún, devolvemos ceros
-    return res[0] || { vistas: 0, clics: 0, busquedas: 0 };
+    return res[0] || { vistas: 0, clics: 0, busquedas: 0, likes: 0 };
   }
 
   /**
