@@ -224,4 +224,55 @@ describe('ConversationClassifier', () => {
       expect(result.intent).toBe('search_refinement');
     });
   });
+
+  // --------------------------------------------------------------------
+  // JLP-TIENDAS-UMBRELLA-FIX: el usuario reportó que "tiendas cerca"
+  // respondía "No encontré 'tiendas' ¿Quisiste decir 'bandas'?" en vez de
+  // reconocer que sí hay tiendas (abarrotes, ropa, etc.) registradas.
+  // Causa raíz: "tiendas" es una palabra SOMBRILLA igual que
+  // "comida"/"salud"/"belleza"/"servicios", pero antes de este fix un
+  // verbo de búsqueda explícito ("quiero tiendas cerca") la hacía pasar
+  // por el bloque `tieneVerboBusqueda` ANTES de llegar al guard de
+  // sombrillas (que solo corría al final, como último recurso) —
+  // disparando una búsqueda real que fallaba y terminaba en una
+  // corrección ortográfica absurda (mismo bug ya visto con "quiero
+  // comida cerca" → "¿Quisiste decir 'cocido'?"). Ahora el guard de
+  // sombrillas corre ANTES que el de verbos de búsqueda, así que ninguna
+  // palabra sombrilla se convierte en búsqueda real sin importar el verbo.
+  // --------------------------------------------------------------------
+  describe('palabra sombrilla "tiendas" (JLP-TIENDAS-UMBRELLA-FIX)', () => {
+    it('"tiendas cerca" cae en clarify/fallback, no en búsqueda real', () => {
+      const result = ConversationClassifier.classify('tiendas cerca');
+
+      expect(result.route).toBe('clarify');
+      expect(result.chatIntent).toBe('fallback');
+      expect(result.intent).toBe('ambiguous');
+      expect(result.containsBusinessTerm).toBe(false);
+    });
+
+    it('"tiendas cerca" con contexto de búsqueda previo también cae en clarify (no hereda la búsqueda anterior)', () => {
+      const result = ConversationClassifier.classify('tiendas cerca', { hasSearchContext: true });
+
+      expect(result.route).toBe('clarify');
+      expect(result.intent).toBe('ambiguous');
+    });
+
+    it.each(['quiero tiendas cerca', 'busco tiendas cerca', 'necesito una tienda'])(
+      '"%s" (verbo de búsqueda + sombrilla) NUNCA se convierte en búsqueda real: cae en clarify',
+      (texto) => {
+        const result = ConversationClassifier.classify(texto);
+
+        expect(result.route).toBe('clarify');
+        expect(result.intent).toBe('ambiguous');
+      },
+    );
+
+    it('el mismo guard protege también a "comida"/"salud" cuando llevan un verbo de búsqueda explícito', () => {
+      const comida = ConversationClassifier.classify('quiero comida cerca');
+      const salud = ConversationClassifier.classify('busco salud cerca');
+
+      expect(comida.route).toBe('clarify');
+      expect(salud.route).toBe('clarify');
+    });
+  });
 });

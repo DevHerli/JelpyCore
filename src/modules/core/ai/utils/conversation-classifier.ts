@@ -158,6 +158,22 @@ export class ConversationClassifier {
       return { ...base, intent: 'business_search', route: 'search', confidence: 0.9 };
     }
 
+    // JLP-TIENDAS-UMBRELLA-FIX: bug reportado por el usuario — "quiero
+    // tiendas cerca" (verbo de búsqueda explícito + palabra SOMBRILLA)
+    // caía en el bloque de abajo (`tieneVerboBusqueda`) como una búsqueda
+    // real, disparaba la llamada a FastAPI, no encontraba nada mapeable a
+    // "tiendas" y terminaba en la corrección ortográfica sin sentido
+    // "¿Quisiste decir 'bandas'?" (mismo bug ya visto con "quiero comida
+    // cerca" → "¿Quisiste decir 'cocido'?"). Las palabras sombrilla
+    // (comida/salud/belleza/servicios/tiendas) NUNCA deben convertirse en
+    // una búsqueda directa sin importar el verbo que las acompañe: siempre
+    // necesitan un paso más de aclaración (`ChatResponses.
+    // responderCategoriaUmbrella`), así que se interceptan aquí, ANTES de
+    // evaluar verbos de búsqueda.
+    if (ChatResponses.detectarCategoriaUmbrella(texto)) {
+      return { ...base, intent: 'ambiguous', route: 'clarify', confidence: 0.6 };
+    }
+
     const tieneVerboBusqueda = [
       'busco',
       'buscar',
@@ -198,21 +214,15 @@ export class ConversationClassifier {
     // conversación — que es exactamente lo que los usuarios reportan como
     // "Jelpy no funciona".
     // JLP-UMBRELLA-CONTEXTO-FIX: las palabras SOMBRILLA (comida/salud/
-    // belleza/servicios — ver `ChatResponses.detectarCategoriaUmbrella`)
-    // NUNCA son un término de negocio (`containsBusinessTerm` es siempre
-    // `false` para ellas, por diseño: son categorías amplias, no alias
-    // específicos de `JELPY_SEMANTIC_CATEGORIES`). Sin este guard, caían
-    // aquí abajo igual que un chip de seguimiento real y, si había una
-    // búsqueda anterior activa (aunque fuera de otro tema — ej. el usuario
-    // reportó buscar "promociones sushi" y luego escribir "comida"), se
-    // clasificaban como `route: 'search'` (refinamiento de ESA búsqueda),
-    // lo que en `AiService` evita por completo la respuesta amigable de
-    // categoría sombrilla (que solo se dispara cuando `route === 'clarify'`
-    // y `chatIntent === 'fallback'`) y en su lugar dispara una búsqueda
-    // real que casi siempre falla (0 resultados / sugerencia ortográfica
-    // absurda tipo "¿Quisiste decir 'cocido'?"). Una palabra sombrilla
-    // SIEMPRE debe tratarse como navegación de categoría nueva.
-    if (contexto.hasSearchContext && !ChatResponses.detectarCategoriaUmbrella(texto)) {
+    // belleza/servicios/tiendas — ver `ChatResponses.detectarCategoriaUmbrella`)
+    // ya se interceptaron arriba y nunca llegan hasta aquí, así que si
+    // hay una búsqueda anterior activa en la sesión, este mensaje corto y
+    // sin clasificar es, con seguridad, una continuación/refinamiento de
+    // ESA búsqueda (y no una palabra sombrilla nueva) — dejamos que
+    // `ContextResolverUseCase` enriquezca el texto con la query anterior
+    // en vez de responder "no entendí" y romper el hilo de la
+    // conversación.
+    if (contexto.hasSearchContext) {
       return { ...base, intent: 'search_refinement', route: 'search', confidence: 0.5 };
     }
 

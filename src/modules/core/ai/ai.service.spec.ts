@@ -441,6 +441,28 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
   });
 
+  // JLP-TIENDAS-UMBRELLA-FIX: el usuario reportó que "tiendas cerca" (y
+  // "quiero tiendas cerca") respondían "No encontré 'tiendas' 🤔
+  // ¿Quisiste decir 'bandas'?" — una corrección ortográfica sin sentido,
+  // porque "tiendas" nunca podía mapearse a un alias exacto de negocio
+  // (es una palabra sombrilla como "comida"/"salud"/"belleza"/
+  // "servicios"). Verifica extremo a extremo que ahora, en vez de buscar
+  // a ciegas y fallar, Jelpy pregunta qué tipo de tienda sin llamar al
+  // microservicio de IA ni a la corrección ortográfica.
+  it('"tiendas cerca" pregunta qué tipo de tienda, sin buscar a ciegas ni sugerir "bandas" (regresión)', async () => {
+    const { service, mocks } = crearServicio();
+
+    for (const texto of ['tiendas cerca', 'quiero tiendas cerca']) {
+      const resultado = await service.processUserMessage(texto, 1, {}, undefined);
+
+      expect(resultado.status).toBe('chat');
+      expect(resultado.respuesta.mensaje).toMatch(/abarrotes/i);
+      expect(resultado.respuesta.mensaje).not.toMatch(/quisiste decir/i);
+    }
+
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+  });
+
   it('el chip "¿Buscas algo diferente en Tepic?" responde de forma informativa, no "no entendí" (regresión)', async () => {
     const { service, mocks } = crearServicio();
 

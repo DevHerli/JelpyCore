@@ -209,6 +209,12 @@ export class ChatResponses {
     'Plomero cerca de mí', 'Electricista cerca de mí', 'Mecánico cerca de mí',
   ];
 
+  private static readonly POOL_TIENDAS = [
+    'Tiendas de abarrotes cerca de mí', 'Tiendas de ropa cerca de mí',
+    'Tiendas de maquillaje cerca de mí', 'Zapaterías cerca de mí',
+    'Tiendas de accesorios cerca de mí',
+  ];
+
   /** Elige N elementos distintos al azar de un array (sin repetir). */
   private static elegirVarios<T>(opciones: T[], n: number): T[] {
     const copia = [...opciones];
@@ -304,12 +310,12 @@ export class ChatResponses {
       titulo: this.elegir(['Ayúdame a entenderte mejor 🤔', '¿Qué tipo de lugar buscas? 🧭']),
       mensaje: tieneCiudad
         ? this.elegir([
-            `No estoy seguro de qué buscas${enCiudad}. ¿Es comida, salud, belleza o algún servicio? Cuéntame y te ayudo.`,
-            `Dime un poco más: ¿comida, salud, belleza o servicios${enCiudad}? Así te muestro justo lo que necesitas.`,
+            `No estoy seguro de qué buscas${enCiudad}. ¿Es comida, salud, belleza, tiendas o algún servicio? Cuéntame y te ayudo.`,
+            `Dime un poco más: ¿comida, salud, belleza, tiendas o servicios${enCiudad}? Así te muestro justo lo que necesitas.`,
           ])
         : this.elegir([
-            'No estoy seguro de qué buscas. ¿Es comida, salud, belleza o algún servicio? Dime también tu ciudad para afinar la búsqueda.',
-            '¿Qué tipo de lugar te interesa: comida, salud, belleza o servicios? Y ¿en qué ciudad buscas?',
+            'No estoy seguro de qué buscas. ¿Es comida, salud, belleza, tiendas o algún servicio? Dime también tu ciudad para afinar la búsqueda.',
+            '¿Qué tipo de lugar te interesa: comida, salud, belleza, tiendas o servicios? Y ¿en qué ciudad buscas?',
           ]),
     };
   }
@@ -336,29 +342,40 @@ export class ChatResponses {
    * y autosuficientes de esa familia (ej. "comida" → "Tacos cerca de mí",
    * "Sushi cerca de mí", "Restaurantes cerca de mí"), para que elegir sea
    * un solo tap más, no un callejón sin salida.
+   *
+   * JLP-TIENDAS-UMBRELLA-FIX: bug reportado por el usuario — "tiendas
+   * cerca" respondía "No encontré 'tiendas' ¿Quisiste decir 'bandas'?"
+   * (corrección ortográfica sin sentido) en vez de reconocer que "tiendas"
+   * es, igual que "comida"/"salud"/"belleza"/"servicios", una palabra
+   * SOMBRILLA que agrupa varias subcategorías reales (abarrotes, ropa,
+   * maquillaje, zapatos, accesorios...) y nunca va a mapear a un alias
+   * exacto de `JELPY_SEMANTIC_CATEGORIES`. Se agrega aquí para que reciba
+   * el mismo tratamiento: preguntar qué tipo de tienda en vez de buscar a
+   * ciegas y fallar.
    */
   static detectarCategoriaUmbrella(
     texto: string,
-  ): 'comida' | 'salud' | 'belleza' | 'servicios' | null {
+  ): 'comida' | 'salud' | 'belleza' | 'servicios' | 'tiendas' | null {
     const t = this.normalizar(texto);
 
     if (this.tieneFrase(t, 'comida')) return 'comida';
     if (this.tieneFrase(t, 'salud')) return 'salud';
     if (this.tieneFrase(t, 'belleza')) return 'belleza';
     if (this.tieneFrase(t, 'servicios') || this.tieneFrase(t, 'servicio')) return 'servicios';
+    if (this.tieneFrase(t, 'tiendas') || this.tieneFrase(t, 'tienda')) return 'tiendas';
 
     return null;
   }
 
   static responderCategoriaUmbrella(
-    categoria: 'comida' | 'salud' | 'belleza' | 'servicios',
+    categoria: 'comida' | 'salud' | 'belleza' | 'servicios' | 'tiendas',
     ciudad?: string,
   ): { titulo: string; mensaje: string; sugerencias: string[] } {
     const tieneCiudad = !!(ciudad || '').trim();
     const enCiudad = tieneCiudad ? ` en ${ciudad}` : '';
 
     const config: Record<
-      'comida' | 'salud' | 'belleza' | 'servicios',
+      'comida' | 'salud' | 'belleza' | 'servicios' | 'tiendas',
       { titulo: string; mensaje: string; pool: string[] }
     > = {
       comida: {
@@ -380,6 +397,11 @@ export class ChatResponses {
         titulo: '¿Qué servicio necesitas? 🔧',
         mensaje: `Elige una opción${enCiudad} o dime qué buscas.`,
         pool: this.POOL_SERVICIOS,
+      },
+      tiendas: {
+        titulo: '¿Qué tipo de tienda buscas? 🛍️',
+        mensaje: `¿Buscas tienda de abarrotes, de ropa, de maquillaje, de zapatos o de accesorios${enCiudad}? Dime cuál y te muestro las opciones.`,
+        pool: this.POOL_TIENDAS,
       },
     };
 

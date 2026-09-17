@@ -243,3 +243,32 @@ describe('ChatResponses.agregarCierreGenerico (JLP-DOBLE-PREGUNTA-FIX)', () => {
     expect(respuesta.mensaje).not.toContain('¿Te interesa buscar otra cosa?');
   });
 });
+
+/**
+ * JLP-TIENDAS-UMBRELLA-FIX: el usuario reportó que "tiendas cerca"
+ * respondía "No encontré 'tiendas' 🤔 ¿Quisiste decir 'bandas'?" — una
+ * corrección ortográfica sin sentido — a pesar de que sí hay tiendas
+ * (abarrotes, ropa, etc.) registradas. La causa: "tiendas" es una palabra
+ * SOMBRILLA (como "comida"/"salud"/"belleza"/"servicios") que nunca va a
+ * mapear a un alias exacto de `JELPY_SEMANTIC_CATEGORIES`, así que
+ * terminaba en la búsqueda real (0 resultados) en vez de en la aclaración
+ * guiada. Ahora "tiendas" se reconoce como sombrilla y responde
+ * preguntando qué tipo de tienda (abarrotes, ropa, maquillaje, zapatos,
+ * accesorios...) en vez de intentar adivinar/corregir.
+ */
+describe('ChatResponses categoría sombrilla "tiendas" (JLP-TIENDAS-UMBRELLA-FIX)', () => {
+  it('detectarCategoriaUmbrella reconoce "tiendas" y "tienda"', () => {
+    expect(ChatResponses.detectarCategoriaUmbrella('tiendas cerca')).toBe('tiendas');
+    expect(ChatResponses.detectarCategoriaUmbrella('quiero tiendas cerca')).toBe('tiendas');
+    expect(ChatResponses.detectarCategoriaUmbrella('busco una tienda')).toBe('tiendas');
+  });
+
+  it('responderCategoriaUmbrella("tiendas") pregunta por el tipo de tienda, no adivina ni corrige', () => {
+    const respuesta = ChatResponses.responderCategoriaUmbrella('tiendas', 'Tepic');
+
+    expect(respuesta.mensaje).toContain('abarrotes');
+    expect(respuesta.mensaje).toContain('ropa');
+    expect(respuesta.mensaje).not.toContain('Quisiste decir');
+    expect(respuesta.mensaje.match(/\?/g)?.length).toBe(1);
+  });
+});
