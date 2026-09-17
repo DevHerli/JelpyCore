@@ -15,6 +15,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, IsNull, Not } from 'typeorm';
 import { Suscriptor } from '../../business/suscriptores/entities/suscriptores.entity';
+import { RefreshSession } from '../../auth/entities/refresh-session.entity';
 
 @Injectable()
 export class DataRetentionService {
@@ -23,6 +24,12 @@ export class DataRetentionService {
   constructor(
     @InjectRepository(Suscriptor)
     private readonly suscriptorRepo: Repository<Suscriptor>,
+
+    // JLP-020: purga definitiva de las filas de sesión (incluyendo user_agent)
+    // al anonimizar — ya estaban revocadas desde eliminarCuenta(), esto solo
+    // borra el rastro por completo.
+    @InjectRepository(RefreshSession)
+    private readonly refreshSessionRepo: Repository<RefreshSession>,
   ) {}
 
   /**
@@ -100,6 +107,10 @@ export class DataRetentionService {
           permisoGeolocalizacion: null,
           permisoUsoDatos:        null,
         } as any);
+
+        // JLP-020: borra por completo cualquier rastro de sesión (user_agent
+        // incluido) para esta cuenta ya anonimizada.
+        await this.refreshSessionRepo.delete({ suscriptorId: id });
 
         procesadas++;
       } catch (err: any) {

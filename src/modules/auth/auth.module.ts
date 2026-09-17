@@ -6,13 +6,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { CodigoOtp } from './entities/codigo-otp.entity';
+import { RefreshSession } from './entities/refresh-session.entity';
 import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
 import { MailModule } from '../../common/mail/mail.module';
 
 @Module({
   imports: [
     // Conexión de entidades al repositorio TypeORM
-    TypeOrmModule.forFeature([CodigoOtp, Suscriptor]),
+    TypeOrmModule.forFeature([CodigoOtp, Suscriptor, RefreshSession]),
 
     // ConfigModule para leer variables de entorno (.env)
     ConfigModule,

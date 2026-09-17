@@ -1164,8 +1164,29 @@ for (const a of aliases) {
       // Fallback final: solo buscar por nombre de negocio (sin categoría) cuando
       // FastAPI NO detectó una categoría específica. Si detectó "comida" y no hay
       // negocios de comida, es preferible devolver sin resultados que mostrar un hospital.
+      //
+      // JLP-FALLBACK-CATEGORIA-CRUZADA-FIX: bug reportado por el usuario — pidió
+      // "corte de pelo" y recibió resultados de farmacias. FastAPI SÍ detectó
+      // correctamente categoria="belleza" / subcategoria="peluqueria", pero
+      // `buscarCategoriaPorNombre`/`buscarSubcategoriaPorNombre` no lograron
+      // mapear esos nombres a un ID real de la BD (ej. porque aún no hay ninguna
+      // peluquería/barbería registrada en esa ciudad). Antes, esto dejaba
+      // `filtros.categoriaId` vacío y `tieneCategoriaClaraDeIA` en `false`, lo que
+      // abría la puerta al fallback de texto libre SIN ningún filtro de
+      // categoría — una búsqueda `LIKE` contra toda la BD que puede coincidir por
+      // accidente con un negocio de otro giro completamente distinto (una
+      // farmacia que vende shampoo anticaída, por ejemplo). Ahora también se
+      // considera "categoría clara" el solo hecho de que la IA haya detectado un
+      // nombre de categoría/subcategoría/especialidad, aunque no se haya podido
+      // resolver a un ID — en ese caso es preferible responder "no encontré" (con
+      // sugerencias) que cruzar a un giro de negocio no relacionado.
       const tieneCategoriaClaraDeIA =
-        !!filtros.categoriaId || !!filtros.subcategoriaId || !!filtros.especialidadId;
+        !!filtros.categoriaId ||
+        !!filtros.subcategoriaId ||
+        !!filtros.especialidadId ||
+        !!ai.entities?.categoria ||
+        !!ai.entities?.subcategoria ||
+        !!ai.entities?.especialidad;
 
       if (!this.hasResults(resultados) && !tieneCategoriaClaraDeIA) {
         const resultadosNombre = await this.searchService.search({

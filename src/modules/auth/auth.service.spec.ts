@@ -32,6 +32,7 @@ describe('AuthService — OTP hardening (JLP-M28)', () => {
   let service: AuthService;
   let otpRepo: Record<string, AnyFn>;
   let suscriptorRepo: Record<string, AnyFn>;
+  let refreshSessionRepo: Record<string, AnyFn>;
   let jwtService: Record<string, AnyFn>;
   let configService: Record<string, AnyFn>;
   let mailService: Record<string, AnyFn>;
@@ -50,6 +51,15 @@ describe('AuthService — OTP hardening (JLP-M28)', () => {
       update: jest.fn(() => Promise.resolve({})),
       createQueryBuilder: jest.fn(() => makeQb()),
     };
+    // JLP-020: refresh_sessions — una fila por sesión/dispositivo en vez de
+    // la columna única Suscriptor.refreshToken.
+    refreshSessionRepo = {
+      save: jest.fn((x) => Promise.resolve({ id: 1, ...x })),
+      create: jest.fn((x) => x),
+      update: jest.fn(() => Promise.resolve({})),
+      delete: jest.fn(() => Promise.resolve({})),
+      createQueryBuilder: jest.fn(() => makeQb()),
+    };
     jwtService = { sign: jest.fn(() => 'signed.jwt.token'), verify: jest.fn() };
     configService = { get: jest.fn(() => undefined) };
     mailService = { sendOtp: jest.fn(() => Promise.resolve()) };
@@ -57,6 +67,7 @@ describe('AuthService — OTP hardening (JLP-M28)', () => {
     service = new AuthService(
       otpRepo as any,
       suscriptorRepo as any,
+      refreshSessionRepo as any,
       jwtService as any,
       configService as any,
       mailService as any,

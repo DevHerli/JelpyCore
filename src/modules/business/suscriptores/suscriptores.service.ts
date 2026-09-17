@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 
 import { Suscriptor } from './entities/suscriptores.entity';
+import { RefreshSession } from '../../auth/entities/refresh-session.entity';
 import { CreateSuscriptorDto } from './dto/create-suscriptor.dto';
 import { UpdateSuscriptorDto } from './dto/update-suscriptor.dto';
 import { CompletarPerfilDto } from './dto/completar-perfil.dto';
@@ -44,6 +45,11 @@ export class SuscriptoresService {
     // Necesario para obtener datos de la membresía
     @InjectRepository(Membresia)
     private readonly membresiaRepo: Repository<Membresia>,
+
+    // JLP-020: revocar todas las sesiones (todos los dispositivos) al
+    // eliminar cuenta o cambiar contraseña.
+    @InjectRepository(RefreshSession)
+    private readonly refreshSessionRepo: Repository<RefreshSession>,
 
     private readonly jwtService: JwtService
 
@@ -286,6 +292,13 @@ export class SuscriptoresService {
 
     await this.suscriptorRepo.save(suscriptor);
 
+    // JLP-020: revoca todas las sesiones (todos los dispositivos) — la
+    // columna legacy ya no es la única fuente de verdad de refresh tokens.
+    await this.refreshSessionRepo.update(
+      { suscriptorId },
+      { revokedAt: new Date() },
+    );
+
     // Desactivar todos los device tokens del usuario
     await this.suscriptorRepo.manager.query(
       `UPDATE device_tokens SET is_active = 0 WHERE user_id = ?`,
@@ -365,14 +378,20 @@ export class SuscriptoresService {
       );
     }
 
-    // contrasena y refreshToken tienen select:false → update() atómico.
-    // refreshToken:null invalida todas las sesiones activas (mismo mecanismo
-    // que logout()/eliminarCuenta()): el próximo POST /auth/refresh fallará
-    // con 401 y la app deberá pedir login de nuevo con la nueva contraseña.
+    // contrasena tiene select:false → update() atómico.
     await this.suscriptorRepo.update(suscriptorId, {
       contrasena: await bcrypt.hash(contrasenaNueva, 10),
-      refreshToken: null,
+      refreshToken: null, // columna legacy, ya no es la fuente de verdad
     } as any);
+
+    // JLP-020: invalida TODAS las sesiones activas (todos los dispositivos) —
+    // mismo mecanismo que logout()/eliminarCuenta(). El próximo
+    // POST /auth/refresh de cualquier dispositivo fallará con 401 y la app
+    // deberá pedir login de nuevo con la nueva contraseña.
+    await this.refreshSessionRepo.update(
+      { suscriptorId },
+      { revokedAt: new Date() },
+    );
 
     return { ok: true, message: 'Contraseña actualizada correctamente' };
   }

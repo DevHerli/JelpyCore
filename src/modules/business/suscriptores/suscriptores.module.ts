@@ -7,10 +7,11 @@ import { SuscriptoresService } from './suscriptores.service';
 import { Suscriptor } from './entities/suscriptores.entity';
 import { Membresia } from '../membresias/entities/membresia.entity';
 import { MembresiasModule } from '../membresias/membresias.module';
+import { RefreshSession } from '../../auth/entities/refresh-session.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Suscriptor, Membresia]),
+    TypeOrmModule.forFeature([Suscriptor, Membresia, RefreshSession]),
     MembresiasModule,
     ConfigModule,
     JwtModule.registerAsync({

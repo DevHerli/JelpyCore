@@ -73,8 +73,10 @@ export class AuthController {
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 300 } })
-  verifyOtp(@Body() dto: VerifyOtpDto) {
-    return this.authService.verifyOtp(dto);
+  verifyOtp(@Body() dto: VerifyOtpDto, @Request() req: any) {
+    // user-agent es informativo (JLP-020: identifica la sesión/dispositivo
+    // en refresh_sessions) — nunca se usa para autenticar ni autorizar.
+    return this.authService.verifyOtp(dto, req.headers?.['user-agent']);
   }
 
   // ── Login por email + contraseña ─────────────────────────────────────────
@@ -83,8 +85,8 @@ export class AuthController {
   @Post('login-email')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 300 } })
-  loginEmail(@Body() dto: LoginEmailDto) {
-    return this.authService.loginEmail(dto);
+  loginEmail(@Body() dto: LoginEmailDto, @Request() req: any) {
+    return this.authService.loginEmail(dto, req.headers?.['user-agent']);
   }
 
   // ── Recuperación de contraseña por OTP (email) ───────────────────────────

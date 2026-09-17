@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
 import { CodigoOtp } from './entities/codigo-otp.entity';
+import { RefreshSession } from './entities/refresh-session.entity';
 import { Suscriptor } from '../business/suscriptores/entities/suscriptores.entity';
 
 import { SendOtpRegisterDto } from './dtos/send-otp-register.dto';
@@ -30,11 +31,12 @@ import { ESTADOS_SUSCRIPTOR } from '../../common/constants/estados.constants';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
-import { randomInt } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 
 // ── Constantes de tiempo de vida de tokens ────────────────────────────────────
 export const ACCESS_TOKEN_TTL  = '15m';   // corto por seguridad — el interceptor renueva
 export const REFRESH_TOKEN_TTL = '30d';   // larga — rotación en cada uso
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // JLP-M28: máximo de intentos fallidos por código OTP antes de bloquearlo.
 // Un código de 6 dígitos tiene 10^6 combinaciones; sin límite, con ventana de
@@ -102,13 +104,47 @@ export class AuthService {
     @InjectRepository(Suscriptor)
     private readonly suscriptorRepo: Repository<Suscriptor>,
 
+    @InjectRepository(RefreshSession)
+    private readonly refreshSessionRepo: Repository<RefreshSession>,
+
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
 
     private readonly mailService: MailService,
   ) {}
 
-  async loginEmail(dto: LoginEmailDto) {
+  /**
+   * JLP-020: crea una fila de sesión (un refresh token por dispositivo/cliente)
+   * en vez de sobrescribir la única columna `Suscriptor.refreshToken`. El
+   * `jti` embebido en el JWT es la llave que `refresh()` usa para saber
+   * exactamente qué sesión rotar o revocar, sin tocar las demás.
+   */
+  private async issueRefreshSession(
+    suscriptorId: number,
+    userAgent?: string | null,
+  ): Promise<string> {
+    const jti = randomUUID();
+    const refreshToken = this.jwtService.sign(
+      { sub: suscriptorId },
+      { expiresIn: REFRESH_TOKEN_TTL, jwtid: jti },
+    );
+
+    await this.refreshSessionRepo.save(
+      this.refreshSessionRepo.create({
+        suscriptorId,
+        jti,
+        tokenHash: await bcrypt.hash(refreshToken, 10),
+        userAgent: userAgent ?? null,
+        lastUsedAt: null,
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+      }),
+    );
+
+    return refreshToken;
+  }
+
+  async loginEmail(dto: LoginEmailDto, userAgent?: string) {
     const { correoElectronico, contrasena } = dto;
 
     if (!correoElectronico || !contrasena) {
@@ -150,15 +186,11 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
-    const refreshToken = this.jwtService.sign(
-      { sub: suscriptor.id },
-      { expiresIn: REFRESH_TOKEN_TTL },
-    );
+    // JLP-020: sesión propia por dispositivo, no pisa la de otros clientes.
+    const refreshToken = await this.issueRefreshSession(suscriptor.id, userAgent);
 
-    // Columnas select:false → update() atómico (evita ambigüedad de save() con snapshot)
     await this.suscriptorRepo.update(suscriptor.id as any, {
-      refreshToken: await bcrypt.hash(refreshToken, 10),
-      ultimoLogin:  new Date(),
+      ultimoLogin: new Date(),
     } as any);
 
     return {
@@ -274,7 +306,7 @@ export class AuthService {
     return { success: true, message: 'OTP generado.' };
   }
 
-  async verifyOtp(dto: VerifyOtpDto) {
+  async verifyOtp(dto: VerifyOtpDto, userAgent?: string) {
     // JLP-M28: validación con límite de intentos centralizada.
     const otp = await this.validarOtp(
       { telefonoCelular: dto.phoneNumber },
@@ -314,15 +346,8 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
-    const refreshToken = this.jwtService.sign(
-      { sub: suscriptor.id },
-      { expiresIn: REFRESH_TOKEN_TTL },
-    );
-
-    // refreshToken tiene select:false → update() atómico
-    await this.suscriptorRepo.update(suscriptor.id as any, {
-      refreshToken: await bcrypt.hash(refreshToken, 10),
-    } as any);
+    // JLP-020: sesión propia por dispositivo, no pisa la de otros clientes.
+    const refreshToken = await this.issueRefreshSession(suscriptor.id, userAgent);
 
     return {
       success: true,
@@ -447,26 +472,119 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token expirado o inválido');
     }
 
-    // refreshToken tiene select:false en la entidad → QB con addSelect para leerlo
+    const suscriptorId = decoded.sub;
+    const jti: string | undefined = decoded.jti;
+
+    // JLP-020: tokens emitidos ANTES de esta migración no traen `jti` en el
+    // payload — se validan una última vez contra la columna legacy y se
+    // "migran" a una fila de refresh_sessions, para no forzar un logout
+    // masivo de todos los usuarios activos el día del deploy. Los tokens
+    // nuevos (emitidos por login/refresh posteriores) siempre traen jti y
+    // entran por la rama de abajo.
+    if (!jti) {
+      return this.refreshLegacy(suscriptorId, refreshToken);
+    }
+
+    // refresh_sessions.token_hash tiene select:false → addSelect para leerlo
+    const session = await this.refreshSessionRepo
+      .createQueryBuilder('rs')
+      .addSelect('rs.tokenHash')
+      .where('rs.jti = :jti', { jti })
+      .getOne();
+
+    // 2. Sesión desconocida (o de otro suscriptor) → rechazar sin afectar nada más
+    if (!session || session.suscriptorId !== suscriptorId) {
+      throw new UnauthorizedException('Sesión inválida. Inicia sesión de nuevo.');
+    }
+
+    if (session.revokedAt) {
+      // Ya cerrada (logout, cambio de contraseña, o reuso detectado antes).
+      // Solo se rechaza esta renovación — no hay nada más que revocar.
+      this.logger.warn(
+        `[JLP-001] Intento de renovar sesión ya revocada — sesión id=${session.id}, suscriptor id=${suscriptorId}.`,
+      );
+      throw new UnauthorizedException('Sesión revocada. Inicia sesión de nuevo.');
+    }
+
+    const isValid = await bcrypt.compare(refreshToken, session.tokenHash);
+
+    if (!isValid) {
+      // ── Detección de reuso (token rotation attack) ────────────────────────
+      // El JWT es válido y su jti corresponde a una sesión conocida, pero el
+      // hash ya fue rotado por un uso posterior de ESE MISMO refresh token →
+      // reuso. A diferencia del esquema anterior (columna única), aquí solo
+      // se revoca ESTA sesión — las demás sesiones/dispositivos del
+      // suscriptor (p. ej. su otro celular o la web) NO se ven afectadas.
+      this.logger.warn(
+        `[JLP-001] Reuso de refresh token detectado — sesión id=${session.id}, suscriptor id=${suscriptorId}. Solo esa sesión fue revocada.`,
+      );
+      await this.refreshSessionRepo.update(session.id, { revokedAt: new Date() });
+      throw new UnauthorizedException(
+        'Sesión revocada por seguridad. Inicia sesión de nuevo.',
+      );
+    }
+
+    const suscriptor = await this.suscriptorRepo.findOne({ where: { id: suscriptorId } as any });
+    if (!suscriptor) {
+      throw new UnauthorizedException('Sesión inválida. Inicia sesión de nuevo.');
+    }
+
+    // 3. Rotar EN LA MISMA fila: nuevo jti + nuevo hash (el token anterior queda inválido)
+    const payload = {
+      sub             : suscriptor.id,
+      correo          : suscriptor.correoElectronico,
+      nombre          : suscriptor.nombre,
+      apellidoPaterno : suscriptor.apellidoPaterno,
+      registroCompleto: suscriptor.registroCompleto,
+      tieneNegocios   : suscriptor.tieneNegocios,
+      role            : suscriptor.role ?? 'user',
+    };
+
+    const newJti     = randomUUID();
+    const newAccess  = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
+    const newRefresh = this.jwtService.sign(
+      { sub: suscriptor.id },
+      { expiresIn: REFRESH_TOKEN_TTL, jwtid: newJti },
+    );
+
+    await this.refreshSessionRepo.update(session.id, {
+      jti: newJti,
+      tokenHash: await bcrypt.hash(newRefresh, 10),
+      lastUsedAt: new Date(),
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    });
+
+    return {
+      success      : true,
+      access_token : newAccess,
+      refresh_token: newRefresh,
+      expires_in   : 900,  // segundos — 15 min, para que el front sepa cuándo renovar
+    };
+  }
+
+  /**
+   * JLP-020: compatibilidad hacia atrás para refresh tokens emitidos ANTES de
+   * la migración a `refresh_sessions` (no tienen `jti`). Se validan una única
+   * vez contra la columna legacy `Suscriptor.refreshToken`; si coinciden, se
+   * "migran" creando la primera fila de sesión para ese dispositivo. Esta
+   * rama deja de recibir tráfico solo conforme expiren los últimos tokens
+   * antiguos (máximo 30 días después del deploy de este cambio).
+   */
+  private async refreshLegacy(suscriptorId: number, refreshToken: string) {
     const suscriptor = await this.suscriptorRepo
       .createQueryBuilder('s')
       .addSelect('s.refreshToken')
-      .where('s.id = :id', { id: decoded.sub })
+      .where('s.id = :id', { id: suscriptorId })
       .getOne();
 
-    // 2. Si no hay token almacenado → sesión cerrada o cuenta eliminada
     if (!suscriptor || !suscriptor.refreshToken) {
       throw new UnauthorizedException('Sesión inválida. Inicia sesión de nuevo.');
     }
 
     const isValid = await bcrypt.compare(refreshToken, suscriptor.refreshToken);
-
     if (!isValid) {
-      // ── Detección de reuso (token rotation attack) ────────────────────────
-      // Token JWT firmado correctamente pero no coincide con el hash → ya fue
-      // rotado. Posible robo. Revocar sesión completa como medida defensiva.
       this.logger.warn(
-        `[JLP-001] Reuso de refresh token detectado — suscriptor id=${suscriptor.id}. Sesión revocada.`,
+        `[JLP-001] Reuso de refresh token legacy detectado — suscriptor id=${suscriptor.id}. Sesión legacy revocada.`,
       );
       await this.suscriptorRepo.update(suscriptor.id, { refreshToken: null });
       throw new UnauthorizedException(
@@ -474,7 +592,10 @@ export class AuthService {
       );
     }
 
-    // 3. Rotar: generar nuevo par y actualizar hash en BD (el anterior queda inválido)
+    this.logger.log(
+      `[JLP-020] Migrando sesión legacy a refresh_sessions — suscriptor id=${suscriptor.id}.`,
+    );
+
     const payload = {
       sub             : suscriptor.id,
       correo          : suscriptor.correoElectronico,
@@ -486,26 +607,28 @@ export class AuthService {
     };
 
     const newAccess  = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_TTL });
-    const newRefresh = this.jwtService.sign({ sub: suscriptor.id }, { expiresIn: REFRESH_TOKEN_TTL });
+    const newRefresh = await this.issueRefreshSession(suscriptor.id);
 
-    // refreshToken tiene select:false → update() atómico para la rotación
-    await this.suscriptorRepo.update(suscriptor.id as any, {
-      refreshToken: await bcrypt.hash(newRefresh, 10),
-    } as any);
+    // La columna legacy queda vacía: esta cuenta ya migró a refresh_sessions.
+    await this.suscriptorRepo.update(suscriptor.id as any, { refreshToken: null } as any);
 
     return {
       success      : true,
       access_token : newAccess,
       refresh_token: newRefresh,
-      expires_in   : 900,  // segundos — 15 min, para que el front sepa cuándo renovar
+      expires_in   : 900,
     };
   }
 
   /**
-   * Cierra la sesión del usuario autenticado.
-   * El suscriptorId se extrae del JWT en el guard — nunca del body o URL.
+   * Cierra TODAS las sesiones del usuario autenticado (todos sus
+   * dispositivos). El suscriptorId se extrae del JWT en el guard — nunca del
+   * body o URL. El front hoy no llama este endpoint (logout es local), pero
+   * se deja correcto para cuando exista un botón "Cerrar sesión en todos
+   * lados" o se decida llamarlo explícitamente.
    */
   async logout(suscriptorId: number) {
+    await this.refreshSessionRepo.update({ suscriptorId }, { revokedAt: new Date() });
     await this.suscriptorRepo.update(suscriptorId, { refreshToken: null });
     return { success: true, message: 'Sesión cerrada correctamente.' };
   }
