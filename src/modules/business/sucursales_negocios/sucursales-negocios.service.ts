@@ -149,6 +149,9 @@ export class SucursalesNegociosService {
       where: { id, eliminado: false },
       relations: [
         'negocio',
+        'negocio.categoria',
+        'negocio.subcategoria',
+        'negocio.especialidad',
         'caracteristicas',
         'caracteristicas.caracteristica',
         'horarios',
@@ -222,6 +225,15 @@ private toSucursalResumenResponse(item: any): any {
           nombreNegocio: item.negocio.nombreNegocio,
           descripcion: item.negocio.descripcion,
           logoUrl: item.negocio.logoUrl,
+          categoria: item.negocio.categoria
+            ? { id: item.negocio.categoria.id, nombre: item.negocio.categoria.nombre }
+            : null,
+          subcategoria: item.negocio.subcategoria
+            ? { id: item.negocio.subcategoria.id, nombre: item.negocio.subcategoria.nombre }
+            : null,
+          especialidad: item.negocio.especialidad
+            ? { id: item.negocio.especialidad.id, nombre: item.negocio.especialidad.nombre }
+            : null,
         }
       : null,
   };

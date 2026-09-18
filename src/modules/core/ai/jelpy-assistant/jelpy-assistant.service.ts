@@ -15,6 +15,7 @@ import { JelpyAiService } from '../../../jelpy-ai/jelpy-ai.service';
 import { JelpyAiResponse } from '../../../jelpy-ai/interfaces/jelpy-ai-response.interface';
 import { ChatResponses } from '../utils/chat-responses';
 import { ConversationClassifier } from '../utils/conversation-classifier';
+import { levenshtein } from '../utils/levenshtein.util';
 
 import {
   SemanticCategory,
@@ -144,6 +145,20 @@ export class JelpyAssistantService {
     };
   }
 
+  /**
+   * JLP-ESPECIALIDAD-BUSQUEDA-FIX: bug reportado por el usuario — pidió
+   * "trauma"/"traumatologo"/"traumatologia" y Jelpy respondió "no encontré
+   * resultados" pese a existir un doctor con especialidad Traumatología
+   * dado de alta. Causa raíz: los `servicios` de cada entrada (nombres de
+   * especialidad/servicio, ej. "Traumatología", "traumatologo") SOLO se
+   * revisaban cuando algún ALIAS de esa misma entrada ("doctor", "medico",
+   * etc.) también aparecía en el texto — si el usuario solo escribía el
+   * nombre de la especialidad, sin decir "doctor"/"médico" a su lado, el
+   * servicio nunca se detectaba y `giroDetectado` quedaba vacío. Ahora los
+   * servicios se revisan de forma independiente: basta con mencionar la
+   * especialidad para reconocer el giro (Salud → Doctores) y arrastrar el
+   * nombre real de la especialidad a `serviciosDetectados`.
+   */
   private detectarIntencionSemantica(textoNorm: string): SemanticDetectionResult {
     const serviciosDetectados = new Set<string>();
     const aliasesDetectados = new Set<string>();
@@ -154,16 +169,15 @@ export class JelpyAssistantService {
         textoNorm.includes(this.normalizar(alias)),
       );
 
-      if (coincidencias.length > 0) {
+      const serviciosCoincidentes = entrada.servicios.filter((servicio) =>
+        textoNorm.includes(this.normalizar(servicio)),
+      );
+
+      if (coincidencias.length > 0 || serviciosCoincidentes.length > 0) {
         giroDetectado = giroDetectado || entrada.clave;
 
         coincidencias.forEach((alias) => aliasesDetectados.add(alias));
-
-        for (const servicio of entrada.servicios) {
-          if (textoNorm.includes(this.normalizar(servicio))) {
-            serviciosDetectados.add(servicio);
-          }
-        }
+        serviciosCoincidentes.forEach((servicio) => serviciosDetectados.add(servicio));
       }
     }
 
@@ -222,6 +236,25 @@ export class JelpyAssistantService {
     return null;
   }
 
+  /**
+   * JLP-ESPECIALIDAD-BUSQUEDA-FIX: bug reportado por el usuario — buscar
+   * "trauma"/"traumatologo"/"traumatologia" devolvía "no encontré
+   * resultados" pese a existir un doctor con especialidad Traumatología
+   * dado de alta. Causa raíz: este método SOLO aceptaba coincidencia
+   * EXACTA contra el nombre de la especialidad en BD ("Traumatología"),
+   * a diferencia de `buscarCategoriaPorNombre`/`buscarSubcategoriaPorNombre`
+   * (arriba), que ya toleran coincidencia parcial en cualquier dirección.
+   * Con exact-match a secas:
+   *   - "trauma" (raíz coloquial) nunca es igual a "traumatologia" → falla.
+   *   - "traumatologo" (la forma que la gente realmente escribe) tampoco es
+   *     igual a "traumatologia" (mismo origen, terminación distinta:
+   *     -logo/-óloga vs. -logía) → falla también.
+   * Se agregan, en orden, los mismos niveles de tolerancia que ya usan
+   * categoría/subcategoría (substring en cualquier dirección) más dos
+   * niveles adicionales pensados para nombres de especialidad médica:
+   * raíz compartida (cubre -logo/-óloga/-logía) y distancia de Levenshtein
+   * pequeña (cubre errores de dedo/ortografía).
+   */
   private async buscarEspecialidadPorNombre(nombre: string): Promise<Especialidad | null> {
     const especialidades = await this.especialidadRepo.find({
       relations: ['subcategoria'],
@@ -229,13 +262,72 @@ export class JelpyAssistantService {
 
     const nombreNorm = this.normalizar(nombre);
 
+    if (!nombreNorm) return null;
+
+    // 1. Exacto: "traumatologia" === "traumatologia"
     for (const especialidad of especialidades) {
       if (this.normalizar(especialidad.nombre) === nombreNorm) {
         return especialidad;
       }
     }
 
+    // 2. Substring en cualquier dirección: "trauma" está contenido en
+    //    "traumatologia" (raíz corta/coloquial), o al revés si el usuario
+    //    escribe algo más largo que el nombre exacto de la especialidad.
+    for (const especialidad of especialidades) {
+      const espNorm = this.normalizar(especialidad.nombre);
+
+      if (
+        espNorm.length >= 4 &&
+        nombreNorm.length >= 4 &&
+        (espNorm.includes(nombreNorm) || nombreNorm.includes(espNorm))
+      ) {
+        return especialidad;
+      }
+    }
+
+    // 3. Raíz compartida (mínimo 6 caracteres): cubre variantes como
+    //    "traumatologo"/"traumatóloga" vs. "Traumatología" en BD, que NO
+    //    son substring una de la otra porque solo cambia la terminación
+    //    (-logo/-óloga vs. -logía).
+    const RAIZ_MINIMA = 6;
+    let mejorPorRaiz: { especialidad: Especialidad; raiz: number } | null = null;
+
+    for (const especialidad of especialidades) {
+      const espNorm = this.normalizar(especialidad.nombre);
+      const raiz = this.prefijoComun(espNorm, nombreNorm);
+
+      if (raiz >= RAIZ_MINIMA && (!mejorPorRaiz || raiz > mejorPorRaiz.raiz)) {
+        mejorPorRaiz = { especialidad, raiz };
+      }
+    }
+
+    if (mejorPorRaiz) return mejorPorRaiz.especialidad;
+
+    // 4. Tolerancia a errores tipográficos: distancia de Levenshtein
+    //    pequeña entre palabras de longitud comparable.
+    for (const especialidad of especialidades) {
+      const espNorm = this.normalizar(especialidad.nombre);
+
+      if (espNorm.length < 5 || nombreNorm.length < 5) continue;
+      if (Math.abs(espNorm.length - nombreNorm.length) > 3) continue;
+
+      if (levenshtein(espNorm, nombreNorm) <= 2) {
+        return especialidad;
+      }
+    }
+
     return null;
+  }
+
+  /** Longitud del prefijo común (mismos caracteres desde el inicio) entre dos cadenas. */
+  private prefijoComun(a: string, b: string): number {
+    const len = Math.min(a.length, b.length);
+    let i = 0;
+
+    while (i < len && a[i] === b[i]) i++;
+
+    return i;
   }
 
   generateMisspellings(word: string): string[] {
@@ -348,6 +440,7 @@ export class JelpyAssistantService {
       textoNorm.includes('dermatólogo') ||
       textoNorm.includes('traumatologo') ||
       textoNorm.includes('traumatólogo') ||
+      textoNorm.includes('trauma') ||
       textoNorm.includes('especialista') ||
       textoNorm.includes('consulta medica') ||
       textoNorm.includes('consulta médica');
@@ -595,6 +688,96 @@ for (const a of aliases) {
       }
     }
 
+    // JLP-ESPECIALIDAD-BUSQUEDA-FIX: bug reportado por el usuario — pidió
+    // "trauma"/"traumatologo"/"traumatologia" y Jelpy respondió "no
+    // encontré resultados" pese a existir un doctor con especialidad
+    // Traumatología dado de alta. Causa raíz: nuestro diccionario
+    // semántico local (`detectarIntencionSemantica`, con los `servicios`
+    // de cada categoría — nombres de especialidad y sus formas
+    // coloquiales) SOLO se consultaba en `interpretarFallbackLocal`, es
+    // decir, únicamente cuando FastAPI truena por completo. Si FastAPI
+    // respondía 200 pero no reconocía la especialidad como entidad (algo
+    // muy probable con términos cortos/coloquiales que un NLP genérico no
+    // tiene por qué conocer), esta señal local nunca se usaba como
+    // complemento y la búsqueda quedaba sin categoría/subcategoría/
+    // especialidad, cayendo a una búsqueda de texto libre que tampoco
+    // encuentra "traumatologo" dentro de "Traumatología" (no es substring
+    // exacto: la terminación -logo/-óloga es distinta de -logía).
+    //
+    // Se agrega aquí como COMPLEMENTO — solo rellena lo que FastAPI dejó
+    // vacío, nunca sobreescribe lo que FastAPI ya detectó.
+    //
+    // `especialidadResueltaLocal`/`categoriaResueltaLocal` se usan más abajo
+    // para corregir `filtros.q`: si dejáramos el texto crudo del usuario
+    // ("traumatologo") como filtro de texto libre, la búsqueda seguiría
+    // fallando aunque `especialidadId` ya apunte al registro correcto,
+    // porque el buscador aplica el texto como filtro ADICIONAL (AND) y
+    // "traumatologo" no es substring literal de "Traumatología" en BD.
+    let especialidadResueltaLocal: Especialidad | null = null;
+    let subcategoriaResueltaLocal: Subcategoria | null = null;
+    let categoriaResueltaLocal: Categoria | null = null;
+
+    if (!filtros.categoriaId || !filtros.subcategoriaId || !filtros.especialidadId) {
+      const textoParaSemantica = this.normalizar(
+        textoOriginal || ai.normalized_text || '',
+      );
+      const analisisSemantico = this.detectarIntencionSemantica(textoParaSemantica);
+
+      if (!filtros.especialidadId) {
+        for (const servicio of analisisSemantico.serviciosDetectados) {
+          const especialidadLocal = await this.buscarEspecialidadPorNombre(servicio);
+
+          if (especialidadLocal) {
+            filtros.especialidadId = Number(especialidadLocal.id);
+            especialidadResueltaLocal = especialidadLocal;
+
+            if (!filtros.subcategoriaId && especialidadLocal.subcategoria?.id) {
+              filtros.subcategoriaId = Number(especialidadLocal.subcategoria.id);
+            }
+
+            break;
+          }
+        }
+      }
+
+      if (
+        analisisSemantico.giroDetectado &&
+        (!filtros.subcategoriaId || !filtros.categoriaId)
+      ) {
+        const entradaSemantica = this.diccionarioSemantico.find(
+          (item) => item.clave === analisisSemantico.giroDetectado,
+        );
+
+        if (entradaSemantica) {
+          if (!filtros.subcategoriaId && entradaSemantica.subcategoriaHint) {
+            const subcategoriaLocal = await this.buscarSubcategoriaPorNombre(
+              entradaSemantica.subcategoriaHint,
+            );
+
+            if (subcategoriaLocal) {
+              filtros.subcategoriaId = Number(subcategoriaLocal.id);
+              subcategoriaResueltaLocal = subcategoriaLocal;
+
+              if (!filtros.categoriaId && subcategoriaLocal.categoria?.id) {
+                filtros.categoriaId = Number(subcategoriaLocal.categoria.id);
+              }
+            }
+          }
+
+          if (!filtros.categoriaId && entradaSemantica.categoriaHint) {
+            const categoriaLocal = await this.buscarCategoriaPorNombre(
+              entradaSemantica.categoriaHint,
+            );
+
+            if (categoriaLocal) {
+              filtros.categoriaId = Number(categoriaLocal.id);
+              categoriaResueltaLocal = categoriaLocal;
+            }
+          }
+        }
+      }
+    }
+
     const textoNormalizado = ai.normalized_text || '';
 
     const entidadPrincipal =
@@ -615,6 +798,24 @@ for (const a of aliases) {
         ai.entities?.categoria ||
         ai.normalized_text ||
         '';
+    }
+
+    // JLP-ESPECIALIDAD-BUSQUEDA-FIX: si la especialidad/categoría se
+    // resolvió por nuestro diccionario semántico local (arriba) y no por
+    // FastAPI, `filtros.q` en este punto sigue siendo el texto CRUDO del
+    // usuario ("traumatologo"). El buscador aplica ese texto como filtro
+    // adicional (AND) junto con el ID ya resuelto, y "traumatologo" no es
+    // substring literal de "Traumatología" en BD — así que dejarlo tal
+    // cual anularía el match que ya conseguimos. Se reemplaza por el
+    // nombre real de la especialidad/categoría (que sí matchea contra sí
+    // mismo), igual que ya ocurre cuando es FastAPI quien detecta la
+    // entidad.
+    if (especialidadResueltaLocal) {
+      filtros.q = especialidadResueltaLocal.nombre;
+    } else if (subcategoriaResueltaLocal) {
+      filtros.q = subcategoriaResueltaLocal.nombre;
+    } else if (categoriaResueltaLocal) {
+      filtros.q = categoriaResueltaLocal.nombre;
     }
 
     // --- Característica: FastAPI como fuente principal, BD como fallback ---

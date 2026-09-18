@@ -463,6 +463,53 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
   });
 
+  // JLP-CORTE-PELO-AMBIGUO-FIX: el usuario reportó que pidió "corte de
+  // pelo" y Jelpy "no entendió", cuando en realidad "corte de pelo" se
+  // puede hacer en una barbería/salón de belleza (para personas) O en una
+  // estética canina (para mascotas) — Jelpy debe decir explícitamente que
+  // existen ambas opciones y preguntar para quién es, en vez de intentar
+  // adivinar una sola o fallar en silencio.
+  it('"corte de pelo" pregunta si es para el usuario o su mascota, sin disparar una búsqueda a ciegas (regresión)', async () => {
+    const { service, mocks } = crearServicio();
+
+    const resultado = await service.processUserMessage('corte de pelo', 1, {}, undefined);
+
+    expect(resultado.status).toBe('chat');
+    expect(resultado.respuesta.mensaje).toMatch(/barber/i);
+    expect(resultado.respuesta.mensaje).toMatch(/mascota|perro|gato/i);
+    expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
+  });
+
+  it('"corte de pelo para mi perro" ya trae la pista de para quién es y NO pregunta, sigue directo a búsqueda', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'estéticas caninas', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'corte de pelo para mi perro',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      filtros_detectados: {},
+      resultados: { items: [] },
+      sin_resultados: true,
+      suggestedQueries: [],
+    });
+
+    const resultado = await service.processUserMessage(
+      'corte de pelo para mi perro',
+      1,
+      {},
+      undefined,
+    );
+
+    expect(resultado.respuesta.mensaje).not.toMatch(/para quién es/i);
+    expect(mocks.jelpyAssistant.interpretar).toHaveBeenCalled();
+  });
+
   it('el chip "¿Buscas algo diferente en Tepic?" responde de forma informativa, no "no entendí" (regresión)', async () => {
     const { service, mocks } = crearServicio();
 

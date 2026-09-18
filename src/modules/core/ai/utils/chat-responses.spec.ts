@@ -272,3 +272,46 @@ describe('ChatResponses categoría sombrilla "tiendas" (JLP-TIENDAS-UMBRELLA-FIX
     expect(respuesta.mensaje.match(/\?/g)?.length).toBe(1);
   });
 });
+
+/**
+ * JLP-CORTE-PELO-AMBIGUO-FIX: el usuario reportó que pidió "corte de
+ * pelo" y Jelpy "no entendió". "Corte de pelo" es un alias real de
+ * `JELPY_SEMANTIC_CATEGORIES` para barberías/salones de belleza, pero el
+ * mismo catálogo también tiene "estéticas caninas"/"peluquerías para
+ * mascotas" con corte de pelo para animales — el mensaje es AMBIGUO
+ * (persona o mascota) y Jelpy debe decirlo explícitamente en vez de
+ * asumir uno de los dos a ciegas.
+ */
+describe('ChatResponses "corte de pelo" ambiguo (JLP-CORTE-PELO-AMBIGUO-FIX)', () => {
+  it.each([
+    'corte de pelo',
+    'quiero un corte de pelo',
+    'corte de pelo cerca de mi',
+    'corte de cabello',
+    'cortar el pelo',
+    'necesito cortarme el pelo',
+  ])('"%s" (sin pista de para quién es) se detecta como ambiguo', (texto) => {
+    expect(ChatResponses.esCortePeloAmbiguo(texto)).toBe(true);
+  });
+
+  it.each([
+    'corte de pelo para mi perro',
+    'corte de pelo para mi mascota',
+    'corte de pelo para mi gato',
+    'quiero ir a la barbería',
+    'corte de pelo en salón de belleza',
+    'busco una peluquería',
+    'busco un restaurante', // no menciona corte de pelo en absoluto
+  ])('"%s" (ya trae pista de para quién es, o no habla de corte de pelo) NO se marca como ambiguo', (texto) => {
+    expect(ChatResponses.esCortePeloAmbiguo(texto)).toBe(false);
+  });
+
+  it('responderCortePeloAmbiguo menciona ambas opciones (barbería/salón de belleza y mascota) en una sola pregunta', () => {
+    const respuesta = ChatResponses.responderCortePeloAmbiguo('Tepic');
+
+    expect(respuesta.mensaje).toMatch(/barber/i);
+    expect(respuesta.mensaje).toMatch(/sal[oó]n(?:es)? de belleza/i);
+    expect(respuesta.mensaje).toMatch(/mascota|perro|gato/i);
+    expect(respuesta.mensaje.match(/\?/g)?.length).toBe(1);
+  });
+});

@@ -412,6 +412,66 @@ export class ChatResponses {
   }
 
   /**
+   * JLP-CORTE-PELO-AMBIGUO-FIX: bug reportado por el usuario — pidió
+   * "corte de pelo" y Jelpy "no entendió". Causa raíz: "corte de pelo" es
+   * un alias real de `JELPY_SEMANTIC_CATEGORIES` (categoría
+   * "barberías_estéticas"), pero el mismo servicio también tiene, en la
+   * categoría "Mascotas", "estéticas caninas"/"peluquerías para mascotas"
+   * con servicios de corte de pelo para animales. Dicho a secas, "corte
+   * de pelo" es AMBIGUO: puede ser para la persona (barbería/salón de
+   * belleza) o para su mascota (estética canina) — Jelpy tiene que
+   * decirlo explícitamente en vez de asumir uno de los dos a ciegas (o
+   * peor, no reconocer nada).
+   *
+   * Solo se considera ambiguo cuando el mensaje NO trae ya una pista que
+   * lo desambigüe (mención explícita de un animal, o del tipo de
+   * establecimiento humano) — en esos casos se deja pasar de largo para
+   * que la búsqueda real (que sí tiene esos alias específicos) resuelva
+   * directo, sin interrumpir con una pregunta innecesaria.
+   */
+  private static readonly PALABRAS_ANIMAL = [
+    'perro', 'perrito', 'perra', 'perrita', 'cachorro', 'cachorra',
+    'gato', 'gatito', 'gata', 'gatita',
+    'mascota', 'mascotas', 'canino', 'canina', 'felino', 'felina',
+  ];
+
+  private static readonly PALABRAS_HUMANO_EXPLICITO = [
+    'barberia', 'barbería', 'salon de belleza', 'salón de belleza',
+    'peluqueria', 'peluquería', 'estetica', 'estética',
+  ];
+
+  static esCortePeloAmbiguo(texto: string): boolean {
+    const t = this.normalizar(texto);
+
+    const mencionaCorte =
+      this.tieneFrase(t, 'corte de pelo') ||
+      this.tieneFrase(t, 'corte de cabello') ||
+      this.tieneFrase(t, 'cortar el pelo') ||
+      this.tieneFrase(t, 'cortar el cabello') ||
+      this.tieneFrase(t, 'cortarme el pelo') ||
+      this.tieneFrase(t, 'cortarme el cabello');
+
+    if (!mencionaCorte) return false;
+
+    const yaEspecificaAnimal = this.PALABRAS_ANIMAL.some((p) => this.tieneFrase(t, p));
+    const yaEspecificaHumano = this.PALABRAS_HUMANO_EXPLICITO.some((p) => this.tieneFrase(t, p));
+
+    return !yaEspecificaAnimal && !yaEspecificaHumano;
+  }
+
+  static responderCortePeloAmbiguo(ciudad?: string): { titulo: string; mensaje: string } {
+    const tieneCiudad = !!(ciudad || '').trim();
+    const enCiudad = tieneCiudad ? ` en ${ciudad}` : '';
+
+    return {
+      titulo: '¿Corte de pelo para ti o para tu mascota? ✂️',
+      mensaje: this.agregarCierreGenerico(
+        `Un corte de pelo lo puedo buscar en barberías o salones de belleza${enCiudad}, y si es para tu perro o gato también tenemos estéticas caninas. ¿Para quién es?`,
+      ),
+    };
+  }
+
+  /**
    * JLP-CHIP-RECUPERACION-FIX: bug reportado por el usuario — tras una
    * búsqueda SIN resultados, Jelpy ofrece chips de recuperación
    * ("¿Quieres intentar con otra palabra?", "¿Buscas algo diferente en

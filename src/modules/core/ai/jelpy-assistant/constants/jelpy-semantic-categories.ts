@@ -66,6 +66,15 @@ export const JELPY_SEMANTIC_CATEGORIES: SemanticCategory[] = [
       'dermatólogo',
       'traumatologo',
       'traumatólogo',
+      // JLP-ESPECIALIDAD-BUSQUEDA-FIX: "trauma" es la forma coloquial más
+      // común para referirse a traumatología/traumatólogo (ej. "necesito
+      // ir con el trauma", "doctor de trauma"). Sin este alias corto, el
+      // usuario que escribe solo "trauma" no coincidía con ningún alias
+      // NI servicio del diccionario (los únicos registrados eran las
+      // formas completas "traumatologo"/"traumatólogo"/"Traumatología"),
+      // así que Jelpy respondía "no encontré resultados" pese a que sí
+      // existe un doctor con especialidad Traumatología dado de alta.
+      'trauma',
       'urologo',
       'urólogo',
       'otorrino',

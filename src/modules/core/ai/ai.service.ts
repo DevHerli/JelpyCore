@@ -663,6 +663,48 @@ export class AiService {
     const normalizacionSocial = SocialQueryNormalizer.normalize(resolucion.textoEnriquecido);
     const textoParaProcesar = normalizacionSocial.text;
 
+    // JLP-CORTE-PELO-AMBIGUO-FIX: bug reportado por el usuario — pidió
+    // "corte de pelo" y Jelpy "no entendió". "Corte de pelo" es un alias
+    // real de negocio (barberías/salones de belleza) en
+    // `JELPY_SEMANTIC_CATEGORIES`, así que normalmente se manda directo a
+    // búsqueda real — pero esa búsqueda solo conoce UNA de las dos
+    // categorías que en realidad ofrecen "corte de pelo" (la humana): el
+    // mismo catálogo también tiene "estéticas caninas" con corte de pelo
+    // para mascotas. Se intercepta aquí, ANTES de clasificar o llamar al
+    // microservicio de IA (100% local, sin gastar esa llamada), para
+    // decirle al usuario que existen ambas opciones y preguntar para quién
+    // es — así se busca la categoría correcta en vez de asumir una a
+    // ciegas o cruzarse con el giro equivocado.
+    if (ChatResponses.esCortePeloAmbiguo(textoParaProcesar)) {
+      const respuestaCortePelo = ChatResponses.responderCortePeloAmbiguo(
+        contexto?.ciudad ?? sesion.ciudad,
+      );
+
+      await this.conversationService.guardarTurnoUsuario(
+        idSesionActiva,
+        input,
+        'corte_pelo_ambiguo',
+      );
+
+      await this.conversationService.guardarTurnoAsistente(
+        idSesionActiva,
+        respuestaCortePelo.mensaje,
+        { intent: 'corte_pelo_ambiguo', sugerencias: [] },
+      );
+
+      return {
+        sessionId: idSesionActiva,
+        status: 'chat',
+        mensajeOriginal: input,
+        mensajeCorregido: textoCorregido,
+        respuesta: {
+          ...respuestaCortePelo,
+          sugerencias: [],
+        },
+        debug: { aiIntent: { intent: 'corte_pelo_ambiguo', source: 'local_corte_pelo' } },
+      };
+    }
+
     // ── FAST-PATH LOCAL (chat) ──────────────────────────────────────────
     // Saludos, agradecimientos, despedidas, quejas, dudas simples, etc. se
     // resuelven 100% localmente vía ChatResponses SIN llamar al microservicio

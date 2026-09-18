@@ -157,3 +157,68 @@ describe('JelpyAssistantService.interpretar (JLP-FALLBACK-CATEGORIA-CRUZADA-FIX)
     expect(mocks.searchService.search).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('JelpyAssistantService.interpretar — especialidad médica por nombre corto/coloquial (JLP-ESPECIALIDAD-BUSQUEDA-FIX)', () => {
+  // Bug reportado por el usuario: pidió "trauma"/"traumatologo"/
+  // "traumatologia" y Jelpy respondió "no encontré resultados" pese a
+  // existir un doctor con especialidad "Traumatología" dado de alta.
+  // FastAPI, en estos casos, no siempre reconoce el término como entidad
+  // "especialidad" (más aún con la forma corta/coloquial "trauma"), así
+  // que Jelpy debe apoyarse en su diccionario semántico local para
+  // resolverlo de todas formas contra la especialidad real de la BD.
+  const especialidadTraumatologiaEnBD = {
+    id: 5,
+    nombre: 'Traumatología',
+    subcategoria: { id: 2, categoria: { id: 1 } },
+  };
+
+  function mockFastApiSinEntidades(mocks: ReturnType<typeof crearMocks>, textoUsuario: string) {
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'chat',
+      confidence: 0.3,
+      entities: {
+        categoria: null,
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: textoUsuario,
+      reply: { mode: 'direct_reply', title: null, message: null, suggestions: [] },
+    });
+  }
+
+  it.each(['trauma', 'traumatologo', 'traumatologia'])(
+    '"%s" resuelve la especialidad "Traumatología" de la BD aunque FastAPI no haya detectado ninguna entidad',
+    async (textoUsuario) => {
+      const { service, mocks } = crearServicio({
+        especialidadRepo: {
+          find: jest.fn().mockResolvedValue([especialidadTraumatologiaEnBD]),
+        } as any,
+      });
+
+      mockFastApiSinEntidades(mocks, textoUsuario);
+
+      mocks.searchService.search.mockResolvedValue({
+        items: [{ id: 10, nombre: 'Consultorio Dr. González', especialidad_id: 5 }],
+      });
+
+      const resultado = await service.interpretar(textoUsuario);
+
+      expect(resultado.filtros_detectados.especialidadId).toBe(5);
+      expect(resultado.filtros_detectados.subcategoriaId).toBe(2);
+      expect(resultado.resultados.items).toHaveLength(1);
+      expect(resultado.sin_resultados).toBe(false);
+
+      // La búsqueda de texto libre (q) debe usar el nombre REAL de la
+      // especialidad ("Traumatología"), no el texto crudo del usuario —
+      // de lo contrario el filtro de texto (AND) anularía el match del
+      // especialidadId cuando el texto crudo no es substring literal del
+      // nombre en BD (ej. "traumatologo" no es substring de "Traumatología").
+      expect(mocks.searchService.search).toHaveBeenCalledWith(
+        expect.objectContaining({ especialidadId: 5, q: 'Traumatología' }),
+      );
+    },
+  );
+});
