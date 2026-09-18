@@ -164,17 +164,27 @@ export class AiService {
   private contieneTerminoDeNegocio(texto: string): boolean {
     const textoNorm = this.normalizarTexto(texto);
 
+    // JLP-ESPECIALIDAD-BUSQUEDA-FIX: al igual que en
+    // `ConversationClassifier.contieneTerminoDeNegocio`, este método solo
+    // revisaba `cat.aliases` (palabras sombrilla como "doctor", "clinica"),
+    // nunca `cat.servicios` (nombres reales de especialidad/servicio, ej.
+    // "Traumatología", "pediatra"). Eso hacía que el override de la línea
+    // ~892 ("FastAPI dijo chat pero hay término semántico → forzar
+    // búsqueda") nunca se activara para una especialidad médica mencionada
+    // sola (sin "doctor"/"médico" al lado, ej. "trauma", "traumatologo"),
+    // dejando la respuesta de FastAPI en "chat" tal cual. Ahora también se
+    // revisan los `servicios` de cada categoría.
     return JELPY_SEMANTIC_CATEGORIES.some((cat) =>
-      cat.aliases.some((alias) => {
-        const aliasNorm = this.normalizarTexto(alias);
+      [...cat.aliases, ...(cat.servicios || [])].some((termino) => {
+        const terminoNorm = this.normalizarTexto(termino);
 
-        // Alias de 1-2 caracteres son demasiado ambiguos para matchear con
+        // Términos de 1-2 caracteres son demasiado ambiguos para matchear con
         // confianza (ej. "te", "ir"); se ignoran para evitar falsos positivos.
-        if (aliasNorm.length < 3) return false;
+        if (terminoNorm.length < 3) return false;
 
-        const aliasEscapado = aliasNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const terminoEscapado = terminoNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-        return new RegExp(`\\b${aliasEscapado}\\b`).test(textoNorm);
+        return new RegExp(`\\b${terminoEscapado}\\b`).test(textoNorm);
       }),
     );
   }

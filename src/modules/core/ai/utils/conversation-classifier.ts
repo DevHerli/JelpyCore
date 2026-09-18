@@ -56,14 +56,28 @@ export class ConversationClassifier {
     // "farmasia") sin depender de una lista de correcciones a mano.
     const textoNorm = this.clavefonetica(texto);
 
+    // JLP-ESPECIALIDAD-BUSQUEDA-FIX: bug reportado por el usuario — pidió
+    // "trauma"/"traumatologo"/"traumatologia" (sin decir "doctor" ni
+    // "médico" a su lado) y Jelpy respondió "no encontré resultados" pese a
+    // existir un doctor con esa especialidad dado de alta. Causa raíz: este
+    // método SOLO revisaba `cat.aliases` (palabras sombrilla como "doctor",
+    // "medico", "clinica"), nunca `cat.servicios` (nombres reales de
+    // especialidad/servicio, ej. "Traumatología", "pediatra", "cardiologo").
+    // Como el texto era una especialidad SOLA, sin ningún alias al lado,
+    // `containsBusinessTerm` daba `false` y `classify()` nunca enrutaba a
+    // 'search' — la petición se quedaba atrapada en el flujo conversacional
+    // (`responderConversacional`) y jamás llegaba a la búsqueda real ni al
+    // enriquecimiento semántico de `JelpyAssistantService`. Ahora también se
+    // revisan los `servicios` de cada categoría, con la misma lógica de
+    // límites de palabra (`\b`) y longitud mínima.
     return JELPY_SEMANTIC_CATEGORIES.some((cat) =>
-      cat.aliases.some((alias) => {
-        const aliasNorm = this.clavefonetica(alias);
+      [...cat.aliases, ...(cat.servicios || [])].some((termino) => {
+        const terminoNorm = this.clavefonetica(termino);
 
-        if (aliasNorm.length < 3) return false;
+        if (terminoNorm.length < 3) return false;
 
-        const aliasEscapado = aliasNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(`\\b${aliasEscapado}\\b`).test(textoNorm);
+        const terminoEscapado = terminoNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`\\b${terminoEscapado}\\b`).test(textoNorm);
       }),
     );
   }
