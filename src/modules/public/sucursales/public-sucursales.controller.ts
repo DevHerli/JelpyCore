@@ -18,6 +18,10 @@ export class PublicSucursalesController {
     @Query('categoriaId')   categoriaId?: string,
     @Query('subcategoriaId') subcategoriaId?: string,
     @Query('ciudadId')      ciudadId?: string,
+    // 'recientes' ordena por fecha de registro (más nuevas primero) — usado
+    // por la sección "En tu ciudad" de Home, que debe mostrar los últimos
+    // negocios registrados en vez del orden natural de la tabla.
+    @Query('orden')         orden?: string,
     @Query('page',    new DefaultValuePipe(1),  ParseIntPipe) page:  number = 1,
     @Query('limit',   new DefaultValuePipe(20), ParseIntPipe) limit: number = 20,
   ) {
@@ -25,6 +29,7 @@ export class PublicSucursalesController {
       categoriaId:    categoriaId   ? Number(categoriaId)   : undefined,
       subcategoriaId: subcategoriaId ? Number(subcategoriaId) : undefined,
       ciudadId:       ciudadId      ? Number(ciudadId)      : undefined,
+      orden,
       page:  Math.max(1, page),
       limit: Math.min(50, Math.max(1, limit)),
     });

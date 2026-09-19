@@ -32,6 +32,7 @@ export class PublicSucursalesService {
     categoriaId?: number;
     subcategoriaId?: number;
     ciudadId?: number;
+    orden?: string;
     page: number;
     limit: number;
   }) {
@@ -54,6 +55,10 @@ export class PublicSucursalesService {
         ))`,
         { categoriaId: params.categoriaId },
       );
+    }
+
+    if (params.orden === 'recientes') {
+      qb.orderBy('s.fechaRegistro', 'DESC');
     }
 
     const [sucursales, total] = await qb.getManyAndCount();
