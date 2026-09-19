@@ -451,6 +451,30 @@ export class ChatResponses {
     // cariñosos comunes con los que la gente se refiere a su mascota como
     // si fuera un hijo/hija ("mi perrihijo").
     'perrihijo', 'perrihija',
+    // JLP-MASCOTA-AMBIGUA-FIX: solicitud del usuario — "esta parte también
+    // debemos hacerla crecer": no solo perros y gatos van al veterinario o
+    // a una tienda de accesorios, así que se amplía la lista a otros
+    // animalitos de compañía comunes (conejos, aves, peces, roedores,
+    // reptiles...) para que también disparen la misma lógica de
+    // desambiguación en `esMascotaAmbigua`/`resolverMascotaParaQue` de
+    // abajo, en vez de quedar sin reconocer. Se evitan a propósito palabras
+    // sueltas demasiado genéricas o con significados no relacionados a
+    // mascotas comunes en el habla mexicana (ej. "ave"/"aves" también se
+    // usa para pollo de comida — "asadero de aves"; "cuyo/cuya" es un
+    // pronombre relativo común; "cotorro/cotorra" también significa
+    // "persona habladora" — todas se dejan fuera para no disparar la
+    // pregunta de aclaración por error en mensajes que no tienen nada que
+    // ver con mascotas).
+    'conejo', 'coneja', 'conejito', 'conejita',
+    'pajaro', 'pájaro', 'pajarito', 'pajarita',
+    'perico', 'perica', 'periquito', 'periquita', 'loro', 'lora',
+    'canario', 'canaria',
+    'pez', 'peces', 'pececito', 'pececita',
+    'hamster', 'hámster', 'hamstercito',
+    'tortuga', 'tortuguita',
+    'iguana', 'iguanita',
+    'huron', 'hurón',
+    'conejillo de indias',
   ];
 
   private static readonly PALABRAS_HUMANO_EXPLICITO = [
@@ -506,7 +530,13 @@ export class ChatResponses {
 
     if (!mencionaCorte) return false;
 
-    const yaEspecificaAnimal = this.PALABRAS_ANIMAL.some((p) => this.tieneFrase(t, p));
+    // JLP-MASCOTA-AMBIGUA-FIX: se cambia de `tieneFrase` (substring suelto)
+    // a `tienePalabraExacta` (con límites de palabra) porque la lista de
+    // animales ahora incluye palabras cortas de 2-3 letras ("ave", "pez")
+    // cuya clave fonética puede aparecer como substring DENTRO de otra
+    // palabra más larga sin relación (ej. "ave" → "abe" es substring de
+    // "cabello" → "kabeyo"), lo que causaba falsos positivos.
+    const yaEspecificaAnimal = this.PALABRAS_ANIMAL.some((p) => this.tienePalabraExacta(t, p));
     const yaEspecificaHumano =
       this.PALABRAS_HUMANO_EXPLICITO.some((p) => this.tieneFrase(t, p)) ||
       this.PALABRAS_FAMILIA_HUMANA.some((p) => this.tienePalabraExacta(t, p));
@@ -548,7 +578,10 @@ export class ChatResponses {
   static resolverCortePeloParaQuien(texto: string): 'humano' | 'mascota' | 'indefinido' {
     const t = this.normalizar(texto);
 
-    const esMascota = this.PALABRAS_ANIMAL.some((p) => this.tieneFrase(t, p));
+    // JLP-MASCOTA-AMBIGUA-FIX: ídem `esCortePeloAmbiguo` — límites de
+    // palabra en vez de substring suelto, ahora que la lista de animales
+    // incluye palabras cortas ("ave", "pez") propensas a falsos positivos.
+    const esMascota = this.PALABRAS_ANIMAL.some((p) => this.tienePalabraExacta(t, p));
     if (esMascota) return 'mascota';
 
     const esHumano =
@@ -558,6 +591,162 @@ export class ChatResponses {
     if (esHumano) return 'humano';
 
     return 'indefinido';
+  }
+
+  /**
+   * JLP-MASCOTA-AMBIGUA-FIX: solicitud del usuario — "cuando le digo perro,
+   * gato, conejo primero cuando sea esto debemos ver que quiere: un
+   * veterinario [o] alguna tienda de accesorios, a menos que diga un doctor
+   * para mi perro, un veterinario para mi gato, etc." Mencionar solo el
+   * nombre de un animalito ("perro", "gato", "conejo"...) sin más contexto
+   * no calza con NINGÚN alias de `JELPY_SEMANTIC_CATEGORIES` (ninguna
+   * categoría de mascotas tiene un alias de una sola palabra tipo "perro"),
+   * así que Jelpy no puede asumir a ciegas si el usuario quiere un
+   * VETERINARIO (consulta, vacunas, cirugía, emergencia) o una TIENDA de
+   * accesorios/alimento para su mascota — son giros de negocio distintos.
+   * Se pregunta explícitamente, igual que ya se hace con "corte de pelo"
+   * (ver `esCortePeloAmbiguo` arriba), salvo que el propio mensaje ya traiga
+   * una pista que lo desambigüe.
+   */
+  private static readonly PALABRAS_VETERINARIO_EXPLICITO = [
+    'veterinario', 'veterinaria', 'veterinarios', 'veterinarias', 'vet',
+  ];
+
+  /**
+   * JLP-MASCOTA-AMBIGUA-FIX: "doctor"/"consulta"/"clínica"/"hospital" son
+   * palabras de "doctor genérico" que, POR SÍ SOLAS (sin mención de
+   * animal), son alias reales de la categoría de médicos para HUMANOS
+   * (`JELPY_SEMANTIC_CATEGORIES`, clave 'doctores' — ver ese archivo). Si
+   * aparecen junto con un animal ("un doctor para mi perro", ejemplo textual
+   * del usuario), el usuario quiere un VETERINARIO, no un médico de
+   * personas — hay que reescribir el texto (ver
+   * `reescribirComoVeterinarioSiAplica` más abajo) para que la búsqueda real
+   * no termine, por accidente, buscando doctores humanos.
+   */
+  private static readonly PALABRAS_DOCTOR_GENERICO = [
+    'doctor', 'doctora', 'medico', 'médico', 'consulta', 'clinica', 'clínica',
+    'hospital', 'urgencia', 'urgencias', 'emergencia', 'emergencias',
+  ];
+
+  private static readonly PALABRAS_TIENDA_MASCOTA_EXPLICITO = [
+    'tienda', 'accesorio', 'accesorios', 'alimento', 'comida',
+    'croqueta', 'croquetas', 'juguete', 'juguetes', 'correa', 'correas',
+    'collar', 'collares', 'jaula', 'pecera', 'acuario', 'arena sanitaria',
+    'transportadora', 'transportadoras', 'cama para mascota', 'comprar',
+  ];
+
+  /**
+   * JLP-MASCOTA-AMBIGUA-FIX: si el mensaje ya trae una palabra de SERVICIO
+   * (no de veterinario ni de tienda) que calza con un alias específico ya
+   * existente en `JELPY_SEMANTIC_CATEGORIES` para mascotas —estéticas
+   * caninas, peluquerías, baño, corte de pelo animal— NO es ambiguo: ya
+   * hay una categoría concreta para eso y preguntar "¿veterinario o
+   * tienda?" sería una interrupción incorrecta e innecesaria (ej. "corte de
+   * pelo para mi perro", "baño para mi gato").
+   */
+  private static readonly PALABRAS_SERVICIO_MASCOTA_EXPLICITO = [
+    'corte de pelo', 'corte', 'bano', 'baño', 'estetica', 'estética',
+    'peluqueria', 'peluquería', 'unas', 'uñas', 'oidos', 'oídos',
+    'pelaje', 'antipulgas', 'grooming', 'cortar el pelo', 'cortar el cabello',
+  ];
+
+  /**
+   * ¿El mensaje menciona un animal a secas, sin ninguna pista de si el
+   * usuario quiere un veterinario o una tienda de mascotas? Devuelve
+   * `false` de inmediato si no hay ningún animal mencionado (mensaje
+   * normal, no relacionado con mascotas) o si ya trae una pista explícita
+   * (veterinario, doctor/consulta/clínica, tienda/accesorios, o un
+   * servicio específico como corte de pelo/baño/estética) que permite que
+   * la búsqueda real resuelva directo sin preguntar de más.
+   */
+  static esMascotaAmbigua(texto: string): boolean {
+    const t = this.normalizar(texto);
+
+    const mencionaAnimal = this.PALABRAS_ANIMAL.some((p) => this.tienePalabraExacta(t, p));
+    if (!mencionaAnimal) return false;
+
+    const yaEspecificaVeterinario = this.PALABRAS_VETERINARIO_EXPLICITO.some((p) =>
+      this.tienePalabraExacta(t, p),
+    );
+    const yaEspecificaDoctorGenerico = this.PALABRAS_DOCTOR_GENERICO.some((p) =>
+      this.tienePalabraExacta(t, p),
+    );
+    const yaEspecificaTienda = this.PALABRAS_TIENDA_MASCOTA_EXPLICITO.some((p) =>
+      this.tieneFrase(t, p),
+    );
+    const yaEspecificaServicio = this.PALABRAS_SERVICIO_MASCOTA_EXPLICITO.some((p) =>
+      this.tieneFrase(t, p),
+    );
+
+    return (
+      !yaEspecificaVeterinario &&
+      !yaEspecificaDoctorGenerico &&
+      !yaEspecificaTienda &&
+      !yaEspecificaServicio
+    );
+  }
+
+  static responderMascotaAmbigua(ciudad?: string): { titulo: string; mensaje: string } {
+    const tieneCiudad = !!(ciudad || '').trim();
+    const enCiudad = tieneCiudad ? ` en ${ciudad}` : '';
+
+    return {
+      titulo: '¿Buscas un veterinario o una tienda para tu mascota? 🐾',
+      mensaje: this.agregarCierreGenerico(
+        `Puedo buscarte un veterinario${enCiudad} (consultas, vacunas, cirugías, emergencias) o una tienda de accesorios y alimento para tu mascota${enCiudad}. ¿Cuál de las dos necesitas?`,
+      ),
+    };
+  }
+
+  /**
+   * JLP-MASCOTA-AMBIGUA-FIX: variante de `resolverCortePeloParaQuien` para
+   * la pregunta "¿Buscas un veterinario o una tienda para tu mascota?" (se
+   * usa junto con `PreguntaPendiente.tipo === 'mascota_para_que'` en
+   * `ContextResolverUseCase`, ver ese archivo).
+   */
+  static resolverMascotaParaQue(texto: string): 'veterinario' | 'tienda' | 'indefinido' {
+    const t = this.normalizar(texto);
+
+    const esVeterinario =
+      this.PALABRAS_VETERINARIO_EXPLICITO.some((p) => this.tienePalabraExacta(t, p)) ||
+      this.PALABRAS_DOCTOR_GENERICO.some((p) => this.tienePalabraExacta(t, p));
+    if (esVeterinario) return 'veterinario';
+
+    const esTienda = this.PALABRAS_TIENDA_MASCOTA_EXPLICITO.some((p) => this.tieneFrase(t, p));
+    if (esTienda) return 'tienda';
+
+    return 'indefinido';
+  }
+
+  /**
+   * JLP-MASCOTA-AMBIGUA-FIX: cuando el mensaje ya menciona un animal junto
+   * con una palabra "de doctor" genérica (ver `PALABRAS_DOCTOR_GENERICO`
+   * arriba) que por sí sola es alias de la categoría de médicos para
+   * HUMANOS, hay que reescribir el texto anteponiendo "veterinario" para
+   * que la búsqueda real (`JELPY_SEMANTIC_CATEGORIES`, vía
+   * `detectarIntencionSemantica`) entienda que se trata de un veterinario —
+   * de lo contrario "un doctor para mi perro" terminaría buscando doctores
+   * humanos, justo lo opuesto de lo que pidió el usuario. No hace nada si
+   * el mensaje no menciona ningún animal, o si ya menciona "veterinario"
+   * explícitamente (no hay nada que corregir).
+   */
+  static reescribirComoVeterinarioSiAplica(texto: string): string {
+    const t = this.normalizar(texto);
+
+    const mencionaAnimal = this.PALABRAS_ANIMAL.some((p) => this.tienePalabraExacta(t, p));
+    if (!mencionaAnimal) return texto;
+
+    const yaEspecificaVeterinario = this.PALABRAS_VETERINARIO_EXPLICITO.some((p) =>
+      this.tienePalabraExacta(t, p),
+    );
+    if (yaEspecificaVeterinario) return texto;
+
+    const mencionaDoctorGenerico = this.PALABRAS_DOCTOR_GENERICO.some((p) =>
+      this.tienePalabraExacta(t, p),
+    );
+    if (!mencionaDoctorGenerico) return texto;
+
+    return `veterinario ${texto}`;
   }
 
   /**

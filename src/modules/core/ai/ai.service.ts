@@ -670,7 +670,7 @@ export class AiService {
     }
 
     const normalizacionSocial = SocialQueryNormalizer.normalize(resolucion.textoEnriquecido);
-    const textoParaProcesar = normalizacionSocial.text;
+    let textoParaProcesar = normalizacionSocial.text;
 
     // JLP-CORTE-PELO-AMBIGUO-FIX: bug reportado por el usuario — pidió
     // "corte de pelo" y Jelpy "no entendió". "Corte de pelo" es un alias
@@ -723,6 +723,59 @@ export class AiService {
           sugerencias: [],
         },
         debug: { aiIntent: { intent: 'corte_pelo_ambiguo', source: 'local_corte_pelo' } },
+      };
+    }
+
+    // JLP-MASCOTA-AMBIGUA-FIX: solicitud del usuario — "cuando le digo
+    // perro, gato, conejo primero cuando sea esto debemos ver que quiere:
+    // un veterinario [o] alguna tienda de accesorios, a menos que diga un
+    // doctor para mi perro, un veterinario para mi gato, etc." Mencionar
+    // solo el nombre de un animalito no calza con ningún alias de
+    // `JELPY_SEMANTIC_CATEGORIES` (ninguna categoría de mascotas tiene un
+    // alias de una sola palabra tipo "perro"), así que no se puede asumir a
+    // ciegas si el usuario quiere un veterinario o una tienda de
+    // accesorios/alimento — son giros de negocio distintos. Primero se
+    // reescribe el texto si menciona un animal junto con una palabra "de
+    // doctor" genérica (doctor/consulta/clínica/hospital), que POR SÍ SOLA
+    // es alias de la categoría de médicos para HUMANOS (`doctores`) — sin
+    // esto, "un doctor para mi perro" terminaría buscando doctores humanos,
+    // justo lo opuesto de lo que pidió el usuario como ejemplo explícito de
+    // caso que NO debe preguntar. Luego, si sigue siendo ambiguo (animal a
+    // secas, sin veterinario/doctor/tienda), se pregunta explícitamente,
+    // igual que con "corte de pelo" arriba.
+    textoParaProcesar = ChatResponses.reescribirComoVeterinarioSiAplica(textoParaProcesar);
+
+    if (ChatResponses.esMascotaAmbigua(textoParaProcesar)) {
+      const ciudadMascota = contexto?.ciudad ?? sesion.ciudad;
+      const respuestaMascota = ChatResponses.responderMascotaAmbigua(ciudadMascota);
+
+      await this.conversationService.guardarPreguntaPendiente(idSesionActiva, {
+        tipo: 'mascota_para_que',
+        ciudad: ciudadMascota,
+      });
+
+      await this.conversationService.guardarTurnoUsuario(
+        idSesionActiva,
+        input,
+        'mascota_ambigua',
+      );
+
+      await this.conversationService.guardarTurnoAsistente(
+        idSesionActiva,
+        respuestaMascota.mensaje,
+        { intent: 'mascota_ambigua', sugerencias: [] },
+      );
+
+      return {
+        sessionId: idSesionActiva,
+        status: 'chat',
+        mensajeOriginal: input,
+        mensajeCorregido: textoCorregido,
+        respuesta: {
+          ...respuestaMascota,
+          sugerencias: [],
+        },
+        debug: { aiIntent: { intent: 'mascota_ambigua', source: 'local_mascota_ambigua' } },
       };
     }
 

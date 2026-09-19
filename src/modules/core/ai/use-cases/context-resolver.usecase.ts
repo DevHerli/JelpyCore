@@ -116,7 +116,13 @@ export interface PreguntaPendiente {
   // `ChatResponses.responderCortePeloAmbiguo`) también necesita quedar
   // registrada como pendiente para que una respuesta corta como "Para mi"
   // se resuelva contra ESTA pregunta en vez de caer en "no entendí".
-  tipo: 'buscar_similares_promo' | 'corte_pelo_para_quien';
+  //
+  // JLP-MASCOTA-AMBIGUA-FIX: se agrega 'mascota_para_que' — la pregunta
+  // "¿Buscas un veterinario o una tienda para tu mascota?" (ver
+  // `ChatResponses.responderMascotaAmbigua`) necesita el mismo tratamiento:
+  // una respuesta corta ("veterinario", "una tienda"...) debe resolverse
+  // contra ESTA pregunta puntual.
+  tipo: 'buscar_similares_promo' | 'corte_pelo_para_quien' | 'mascota_para_que';
   categoria?: string;
   ciudad?: string;
 }
@@ -222,6 +228,39 @@ export class ContextResolverUseCase {
       // en `AiService` sí la limpia siempre que `tipoSeguimiento ===
       // 'confirmacion_pendiente'`, así que solo se vuelve a preguntar si el
       // mensaje en sí vuelve a calzar con `esCortePeloAmbiguo`).
+    }
+
+    // JLP-MASCOTA-AMBIGUA-FIX: mismo tratamiento que 'corte_pelo_para_quien'
+    // arriba, pero para la pregunta "¿Buscas un veterinario o una tienda
+    // para tu mascota?" (ver `ChatResponses.responderMascotaAmbigua` en
+    // `AiService`). Se resuelve con `ChatResponses.resolverMascotaParaQue` y
+    // se antepone un texto ya desambiguado para que, al pasar de nuevo por
+    // `esMascotaAmbigua` en `AiService`, YA NO se detecte como ambiguo.
+    if (pendiente?.tipo === 'mascota_para_que') {
+      const queEs = ChatResponses.resolverMascotaParaQue(mensajeActual);
+      const ciudadPendiente = pendiente.ciudad || sesion.ciudad || '';
+      const enCiudad = ciudadPendiente ? ` en ${ciudadPendiente}` : '';
+
+      if (queEs === 'veterinario') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: `veterinario para mi mascota${enCiudad}`,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+        };
+      }
+
+      if (queEs === 'tienda') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: `tienda de accesorios para mascotas${enCiudad}`,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+        };
+      }
+
+      // Respuesta "indefinido": se deja caer al flujo normal, igual que en
+      // 'corte_pelo_para_quien' arriba.
     }
 
     if (pendiente?.tipo === 'buscar_similares_promo') {
