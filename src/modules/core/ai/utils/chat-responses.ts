@@ -35,6 +35,19 @@ export class ChatResponses {
   }
 
   /**
+   * JLP-CORTE-PELO-HILO-FIX: variante de `tieneFrase` con límites de
+   * palabra (`\b`), para frases cortas ("yo", "a mi") donde una simple
+   * coincidencia de substring produciría falsos positivos dentro de otra
+   * palabra más larga (ej. "yo" dentro de "arroyo", "a mi" dentro de
+   * "compara mi negocio").
+   */
+  private static tienePalabraExacta(t: string, frase: string): boolean {
+    const escapado = this.normalizar(frase).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!escapado) return false;
+    return new RegExp(`\\b${escapado}\\b`).test(t);
+  }
+
+  /**
    * JLP-SALUDO-CORTO-FIX: la clave fonética elimina la "h muda" del español
    * ("ay"/"hay"), pero "hi" y "hey" son préstamos del inglés donde la "h"
    * SÍ se pronuncia — al quitarla quedan en "i" y "ey" (1-2 caracteres),
@@ -434,11 +447,35 @@ export class ChatResponses {
     'perro', 'perrito', 'perra', 'perrita', 'cachorro', 'cachorra',
     'gato', 'gatito', 'gata', 'gatita',
     'mascota', 'mascotas', 'canino', 'canina', 'felino', 'felina',
+    // JLP-CORTE-PELO-HILO-FIX: solicitud del usuario — sumar apodos
+    // cariñosos comunes con los que la gente se refiere a su mascota como
+    // si fuera un hijo/hija ("mi perrihijo").
+    'perrihijo', 'perrihija',
   ];
 
   private static readonly PALABRAS_HUMANO_EXPLICITO = [
     'barberia', 'barbería', 'salon de belleza', 'salón de belleza',
     'peluqueria', 'peluquería', 'estetica', 'estética',
+  ];
+
+  /**
+   * JLP-CORTE-PELO-HILO-FIX: solicitud del usuario — ampliar el alcance
+   * para que mencionar un familiar/persona cercana ("para mi hijo", "mi
+   * mamá", "mi jefe"...) también cuente como pista humana explícita, tanto
+   * en el mensaje original ("corte de pelo para mi hijo" ya no debería
+   * preguntar) como en la respuesta corta a "¿para ti o tu mascota?". Se
+   * separa de `PALABRAS_HUMANO_EXPLICITO` (nombres de establecimiento)
+   * porque estas son palabras sueltas y cortas ("papa", "hijo"...) que
+   * necesitan comparación con límites de palabra (`tienePalabraExacta`),
+   * no substring simple, para evitar falsos positivos dentro de otras
+   * palabras.
+   */
+  private static readonly PALABRAS_FAMILIA_HUMANA = [
+    'hijo', 'hija', 'mama', 'mamá', 'mami', 'papa', 'papá', 'papi',
+    'padre', 'madre', 'hermana', 'hermano', 'sister', 'brother', 'bro',
+    'amiga', 'amigo', 'friend', 'sobrina', 'sobrino', 'prima', 'primo',
+    'tio', 'tío', 'tia', 'tía', 'jefe', 'jefa',
+    'bendi', 'bendicion', 'bendición',
   ];
 
   /**
@@ -470,7 +507,9 @@ export class ChatResponses {
     if (!mencionaCorte) return false;
 
     const yaEspecificaAnimal = this.PALABRAS_ANIMAL.some((p) => this.tieneFrase(t, p));
-    const yaEspecificaHumano = this.PALABRAS_HUMANO_EXPLICITO.some((p) => this.tieneFrase(t, p));
+    const yaEspecificaHumano =
+      this.PALABRAS_HUMANO_EXPLICITO.some((p) => this.tieneFrase(t, p)) ||
+      this.PALABRAS_FAMILIA_HUMANA.some((p) => this.tienePalabraExacta(t, p));
 
     return !yaEspecificaAnimal && !yaEspecificaHumano;
   }
@@ -485,6 +524,40 @@ export class ChatResponses {
         `Un corte de pelo lo puedo buscar en barberías o salones de belleza${enCiudad}, y si es para tu perro o gato también tenemos estéticas caninas. ¿Para quién es?`,
       ),
     };
+  }
+
+  /**
+   * JLP-CORTE-PELO-HILO-FIX: bug reportado por el usuario — Jelpy pregunta
+   * "¿Corte de pelo para ti o para tu mascota?" (`responderCortePeloAmbiguo`
+   * arriba), pero al responder con algo tan simple como "Para mi" el hilo
+   * se perdía por completo: la respuesta corta no coincidía con ningún
+   * alias de negocio ni patrón de seguimiento, así que caía directo en el
+   * "No entendí bien" genérico — justo lo contrario de lo que se le acababa
+   * de preguntar. Este helper interpreta la respuesta A esa pregunta
+   * puntual (se usa junto con `PreguntaPendiente.tipo ===
+   * 'corte_pelo_para_quien'` en `ContextResolverUseCase`, ver ese archivo)
+   * para poder resolver directamente hacia barbería/salón de belleza
+   * (humano) o estética canina (mascota) sin volver a preguntar.
+   */
+  private static readonly PALABRAS_RESPUESTA_HUMANO = [
+    'para mi', 'para mí', 'para mi mismo', 'para mí mismo',
+    'para mi misma', 'para mí misma', 'soy yo', 'es para mi', 'es para mí',
+    'yo', 'a mi', 'a mí', 'para una persona', 'para mi persona',
+  ];
+
+  static resolverCortePeloParaQuien(texto: string): 'humano' | 'mascota' | 'indefinido' {
+    const t = this.normalizar(texto);
+
+    const esMascota = this.PALABRAS_ANIMAL.some((p) => this.tieneFrase(t, p));
+    if (esMascota) return 'mascota';
+
+    const esHumano =
+      this.PALABRAS_HUMANO_EXPLICITO.some((p) => this.tieneFrase(t, p)) ||
+      this.PALABRAS_RESPUESTA_HUMANO.some((p) => this.tienePalabraExacta(t, p)) ||
+      this.PALABRAS_FAMILIA_HUMANA.some((p) => this.tienePalabraExacta(t, p));
+    if (esHumano) return 'humano';
+
+    return 'indefinido';
   }
 
   /**

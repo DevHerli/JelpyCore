@@ -326,4 +326,95 @@ describe('ChatResponses "corte de pelo" ambiguo (JLP-CORTE-PELO-AMBIGUO-FIX)', (
     expect(respuesta.mensaje).toMatch(/mascota|perro|gato/i);
     expect(respuesta.mensaje.match(/\?/g)?.length).toBe(1);
   });
+
+  // JLP-CORTE-PELO-HILO-FIX: solicitud del usuario — "corte de pelo para
+  // mi hijo"/"para mi mamá"/etc. ya trae una pista humana explícita
+  // (mención de un familiar/persona cercana), así que NO debe seguir
+  // considerándose ambiguo ni preguntar de nuevo.
+  it.each([
+    'corte de pelo para mi hijo',
+    'corte de pelo para mi hija',
+    'corte de pelo para mi mamá',
+    'corte de pelo para mi papá',
+    'corte de pelo para mi hermano',
+    'corte de pelo para mi jefe',
+  ])('"%s" (menciona un familiar/persona) NO se marca como ambiguo', (texto) => {
+    expect(ChatResponses.esCortePeloAmbiguo(texto)).toBe(false);
+  });
+});
+
+/**
+ * JLP-CORTE-PELO-HILO-FIX: bug reportado por el usuario (con captura de
+ * pantalla) — tras preguntar "¿Corte de pelo para ti o para tu mascota?",
+ * responder algo tan simple como "Para mi" hacía que Jelpy respondiera "No
+ * entendí bien...", rompiendo el hilo de la conversación justo después de
+ * la propia pregunta que Jelpy había hecho. `resolverCortePeloParaQuien`
+ * interpreta esa respuesta corta (se usa junto con
+ * `ContextResolverUseCase`/`PreguntaPendiente.tipo === 'corte_pelo_para_quien'`,
+ * ver `context-resolver.usecase.ts`) para resolver directo hacia
+ * barbería/salón de belleza (humano) o estética canina (mascota).
+ *
+ * También cubre la solicitud explícita del usuario de ampliar el alcance
+ * con apodos familiares/de amistad ("mi hijo", "mi mamá", "mi jefe",
+ * "brother", "mi bendición"...) y variantes cariñosas de mascota
+ * ("perrihijo", "gatita"...).
+ */
+describe('ChatResponses.resolverCortePeloParaQuien (JLP-CORTE-PELO-HILO-FIX)', () => {
+  it.each([
+    'para mi',
+    'para mí',
+    'yo',
+    'soy yo',
+    'es para mi',
+    'para mi hijo',
+    'para mi hija',
+    'mi mami',
+    'mi mama',
+    'mi papi',
+    'mi papa',
+    'padre',
+    'madre',
+    'mi hermana',
+    'mi hermano',
+    'sister',
+    'brother',
+    'bro',
+    'amiga',
+    'amigo',
+    'friend',
+    'sobrina',
+    'sobrino',
+    'prima',
+    'primo',
+    'tio',
+    'tia',
+    'jefe',
+    'jefa',
+    'mi bendi',
+    'mi bendicion',
+  ])('"%s" se resuelve como "humano"', (texto) => {
+    expect(ChatResponses.resolverCortePeloParaQuien(texto)).toBe('humano');
+  });
+
+  it.each([
+    'para mi perro',
+    'para mi perrito',
+    'para mi perrita',
+    'para mi gato',
+    'para mi gatito',
+    'para mi gatita',
+    'mi mascota',
+    'para mi perrihijo',
+    'para mi perrihija',
+  ])('"%s" se resuelve como "mascota"', (texto) => {
+    expect(ChatResponses.resolverCortePeloParaQuien(texto)).toBe('mascota');
+  });
+
+  it('una respuesta que no aclara nada se resuelve como "indefinido"', () => {
+    expect(ChatResponses.resolverCortePeloParaQuien('no se')).toBe('indefinido');
+  });
+
+  it('"arroyo" no se confunde con la palabra suelta "yo" (falso positivo de substring)', () => {
+    expect(ChatResponses.resolverCortePeloParaQuien('vivo cerca de un arroyo')).toBe('indefinido');
+  });
 });

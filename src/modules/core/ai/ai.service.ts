@@ -685,9 +685,21 @@ export class AiService {
     // es — así se busca la categoría correcta en vez de asumir una a
     // ciegas o cruzarse con el giro equivocado.
     if (ChatResponses.esCortePeloAmbiguo(textoParaProcesar)) {
-      const respuestaCortePelo = ChatResponses.responderCortePeloAmbiguo(
-        contexto?.ciudad ?? sesion.ciudad,
-      );
+      const ciudadCortePelo = contexto?.ciudad ?? sesion.ciudad;
+      const respuestaCortePelo = ChatResponses.responderCortePeloAmbiguo(ciudadCortePelo);
+
+      // JLP-CORTE-PELO-HILO-FIX: bug reportado por el usuario — Jelpy
+      // preguntaba "¿Corte de pelo para ti o para tu mascota?" y, al
+      // responder "Para mi", el hilo se perdía ("no entendí bien"). Se
+      // guarda esta pregunta como pendiente (igual que ya se hace para
+      // "¿Quieres que busque otros negocios similares que sí tengan
+      // promo?") para que `ContextResolverUseCase` pueda resolver la
+      // siguiente respuesta corta contra ESTA pregunta puntual, en vez de
+      // perder el contexto.
+      await this.conversationService.guardarPreguntaPendiente(idSesionActiva, {
+        tipo: 'corte_pelo_para_quien',
+        ciudad: ciudadCortePelo,
+      });
 
       await this.conversationService.guardarTurnoUsuario(
         idSesionActiva,

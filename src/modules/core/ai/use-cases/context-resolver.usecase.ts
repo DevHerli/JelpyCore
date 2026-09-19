@@ -111,7 +111,12 @@ export interface ContextResolution {
  * vez de caer en "no entendí".
  */
 export interface PreguntaPendiente {
-  tipo: 'buscar_similares_promo';
+  // JLP-CORTE-PELO-HILO-FIX: se agrega 'corte_pelo_para_quien' — la
+  // pregunta "¿Corte de pelo para ti o para tu mascota?" (ver
+  // `ChatResponses.responderCortePeloAmbiguo`) también necesita quedar
+  // registrada como pendiente para que una respuesta corta como "Para mi"
+  // se resuelva contra ESTA pregunta en vez de caer en "no entendí".
+  tipo: 'buscar_similares_promo' | 'corte_pelo_para_quien';
   categoria?: string;
   ciudad?: string;
 }
@@ -143,8 +148,23 @@ export class ContextResolverUseCase {
       tipoSeguimiento: 'ninguno',
     };
 
-    // Sin sesión o sin contexto previo → procesar normal
-    if (!sesion || !sesion.ultimoIntent) return sinContexto;
+    // Sin sesión → procesar normal
+    if (!sesion) return sinContexto;
+
+    // JLP-CORTE-PELO-HILO-FIX: bug reportado por el usuario — tras
+    // preguntar "¿Corte de pelo para ti o para tu mascota?", responder
+    // "Para mi" caía en "no entendí". Causa raíz: la pregunta de corte de
+    // pelo ambiguo se intercepta y responde 100% local, ANTES de cualquier
+    // búsqueda real (ver `AiService`, rama `esCortePeloAmbiguo`), así que
+    // `sesion.ultimoIntent` nunca llega a establecerse (solo lo hace
+    // `actualizarContextoBusqueda`, que corre después de una búsqueda de
+    // negocios de verdad) — y este método cortaba camino aquí mismo antes
+    // de siquiera revisar si había una `pendienteConfirmacion` guardada.
+    // Se deja pasar cuando hay una pregunta pendiente, sin importar
+    // `ultimoIntent`, para que el bloque de abajo (punto 0) sí llegue a
+    // evaluarla.
+    const tienePendiente = !!(sesion.ultimosFiltros as any)?.pendienteConfirmacion;
+    if (!sesion.ultimoIntent && !tienePendiente) return sinContexto;
 
     // ------------------------------------------------------------------
     // 0. CONFIRMACIÓN DE UNA PREGUNTA PENDIENTE
@@ -164,7 +184,47 @@ export class ContextResolverUseCase {
       | PreguntaPendiente
       | undefined;
 
-    if (pendiente) {
+    // JLP-CORTE-PELO-HILO-FIX: la pregunta "¿Corte de pelo para ti o para
+    // tu mascota?" NO se responde con "Sí"/"No" (eso es lo que maneja
+    // `ChatResponses.detectarConfirmacion`, usado más abajo para
+    // 'buscar_similares_promo'), sino con quién es ("para mi", "para mi
+    // perro"...). Se resuelve con su propio intérprete
+    // (`ChatResponses.resolverCortePeloParaQuien`) y se antepone un texto
+    // ya desambiguado (con la palabra "barbería"/"mascota" incluida) para
+    // que, al volver a pasar por `esCortePeloAmbiguo` más abajo en
+    // `AiService`, YA NO se detecte como ambiguo y siga de largo hacia la
+    // búsqueda real correcta.
+    if (pendiente?.tipo === 'corte_pelo_para_quien') {
+      const quienEs = ChatResponses.resolverCortePeloParaQuien(mensajeActual);
+      const ciudadPendiente = pendiente.ciudad || sesion.ciudad || '';
+      const enCiudad = ciudadPendiente ? ` en ${ciudadPendiente}` : '';
+
+      if (quienEs === 'humano') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: `corte de pelo en barbería o salón de belleza${enCiudad}`,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+        };
+      }
+
+      if (quienEs === 'mascota') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: `corte de pelo para mi mascota en estética canina${enCiudad}`,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+        };
+      }
+
+      // Respuesta que no aclara nada ("indefinido"): se deja caer al flujo
+      // normal (no se limpia la pregunta pendiente aquí arriba; el llamador
+      // en `AiService` sí la limpia siempre que `tipoSeguimiento ===
+      // 'confirmacion_pendiente'`, así que solo se vuelve a preguntar si el
+      // mensaje en sí vuelve a calzar con `esCortePeloAmbiguo`).
+    }
+
+    if (pendiente?.tipo === 'buscar_similares_promo') {
       const confirmacion = ChatResponses.detectarConfirmacion(mensajeActual);
 
       if (confirmacion === 'afirmativa') {
