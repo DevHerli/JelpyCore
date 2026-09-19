@@ -55,8 +55,16 @@ export class FiltrosBusquedaService {
       const fecha = new Date();
       const horaActual = fecha.toTimeString().slice(0, 8);
 
+      const diasOrden = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
       const dia = fecha.toLocaleString('es-MX', { weekday: 'long' }).toLowerCase();
+      const idxDia = diasOrden.indexOf(dia);
+      const diaPrev = idxDia >= 0 ? diasOrden[(idxDia + 6) % 7] : dia;
 
+      // `hora_cierre <= hora_apertura` ⇒ el horario cruza la medianoche
+      // (p.ej. abre 12:00 y cierra 02:00 del día siguiente). El BETWEEN
+      // normal nunca es verdadero en ese caso, así que se evalúan ambos
+      // sentidos, y también se revisa el horario de AYER por si su cierre
+      // cruzó la medianoche y seguimos dentro de esa madrugada.
       query.andWhere(
         `
         EXISTS (
@@ -65,12 +73,25 @@ export class FiltrosBusquedaService {
           WHERE hs.sucursal_id = v.sucursal_id
             AND hs.eliminado = 0
             AND hs.cerrado = 0
-            AND LOWER(hs.dia_semana) = :dia
-            AND :horaActual BETWEEN hs.hora_apertura AND hs.hora_cierre
+            AND (
+              (
+                LOWER(hs.dia_semana) = :dia
+                AND (
+                  (hs.hora_cierre > hs.hora_apertura AND :horaActual BETWEEN hs.hora_apertura AND hs.hora_cierre)
+                  OR (hs.hora_cierre <= hs.hora_apertura AND (:horaActual >= hs.hora_apertura OR :horaActual <= hs.hora_cierre))
+                )
+              )
+              OR (
+                LOWER(hs.dia_semana) = :diaPrev
+                AND hs.hora_cierre <= hs.hora_apertura
+                AND :horaActual <= hs.hora_cierre
+              )
+            )
         )
         `,
         {
           dia,
+          diaPrev,
           horaActual,
         },
       );

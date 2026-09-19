@@ -129,13 +129,28 @@ export class SearchService {
     return { dia: mapDias[wd] || 'lunes', time: `${hour}:${minute}:00` };
   }
 
+  /** Día anterior (en minúsculas, mismo formato que getLocalNow) al recibido. */
+  private diaAnterior(dia: string): string {
+    const orden = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const idx = orden.indexOf(dia);
+    return idx >= 0 ? orden[(idx + 6) % 7] : dia;
+  }
+
   private formatMensajeHorario(apertura: string, cierre: string, tz: string) {
     if (!apertura || !cierre) return null;
 
     const now = this.getLocalNow(tz);
     const current = now.time;
 
-    if (current >= apertura && current <= cierre) {
+    // Cierre <= apertura ⇒ el negocio cruza la medianoche (p.ej. abre 12:00
+    // y cierra 02:00 del día siguiente). En ese caso sigue abierto si ya
+    // pasó la hora de apertura O si aún no llega la hora de cierre.
+    const cruzaMedianoche = cierre <= apertura;
+    const abierto = cruzaMedianoche
+      ? (current >= apertura || current <= cierre)
+      : (current >= apertura && current <= cierre);
+
+    if (abierto) {
       return `Abierto ahora — Cierra a las ${cierre.slice(0, 5)} hrs`;
     }
 
@@ -369,7 +384,13 @@ if (params.caracteristica) {
 
     if (params.abiertoAhora) {
       const { dia, time } = this.getLocalNow(tz);
+      const diaPrev = this.diaAnterior(dia);
 
+      // `hora_cierre <= hora_apertura` ⇒ el horario cruza la medianoche
+      // (p.ej. abre 12:00 y cierra 02:00 del día siguiente). El BETWEEN
+      // normal nunca es verdadero en ese caso, así que se evalúan ambos
+      // sentidos. También se revisa el horario de AYER por si su cierre
+      // cruzó la medianoche y seguimos dentro de esa madrugada.
       qb.andWhere(
         `
         EXISTS (
@@ -377,12 +398,24 @@ if (params.caracteristica) {
           FROM horarios_sucursal hs
           WHERE hs.sucursal_id = v.sucursal_id
             AND hs.eliminado = 0
-            AND LOWER(hs.dia_semana) = :dia
             AND hs.cerrado = 0
-            AND :now BETWEEN hs.hora_apertura AND hs.hora_cierre
+            AND (
+              (
+                LOWER(hs.dia_semana) = :dia
+                AND (
+                  (hs.hora_cierre > hs.hora_apertura AND :now BETWEEN hs.hora_apertura AND hs.hora_cierre)
+                  OR (hs.hora_cierre <= hs.hora_apertura AND (:now >= hs.hora_apertura OR :now <= hs.hora_cierre))
+                )
+              )
+              OR (
+                LOWER(hs.dia_semana) = :diaPrev
+                AND hs.hora_cierre <= hs.hora_apertura
+                AND :now <= hs.hora_cierre
+              )
+            )
         )
       `,
-        { dia, now: time },
+        { dia, diaPrev, now: time },
       );
     }
 
@@ -640,7 +673,12 @@ if (params.caracteristica) {
       };
     }
 
-    const abiertoAhora = time >= hoy.horaApertura && time <= hoy.horaCierre;
+    // `horaCierre <= horaApertura` ⇒ el negocio cruza la medianoche
+    // (p.ej. abre 12:00 y cierra 02:00 del día siguiente).
+    const cruzaMedianoche = hoy.horaCierre <= hoy.horaApertura;
+    const abiertoAhora = cruzaMedianoche
+      ? (time >= hoy.horaApertura || time <= hoy.horaCierre)
+      : (time >= hoy.horaApertura && time <= hoy.horaCierre);
 
     let mensaje = '';
 

@@ -416,25 +416,67 @@ export class PublicSucursalesService {
     diaHoy: string,
     horaActual: string,
   ): { abiertoAhora: boolean; horaApertura: string | null; horaCierre: string | null } {
-    const horarioHoy = horarios.find((h) => h.diaSemana === diaHoy && !h.cerrado);
-
-    if (!horarioHoy) {
-      return { abiertoAhora: false, horaApertura: null, horaCierre: null };
-    }
-
     const toMin = (t: string) => {
       const [h, m] = t.split(':').map(Number);
       return h * 60 + m;
     };
 
-    const ahora    = toMin(horaActual);
-    const apertura = toMin(horarioHoy.horaApertura);
-    const cierre   = toMin(horarioHoy.horaCierre);
+    const ahora = toMin(horaActual);
+    const horarioHoy = horarios.find((h) => h.diaSemana === diaHoy && !h.cerrado);
 
-    return {
-      abiertoAhora: ahora >= apertura && ahora < cierre,
-      horaApertura: horarioHoy.horaApertura.slice(0, 5),
-      horaCierre:   horarioHoy.horaCierre.slice(0, 5),
-    };
+    // 1) ¿Estamos dentro del horario de HOY? Incluye negocios que cruzan la
+    //    medianoche (p.ej. abren 12:00 y cierran 02:00 del día siguiente):
+    //    antes esto se evaluaba con `ahora >= apertura && ahora < cierre`,
+    //    condición que nunca se cumple cuando cierre < apertura, por lo que
+    //    esos negocios (bares, antros, billares, etc.) aparecían siempre
+    //    como "Cerrado" aunque siguieran dentro de su horario real.
+    if (horarioHoy) {
+      const apertura = toMin(horarioHoy.horaApertura);
+      const cierre   = toMin(horarioHoy.horaCierre);
+      const cruzaMedianoche = cierre <= apertura;
+
+      const abierto = cruzaMedianoche
+        ? (ahora >= apertura || ahora < cierre)
+        : (ahora >= apertura && ahora < cierre);
+
+      if (abierto) {
+        return {
+          abiertoAhora: true,
+          horaApertura: horarioHoy.horaApertura.slice(0, 5),
+          horaCierre:   horarioHoy.horaCierre.slice(0, 5),
+        };
+      }
+    }
+
+    // 2) ¿Seguimos dentro del horario de AYER, que cruzó la medianoche y
+    //    todavía no cierra (p.ej. son las 01:00 y ayer abrió hasta las 02:00)?
+    const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const idxHoy = dias.indexOf(diaHoy);
+    const diaAyer = idxHoy >= 0 ? dias[(idxHoy + 6) % 7] : null;
+    const horarioAyer = diaAyer
+      ? horarios.find((h) => h.diaSemana === diaAyer && !h.cerrado)
+      : undefined;
+
+    if (horarioAyer) {
+      const aperturaAyer = toMin(horarioAyer.horaApertura);
+      const cierreAyer   = toMin(horarioAyer.horaCierre);
+      if (cierreAyer <= aperturaAyer && ahora < cierreAyer) {
+        return {
+          abiertoAhora: true,
+          horaApertura: horarioAyer.horaApertura.slice(0, 5),
+          horaCierre:   horarioAyer.horaCierre.slice(0, 5),
+        };
+      }
+    }
+
+    if (horarioHoy) {
+      return {
+        abiertoAhora: false,
+        horaApertura: horarioHoy.horaApertura.slice(0, 5),
+        horaCierre:   horarioHoy.horaCierre.slice(0, 5),
+      };
+    }
+
+    return { abiertoAhora: false, horaApertura: null, horaCierre: null };
   }
 }
