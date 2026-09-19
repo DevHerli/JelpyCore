@@ -15,6 +15,7 @@ import { RateLimiterService } from './utils/rate-limiter.service';
 import { ZeroResultLoggerUseCase } from './use-cases/zero-result-logger.usecase';
 import { SearchTrendLoggerUseCase } from './use-cases/search-trend-logger.usecase';
 import { JELPY_SEMANTIC_CATEGORIES } from './jelpy-assistant/constants/jelpy-semantic-categories';
+import { coincideTerminoDeNegocio } from './utils/business-term-matcher.util';
 import { PublicidadChatService } from '../publicidad-chat/publicidad-chat.service';
 import { UsuarioPreferenciasService } from '../preferencias-usuarios/usuario-preferencias.service';
 import { SucursalLikesService } from '../sucursal-likes/sucursal-likes.service';
@@ -174,18 +175,16 @@ export class AiService {
     // sola (sin "doctor"/"médico" al lado, ej. "trauma", "traumatologo"),
     // dejando la respuesta de FastAPI en "chat" tal cual. Ahora también se
     // revisan los `servicios` de cada categoría.
+    //
+    // JLP-CONECTOR-OPCIONAL-FIX: `coincideTerminoDeNegocio` (helper
+    // compartido con `ConversationClassifier`) además tolera que el usuario
+    // omita conectores gramaticales dentro de alias/servicios de varias
+    // palabras (ej. "corte pelo" reconoce el alias "corte de pelo") — ver
+    // el comentario de ese archivo para el bug exacto que esto corrige.
     return JELPY_SEMANTIC_CATEGORIES.some((cat) =>
-      [...cat.aliases, ...(cat.servicios || [])].some((termino) => {
-        const terminoNorm = this.normalizarTexto(termino);
-
-        // Términos de 1-2 caracteres son demasiado ambiguos para matchear con
-        // confianza (ej. "te", "ir"); se ignoran para evitar falsos positivos.
-        if (terminoNorm.length < 3) return false;
-
-        const terminoEscapado = terminoNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-        return new RegExp(`\\b${terminoEscapado}\\b`).test(textoNorm);
-      }),
+      [...cat.aliases, ...(cat.servicios || [])].some((termino) =>
+        coincideTerminoDeNegocio(textoNorm, this.normalizarTexto(termino)),
+      ),
     );
   }
 

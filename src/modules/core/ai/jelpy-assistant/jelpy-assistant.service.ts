@@ -16,6 +16,7 @@ import { JelpyAiResponse } from '../../../jelpy-ai/interfaces/jelpy-ai-response.
 import { ChatResponses } from '../utils/chat-responses';
 import { ConversationClassifier } from '../utils/conversation-classifier';
 import { levenshtein } from '../utils/levenshtein.util';
+import { coincideTerminoDeNegocio } from '../utils/business-term-matcher.util';
 
 import {
   SemanticCategory,
@@ -100,14 +101,9 @@ export class JelpyAssistantService {
     const textoNorm = this.normalizarParaCoincidencia(texto);
 
     return this.diccionarioSemantico.some((cat) =>
-      cat.aliases.some((alias) => {
-        const aliasNorm = this.normalizarParaCoincidencia(alias);
-
-        if (aliasNorm.length < 3) return false;
-
-        const aliasEscapado = aliasNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(`\\b${aliasEscapado}\\b`).test(textoNorm);
-      }),
+      cat.aliases.some((alias) =>
+        coincideTerminoDeNegocio(textoNorm, this.normalizarParaCoincidencia(alias)),
+      ),
     );
   }
 
@@ -164,13 +160,20 @@ export class JelpyAssistantService {
     const aliasesDetectados = new Set<string>();
     let giroDetectado: string | undefined;
 
+    // JLP-CONECTOR-OPCIONAL-FIX: se usa el mismo helper que
+    // `ConversationClassifier`/`AiService` (en vez de `textoNorm.includes(...)`
+    // sobre la frase literal) para que alias/servicios de varias palabras
+    // con conectores gramaticales ("corte DE pelo", "salón DE belleza")
+    // también coincidan cuando el usuario los omite ("corte pelo", "salon
+    // belleza") — ver el comentario de `business-term-matcher.util.ts` para
+    // el bug exacto que esto corrige.
     for (const entrada of this.diccionarioSemantico) {
       const coincidencias = entrada.aliases.filter((alias) =>
-        textoNorm.includes(this.normalizar(alias)),
+        coincideTerminoDeNegocio(textoNorm, this.normalizar(alias)),
       );
 
       const serviciosCoincidentes = entrada.servicios.filter((servicio) =>
-        textoNorm.includes(this.normalizar(servicio)),
+        coincideTerminoDeNegocio(textoNorm, this.normalizar(servicio)),
       );
 
       if (coincidencias.length > 0 || serviciosCoincidentes.length > 0) {

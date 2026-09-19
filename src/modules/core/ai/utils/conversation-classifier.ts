@@ -2,6 +2,7 @@ import { JELPY_SEMANTIC_CATEGORIES } from '../jelpy-assistant/constants/jelpy-se
 import { ChatResponses } from './chat-responses';
 import { TextNormalizer } from './text-normalizer';
 import { REFINEMENT_PHRASES } from './refinement-phrases';
+import { coincideTerminoDeNegocio } from './business-term-matcher.util';
 
 export type JelpyConversationIntent =
   | 'small_talk'
@@ -68,17 +69,17 @@ export class ConversationClassifier {
     // 'search' — la petición se quedaba atrapada en el flujo conversacional
     // (`responderConversacional`) y jamás llegaba a la búsqueda real ni al
     // enriquecimiento semántico de `JelpyAssistantService`. Ahora también se
-    // revisan los `servicios` de cada categoría, con la misma lógica de
-    // límites de palabra (`\b`) y longitud mínima.
+    // revisan los `servicios` de cada categoría.
+    //
+    // JLP-CONECTOR-OPCIONAL-FIX: `coincideTerminoDeNegocio` (helper
+    // compartido) además tolera que el usuario omita conectores
+    // gramaticales dentro de alias/servicios de varias palabras (ej.
+    // "corte pelo" reconoce el alias "corte de pelo") — ver el comentario
+    // de ese archivo para el bug exacto que esto corrige.
     return JELPY_SEMANTIC_CATEGORIES.some((cat) =>
-      [...cat.aliases, ...(cat.servicios || [])].some((termino) => {
-        const terminoNorm = this.clavefonetica(termino);
-
-        if (terminoNorm.length < 3) return false;
-
-        const terminoEscapado = terminoNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(`\\b${terminoEscapado}\\b`).test(textoNorm);
-      }),
+      [...cat.aliases, ...(cat.servicios || [])].some((termino) =>
+        coincideTerminoDeNegocio(textoNorm, this.clavefonetica(termino)),
+      ),
     );
   }
 
