@@ -84,24 +84,87 @@ export class SafetyPolicy {
     return { blocked: true, category, title, message };
   }
 
+  /**
+   * JLP-CHICAS-MALAS-FIX: bug/solicitud del usuario — pidió reforzar el
+   * bloqueo de pornografía/contenido sexual/prostitución en TODAS sus
+   * variantes coloquiales en español mexicano, y explícitamente aclaró que
+   * esto NO debe confundirse con "chicas malas" (jerga de vida nocturna
+   * para referirse a clubes/antros para adultos, un negocio legítimo que sí
+   * se puede buscar en Jelpy — ver `JELPY_SEMANTIC_CATEGORIES`, entrada
+   * `vida_nocturna_adultos`). Por eso esta lista NO incluye "chicas malas"
+   * ni términos genéricos de vida nocturna (antro, table dance, cabaret):
+   * son búsquedas de negocio válidas, no una solicitud de servicios
+   * sexuales. Lo que sí se agrega aquí son las frases/eufemismos que SÍ
+   * son inequívocamente una solicitud de servicios sexuales pagados o
+   * contenido pornográfico (acompañantes, damas de compañía, prepago,
+   * OnlyFans, contenido íntimo/nudes, "final feliz", ficheras, etc.),
+   * varias de las cuales antes NO estaban cubiertas.
+   */
   private static isSexualContentRequest(t: string): boolean {
     return [
       'porno',
       'pornografia',
       'pornografía',
       'videos sexuales',
+      'video sexual',
       'contenido sexual',
+      'contenido para adultos',
+      'contenido +18',
+      'contenido 18+',
       'sexo explicito',
       'sexo explícito',
+      'sexo por dinero',
+      'sexo pagado',
+      'sexservicio',
+      'sexoservicio',
       'escort',
+      'escorts',
+      'acompañante sexual',
+      'acompañantes sexuales',
+      'dama de compania',
+      'dama de compañía',
+      'damas de compania',
+      'damas de compañía',
+      'chica prepago',
+      'chicas prepago',
+      'servicio de compania',
+      'servicio de compañía',
+      'servicio intimo',
+      'servicio íntimo',
+      'servicios intimos',
+      'servicios íntimos',
+      'masaje final feliz',
+      'masaje con final feliz',
+      'final feliz',
+      'fichera',
+      'ficheras',
       'prostituta',
+      'prostitutas',
       'prostitucion',
       'prostitución',
       'servicios sexuales',
+      'servicio sexual',
       'masajes eroticos',
       'masajes eróticos',
+      'masaje erotico',
+      'masaje erótico',
       'putero',
       'burdel',
+      'table dance privado',
+      'table dance nudista',
+      'striptease privado',
+      'baile nudista privado',
+      'onlyfans',
+      'contenido de nudes',
+      'fotos intimas',
+      'fotos íntimas',
+      'video intimo',
+      'video íntimo',
+      'videos intimos',
+      'videos íntimos',
+      'nudes',
+      'webcam sexual',
+      'sexting',
     ].some((p) => this.has(t, p));
   }
 

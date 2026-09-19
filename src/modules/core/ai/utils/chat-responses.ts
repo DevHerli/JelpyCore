@@ -1,4 +1,5 @@
 import { TextNormalizer } from './text-normalizer';
+import { coincideTerminoDeNegocio } from './business-term-matcher.util';
 
 export class ChatResponses {
 
@@ -440,16 +441,31 @@ export class ChatResponses {
     'peluqueria', 'peluquería', 'estetica', 'estética',
   ];
 
+  /**
+   * JLP-CORTE-PELO-CONECTOR-FIX: bug reportado por el usuario — escribir
+   * "Corte pelo" (sin la palabra "de") ya NO disparaba esta pregunta de
+   * aclaración (humano vs. mascota) porque `tieneFrase` exigía coincidencia
+   * LITERAL de la frase completa "corte de pelo", conector incluido. Al no
+   * reconocerse como el caso ambiguo, el mensaje seguía de largo hacia una
+   * búsqueda real que no encontraba nada exacto y terminaba mostrando una
+   * sugerencia ortográfica sin sentido ("¿Quisiste decir 'corto'?") en vez
+   * de la pregunta útil de "¿para ti o tu mascota?". Se usa el mismo
+   * helper compartido (`coincideTerminoDeNegocio`, ver
+   * `business-term-matcher.util.ts`) que ya tolera la omisión de
+   * conectores gramaticales ("de", "el"...) en `ConversationClassifier`/
+   * `AiService`, para que "corte pelo", "corte cabello", "cortar pelo" y
+   * "cortarme cabello" se reconozcan igual que sus formas completas.
+   */
   static esCortePeloAmbiguo(texto: string): boolean {
     const t = this.normalizar(texto);
 
     const mencionaCorte =
-      this.tieneFrase(t, 'corte de pelo') ||
-      this.tieneFrase(t, 'corte de cabello') ||
-      this.tieneFrase(t, 'cortar el pelo') ||
-      this.tieneFrase(t, 'cortar el cabello') ||
-      this.tieneFrase(t, 'cortarme el pelo') ||
-      this.tieneFrase(t, 'cortarme el cabello');
+      coincideTerminoDeNegocio(t, this.normalizar('corte de pelo')) ||
+      coincideTerminoDeNegocio(t, this.normalizar('corte de cabello')) ||
+      coincideTerminoDeNegocio(t, this.normalizar('cortar el pelo')) ||
+      coincideTerminoDeNegocio(t, this.normalizar('cortar el cabello')) ||
+      coincideTerminoDeNegocio(t, this.normalizar('cortarme el pelo')) ||
+      coincideTerminoDeNegocio(t, this.normalizar('cortarme el cabello'));
 
     if (!mencionaCorte) return false;
 

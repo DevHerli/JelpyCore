@@ -222,3 +222,122 @@ describe('JelpyAssistantService.interpretar — especialidad médica por nombre 
     },
   );
 });
+
+describe('JelpyAssistantService.interpretar — "chicas malas" es vida nocturna para adultos, no prostitución (JLP-CHICAS-MALAS-FIX)', () => {
+  // Solicitud del usuario: cuando alguien pregunta "chicas malas" o "dónde
+  // puedo encontrar chicas malas" (jerga muy usada en México para clubes
+  // nocturnos/antros con shows para adultos), Jelpy debe entenderlo como
+  // una búsqueda de NEGOCIO legítimo (club nocturno/antro), nunca como una
+  // solicitud de servicios sexuales o prostitución — eso se bloquea aparte
+  // y por separado (ver `SafetyPolicy.isSexualContentRequest`).
+  const categoriaEntretenimientoEnBD = { id: 9, nombre: 'Entretenimiento' };
+  const subcategoriaAntrosEnBD = {
+    id: 21,
+    nombre: 'Antros y discotecas',
+    categoria: categoriaEntretenimientoEnBD,
+  };
+
+  function mockFastApiSinEntidades(mocks: ReturnType<typeof crearMocks>, textoUsuario: string) {
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'chat',
+      confidence: 0.3,
+      entities: {
+        categoria: null,
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: textoUsuario,
+      reply: { mode: 'direct_reply', title: null, message: null, suggestions: [] },
+    });
+  }
+
+  it.each(['chicas malas', 'donde puedo encontrar chicas malas'])(
+    '"%s" resuelve la subcategoría "Antros y discotecas" (club nocturno de adultos), no prostitución',
+    async (textoUsuario) => {
+      const { service, mocks } = crearServicio({
+        subcatRepo: {
+          find: jest.fn().mockResolvedValue([subcategoriaAntrosEnBD]),
+        } as any,
+        categoriaRepo: {
+          find: jest.fn().mockResolvedValue([categoriaEntretenimientoEnBD]),
+        } as any,
+      });
+
+      mockFastApiSinEntidades(mocks, textoUsuario);
+
+      mocks.searchService.search.mockResolvedValue({
+        items: [{ id: 20, nombre: 'Club Nocturno Ejemplo', subcategoria_id: 21 }],
+      });
+
+      const resultado = await service.interpretar(textoUsuario);
+
+      expect(resultado.filtros_detectados.subcategoriaId).toBe(21);
+      expect(resultado.filtros_detectados.categoriaId).toBe(9);
+      expect(resultado.resultados.items).toHaveLength(1);
+      expect(resultado.sin_resultados).toBe(false);
+    },
+  );
+});
+
+describe('JelpyAssistantService.interpretar — "villar" (confusión b/v) resuelve la subcategoría "Billar" (JLP-BILLAR-VILLAR-FIX)', () => {
+  // Solicitud del usuario: verificar si "billar" y su confusión ortográfica
+  // muy común "villar" (betacismo: "b"/"v" suenan igual en español) se
+  // reconocen igual. `buscarSubcategoriaPorNombre` solo hace match
+  // exacto/substring contra el nombre real en BD ("Billar"), sin tolerancia
+  // a errores de dedo, así que depende de que el diccionario semántico local
+  // (`detectarIntencionSemantica`) resuelva primero el giro a partir de un
+  // alias — de ahí que "villar" se agregue como alias literal explícito.
+  const categoriaEntretenimientoEnBD = { id: 9, nombre: 'Entretenimiento' };
+  const subcategoriaBillarEnBD = {
+    id: 30,
+    nombre: 'Billar',
+    categoria: categoriaEntretenimientoEnBD,
+  };
+
+  function mockFastApiSinEntidades(mocks: ReturnType<typeof crearMocks>, textoUsuario: string) {
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'chat',
+      confidence: 0.3,
+      entities: {
+        categoria: null,
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: textoUsuario,
+      reply: { mode: 'direct_reply', title: null, message: null, suggestions: [] },
+    });
+  }
+
+  it.each(['billar', 'villar', 'mesa de billar', 'mesa de villar'])(
+    '"%s" resuelve la subcategoría "Billar" aunque FastAPI no haya detectado ninguna entidad',
+    async (textoUsuario) => {
+      const { service, mocks } = crearServicio({
+        subcatRepo: {
+          find: jest.fn().mockResolvedValue([subcategoriaBillarEnBD]),
+        } as any,
+        categoriaRepo: {
+          find: jest.fn().mockResolvedValue([categoriaEntretenimientoEnBD]),
+        } as any,
+      });
+
+      mockFastApiSinEntidades(mocks, textoUsuario);
+
+      mocks.searchService.search.mockResolvedValue({
+        items: [{ id: 30, nombre: 'Billar Ejemplo', subcategoria_id: 30 }],
+      });
+
+      const resultado = await service.interpretar(textoUsuario);
+
+      expect(resultado.filtros_detectados.subcategoriaId).toBe(30);
+      expect(resultado.filtros_detectados.categoriaId).toBe(9);
+      expect(resultado.resultados.items).toHaveLength(1);
+      expect(resultado.sin_resultados).toBe(false);
+    },
+  );
+});

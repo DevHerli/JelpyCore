@@ -290,6 +290,13 @@ describe('ChatResponses "corte de pelo" ambiguo (JLP-CORTE-PELO-AMBIGUO-FIX)', (
     'corte de cabello',
     'cortar el pelo',
     'necesito cortarme el pelo',
+    // JLP-CORTE-PELO-CONECTOR-FIX: bug reportado por el usuario — escribir
+    // "Corte pelo" (sin la palabra "de") dejaba de reconocerse como el
+    // mismo caso ambiguo y terminaba mostrando una sugerencia ortográfica
+    // sin sentido ("¿Quisiste decir 'corto'?") en vez de esta pregunta.
+    'Corte pelo',
+    'corte cabello',
+    'cortar pelo',
   ])('"%s" (sin pista de para quién es) se detecta como ambiguo', (texto) => {
     expect(ChatResponses.esCortePeloAmbiguo(texto)).toBe(true);
   });
@@ -302,6 +309,11 @@ describe('ChatResponses "corte de pelo" ambiguo (JLP-CORTE-PELO-AMBIGUO-FIX)', (
     'corte de pelo en salón de belleza',
     'busco una peluquería',
     'busco un restaurante', // no menciona corte de pelo en absoluto
+    // JLP-CORTE-PELO-CONECTOR-FIX: mismas variantes sin pista, pero ahora
+    // sin el conector "de" — deben seguir reconociendo la pista de para
+    // quién es (mascota/barbería) igual que con la frase completa.
+    'corte pelo para mi perro',
+    'corte pelo en barbería',
   ])('"%s" (ya trae pista de para quién es, o no habla de corte de pelo) NO se marca como ambiguo', (texto) => {
     expect(ChatResponses.esCortePeloAmbiguo(texto)).toBe(false);
   });

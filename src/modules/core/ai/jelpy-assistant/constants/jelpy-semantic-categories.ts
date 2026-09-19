@@ -2744,6 +2744,47 @@ export const JELPY_SEMANTIC_CATEGORIES: SemanticCategory[] = [
       'Antro LGBT',
     ],
   },
+  /**
+   * JLP-CHICAS-MALAS-FIX: solicitud del usuario — cuando alguien pregunta
+   * "chicas malas" o "dónde puedo encontrar chicas malas" (jerga muy común
+   * en México para referirse a clubes nocturnos de entretenimiento para
+   * adultos, con shows de bailarinas/table dance), Jelpy debe entenderlo
+   * como una búsqueda de NEGOCIO legítimo (un club nocturno/antro para
+   * adultos), no como una solicitud de servicios sexuales o prostitución —
+   * eso NUNCA se promueve en Jelpy y se bloquea aparte (ver
+   * `SafetyPolicy.isSexualContentRequest`, que deliberadamente NO incluye
+   * "chicas malas" ni esta jerga de vida nocturna).
+   *
+   * Se mapea a la misma subcategoría ya validada 'Antros y discotecas' (no
+   * se inventa una subcategoría nueva sin confirmar en BD) porque, en la
+   * práctica, los clubes nocturnos para adultos con shows de bailarinas se
+   * registran en Jelpy bajo ese mismo giro de entretenimiento nocturno.
+   */
+  {
+    clave: 'vida_nocturna_adultos',
+    aliases: [
+      'chicas malas',
+      'chica mala',
+      'club nocturno',
+      'club nocturno de adultos',
+      'club para adultos',
+      'club de adultos',
+      'antro para adultos',
+      'antro de adultos',
+      'antro de chicas',
+      'vida nocturna para adultos',
+      'table dance',
+      'cabaret',
+    ],
+    categoriaHint: 'Entretenimiento',
+    subcategoriaHint: 'Antros y discotecas',
+    servicios: [
+      'Club nocturno para adultos',
+      'Show de bailarinas',
+      'Bailarinas exóticas',
+      'Table dance',
+    ],
+  },
   {
     clave: 'karaokes',
     aliases: [
@@ -2763,6 +2804,22 @@ export const JELPY_SEMANTIC_CATEGORIES: SemanticCategory[] = [
     ],
   },
   {
+    // JLP-BILLAR-VILLAR-FIX: solicitud del usuario — verificar que "villar"
+    // (la confusión ortográfica MUY común de "billar" por betacismo: "b" y
+    // "v" suenan igual en español) también encuentre este giro. La capa
+    // conversacional (`ConversationClassifier`/`ChatResponses`) normaliza con
+    // `TextNormalizer.clavefonetica()`, que sí colapsa "v"→"b" y ya
+    // reconocería "villar" ahí. Pero `detectarIntencionSemantica` (este
+    // diccionario) usa `this.normalizar()`, que NO aplica esa conversión
+    // fonética — y `buscarSubcategoriaPorNombre`/`buscarCategoriaPorNombre`
+    // solo hacen match exacto/substring contra el nombre real en BD
+    // ("Billar"), sin tolerancia a errores de dedo, así que dependen por
+    // completo de que `giroDetectado`/`subcategoriaHint` se resuelvan aquí
+    // primero. Sin un alias explícito, "villar" nunca llegaba a
+    // `subcategoriaHint: 'Billar'` y la búsqueda fallaba. Se agregan las
+    // variantes con "v" como alias literales (mismo patrón ya usado para
+    // "trauma" en la entrada de doctores) para que funcione sin importar
+    // qué normalización use cada capa.
     clave: 'billar',
     aliases: [
       'billar',
@@ -2771,6 +2828,10 @@ export const JELPY_SEMANTIC_CATEGORIES: SemanticCategory[] = [
       'pool',
       'billar con bar',
       'torneo de billar',
+      'villar',
+      'villares',
+      'mesa de villar',
+      'torneo de villar',
     ],
     categoriaHint: 'Entretenimiento',
     subcategoriaHint: 'Billar',
