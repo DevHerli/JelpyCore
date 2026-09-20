@@ -5,8 +5,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Connection } from 'typeorm';
 import { BusinessMessage, MessageType } from './entities/business-message.entity';
 import { QueryMessagesDto } from './dtos/query-messages.dto';
+import { QueryInboxDto } from './dtos/query-inbox.dto';
 import { CreateMessageDto } from './dtos/create-message.dto';
 
 /** Forma snake_case que espera el frontend */
@@ -31,6 +33,7 @@ export class MessagesService {
   constructor(
     @InjectRepository(BusinessMessage)
     private readonly repo: Repository<BusinessMessage>,
+    private readonly connection: Connection,
   ) {}
 
   // ─────────────────────────────────────────
@@ -64,6 +67,172 @@ export class MessagesService {
         per_page:     perPage,
         total,
         unread_total: unreadTotal,
+      },
+    };
+  }
+
+  async getInbox(subscriberId: number, dto: QueryInboxDto) {
+    const page = Math.max(1, Number(dto.page ?? 1));
+    const perPage = Math.min(50, Math.max(1, Number(dto.per_page ?? 30)));
+    const offset = (page - 1) * perPage;
+    const source = dto.source ?? 'all';
+    const unreadOnly = String(dto.unread_only ?? '').toLowerCase() === 'true';
+    const search = dto.q?.trim();
+
+    const blocks: string[] = [];
+    const params: any[] = [];
+    const countParams: any[] = [];
+
+    const addMessageBlock = () => {
+      let where = `m.subscriber_id = ?`;
+      const localParams: any[] = [subscriberId];
+
+      if (unreadOnly) where += ` AND m.is_read = 0`;
+      if (search) {
+        where += ` AND (m.title LIKE ? OR m.preview LIKE ? OR m.body LIKE ?)`;
+        localParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      }
+
+      blocks.push(`
+        SELECT
+          CONCAT('message:', m.id) AS inbox_id,
+          'message' AS source,
+          m.id AS source_id,
+          m.type AS kind,
+          m.title AS title,
+          m.preview AS preview,
+          m.body AS body,
+          m.sender_name AS sender_name,
+          m.is_read AS is_read,
+          m.cta_label AS cta_label,
+          m.cta_route AS cta_route,
+          NULL AS cta_url,
+          m.metadata AS metadata,
+          m.created_at AS created_at
+        FROM business_messages m
+        WHERE ${where}
+      `);
+      params.push(...localParams);
+      countParams.push(...localParams);
+    };
+
+    const addNotificationBlock = () => {
+      let where = `un.user_id = ?`;
+      const localParams: any[] = [subscriberId];
+
+      if (unreadOnly) where += ` AND un.is_read = 0`;
+      if (search) {
+        where += ` AND (n.title LIKE ? OR n.message LIKE ?)`;
+        localParams.push(`%${search}%`, `%${search}%`);
+      }
+
+      blocks.push(`
+        SELECT
+          CONCAT('notification:', un.id) AS inbox_id,
+          'notification' AS source,
+          un.id AS source_id,
+          n.category AS kind,
+          n.title AS title,
+          n.message AS preview,
+          n.message AS body,
+          'Jelpy' AS sender_name,
+          un.is_read AS is_read,
+          n.cta_label AS cta_label,
+          n.cta_route AS cta_route,
+          n.cta_url AS cta_url,
+          NULL AS metadata,
+          un.received_at AS created_at
+        FROM user_notifications un
+        INNER JOIN notifications n ON n.id = un.notification_id
+        WHERE ${where}
+      `);
+      params.push(...localParams);
+      countParams.push(...localParams);
+    };
+
+    const addTicketBlock = () => {
+      let where = `t.usuario_id = ?`;
+      const localParams: any[] = [subscriberId];
+
+      if (unreadOnly) where += ` AND t.estado IN ('pendiente', 'en_atencion')`;
+      if (search) {
+        where += ` AND (t.folio LIKE ? OR t.categoria_label LIKE ? OR t.problema_label LIKE ? OR t.descripcion LIKE ?)`;
+        localParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+      }
+
+      blocks.push(`
+        SELECT
+          CONCAT('ticket:', t.id) AS inbox_id,
+          'ticket' AS source,
+          t.id AS source_id,
+          t.estado AS kind,
+          CONCAT('Ticket ', t.folio) AS title,
+          CONCAT(t.categoria_label, ' · ', t.problema_label) AS preview,
+          COALESCE(t.respuesta_agente, t.descripcion, '') AS body,
+          'Soporte Jelpy' AS sender_name,
+          CASE WHEN t.estado IN ('resuelto', 'cerrado') THEN 1 ELSE 0 END AS is_read,
+          'Ver ticket' AS cta_label,
+          CONCAT('/tabs/support/tickets/', t.folio) AS cta_route,
+          NULL AS cta_url,
+          JSON_OBJECT(
+            'folio', t.folio,
+            'estado', t.estado,
+            'prioridad', t.prioridad,
+            'categoria_label', t.categoria_label,
+            'problema_label', t.problema_label
+          ) AS metadata,
+          t.created_at AS created_at
+        FROM support_tickets t
+        WHERE ${where}
+      `);
+      params.push(...localParams);
+      countParams.push(...localParams);
+    };
+
+    if (source === 'all' || source === 'messages') addMessageBlock();
+    if (source === 'all' || source === 'notifications') addNotificationBlock();
+    if (source === 'all' || source === 'tickets') addTicketBlock();
+
+    const unionSql = blocks.join('\nUNION ALL\n');
+    const rows = await this.connection.query(
+      `
+        SELECT *
+        FROM (${unionSql}) inbox
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      `,
+      [...params, perPage, offset],
+    );
+
+    const countRows = await this.connection.query(
+      `SELECT COUNT(*) AS total FROM (${unionSql}) inbox_count`,
+      countParams,
+    );
+
+    const total = Number(countRows?.[0]?.total ?? 0);
+
+    return {
+      data: rows.map((row: any) => ({
+        inbox_id: row.inbox_id,
+        source: row.source,
+        source_id: Number(row.source_id),
+        kind: row.kind,
+        title: row.title,
+        preview: row.preview,
+        body: row.body,
+        sender_name: row.sender_name,
+        is_read: Boolean(row.is_read),
+        cta_label: row.cta_label ?? null,
+        cta_route: row.cta_route ?? null,
+        cta_url: row.cta_url ?? null,
+        metadata: typeof row.metadata === 'string' ? this.safeJson(row.metadata) : row.metadata ?? null,
+        created_at: row.created_at,
+      })),
+      meta: {
+        current_page: page,
+        per_page: perPage,
+        total,
+        last_page: Math.ceil(total / perPage) || 1,
       },
     };
   }
@@ -184,6 +353,14 @@ export class MessagesService {
         }),
       );
       await this.repo.save(entities);
+    }
+  }
+
+  private safeJson(value: string) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
     }
   }
 }

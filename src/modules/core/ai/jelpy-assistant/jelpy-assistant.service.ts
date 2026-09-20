@@ -72,12 +72,14 @@ export class JelpyAssistantService {
 
   stopwords = [
     'en', 'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
-    'a', 'para', 'por', 'con', 'que', 'mi', 'mí', 'me', 'donde', 'hay', 'busca',
+    'a', 'y', 'o', 'para', 'por', 'con', 'sin', 'que', 'mi', 'mí', 'me', 'donde', 'hay', 'busca',
     'buscas', 'buscar', 'quiero', 'quieres', 'quieras', 'necesito',
     'dime', 'lugar', 'lugares', 'negocio', 'negocios',
     'esta', 'está', 'estan', 'están', 'mas', 'más',
     'vende', 'venden', 'vendan', 'vender', 'venta', 'encuentro', 'encontrar',
-    'consigo', 'comprar', 'compra',
+    'consigo', 'comprar', 'compra', 'quien', 'quién', 'hace', 'hacen', 'hacer',
+    'ofrece', 'ofrecen', 'ofrecer', 'tiene', 'tienen', 'tenga', 'tengan',
+    'cuenta', 'cuentan', 'realiza', 'realizan',
     'cerca', 'cerquita', 'abierto', 'ahora', 'ahorita', 'promo', 'promos',
     'oferta', 'descuento',
   ];
@@ -596,6 +598,85 @@ for (const a of aliases) {
       .trim();
 
     return limpio || textoNorm;
+  }
+
+  private esConsultaDeCatalogo(textoNorm: string, filtros: any): boolean {
+    if (filtros.intent === 'buscar_items_negocio') return true;
+
+    const patrones = [
+      'donde venden',
+      'donde vende',
+      'donde encuentro',
+      'donde consigo',
+      'donde comprar',
+      'quien vende',
+      'quien tiene',
+      'quien hace',
+      'donde hacen',
+      'donde hace',
+      'donde realizan',
+      'donde realiza',
+      'donde ofrecen',
+      'donde ofrece',
+      'que negocios venden',
+      'que negocio vende',
+      'que lugares venden',
+      'que lugar vende',
+      'tienen',
+      'cuentan con',
+      'hacen',
+    ];
+
+    return patrones.some((patron) => textoNorm.includes(this.normalizar(patron)));
+  }
+
+  private limpiarQueryCatalogo(textoNorm: string): string {
+    return this.normalizar(textoNorm)
+      .replace(/[¿?¡!.,;:()]/g, ' ')
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 2 && !this.stopwords.includes(token))
+      .join(' ')
+      .trim();
+  }
+
+  private async buscarEnCatalogo(params: {
+    queryBusqueda?: string;
+    filtros: any;
+    latitud?: number;
+    longitud?: number;
+    permitirFiltrosTaxonomia?: boolean;
+  }) {
+    const {
+      queryBusqueda,
+      filtros,
+      latitud,
+      longitud,
+      permitirFiltrosTaxonomia = true,
+    } = params;
+
+    if (!queryBusqueda) return { items: [] };
+
+    const base = {
+      q: queryBusqueda,
+      ciudad: filtros.ciudad,
+      caracteristica: filtros.caracteristica,
+      lat: filtros.lat ?? latitud,
+      lng: filtros.lng ?? longitud,
+      radioKm: 10,
+    };
+
+    const resultadosConTaxonomia = await this.searchService.searchByItems({
+      ...base,
+      categoriaId: permitirFiltrosTaxonomia ? filtros.categoriaId : undefined,
+      subcategoriaId: permitirFiltrosTaxonomia ? filtros.subcategoriaId : undefined,
+    });
+
+    if (this.hasResults(resultadosConTaxonomia) || !permitirFiltrosTaxonomia) {
+      return resultadosConTaxonomia;
+    }
+
+    return this.searchService.searchByItems(base);
   }
 
   private hasResults(resultados: any): boolean {
@@ -1251,10 +1332,13 @@ for (const a of aliases) {
         : texto;
 
     const textoNorm = this.normalizar(textoProcesado);
-    const respuestaConversacional = this.responderConversacional(
-      textoProcesado,
-      ciudadManual,
-    );
+    const esPotencialConsultaCatalogo = this.esConsultaDeCatalogo(textoNorm, {});
+    const respuestaConversacional = esPotencialConsultaCatalogo
+      ? null
+      : this.responderConversacional(
+          textoProcesado,
+          ciudadManual,
+        );
 
     if (respuestaConversacional) {
       return respuestaConversacional;
@@ -1276,6 +1360,41 @@ for (const a of aliases) {
       prefs = await this.aplicarPreferenciasUsuario(filtros, usuarioId);
 
       const queryBusqueda = this.resolveQueryForSearch(filtros, textoNorm);
+      const esConsultaCatalogo = this.esConsultaDeCatalogo(textoNorm, filtros);
+      const queryCatalogo = esConsultaCatalogo
+        ? this.limpiarQueryCatalogo(textoNorm)
+        : queryBusqueda;
+
+      if (esConsultaCatalogo) {
+        const resultadosItems = await this.buscarEnCatalogo({
+          queryBusqueda: queryCatalogo,
+          filtros,
+          latitud,
+          longitud,
+          permitirFiltrosTaxonomia: true,
+        });
+
+        filtros.intent = 'buscar_items_negocio';
+
+        const resultadosCatalogo = this.ordenarResultadosPorPreferencias(
+          resultadosItems,
+          prefs,
+        );
+        const sinResultadosCatalogo = !this.hasResults(resultadosCatalogo);
+        const suggestedQueriesCatalogo = sinResultadosCatalogo
+          ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
+          : await this.generarSugerencias(resultadosCatalogo, filtros, filtersApplied);
+
+        return {
+          filtros_detectados: filtros,
+          resultados: this.normalizarPromosEnResultados(resultadosCatalogo),
+          sin_resultados: sinResultadosCatalogo,
+          mensaje_sin_resultados: sinResultadosCatalogo
+            ? 'No encontré negocios con ese producto o servicio registrado en su catálogo.'
+            : null,
+          suggestedQueries: suggestedQueriesCatalogo,
+        };
+      }
 
       let resultados: any = await this.searchService.search({
         q: queryBusqueda,
@@ -1292,15 +1411,12 @@ for (const a of aliases) {
       });
 
       if (!this.hasResults(resultados) && !filtros.caracteristica) {
-        const resultadosItems = await this.searchService.searchByItems({
-          q: queryBusqueda,
-          ciudad: filtros.ciudad,
-          categoriaId: filtros.categoriaId,
-          subcategoriaId: filtros.subcategoriaId,
-          caracteristica: filtros.caracteristica,
-          lat: filtros.lat,
-          lng: filtros.lng,
-          radioKm: 10,
+        const resultadosItems = await this.buscarEnCatalogo({
+          queryBusqueda,
+          filtros,
+          latitud,
+          longitud,
+          permitirFiltrosTaxonomia: true,
         });
 
         if (this.hasResults(resultadosItems)) {
@@ -1347,15 +1463,12 @@ for (const a of aliases) {
         });
 
         if (!this.hasResults(resultados) && !filtros.caracteristica) {
-          const resultadosItems = await this.searchService.searchByItems({
-            q: queryBusqueda,
-            ciudad: filtros.ciudad,
-            categoriaId: filtros.categoriaId,
-            subcategoriaId: filtros.subcategoriaId,
-            caracteristica: filtros.caracteristica,
-            lat: filtros.lat,
-            lng: filtros.lng,
-            radioKm: 10,
+          const resultadosItems = await this.buscarEnCatalogo({
+            queryBusqueda,
+            filtros,
+            latitud,
+            longitud,
+            permitirFiltrosTaxonomia: true,
           });
 
           if (this.hasResults(resultadosItems)) {
@@ -1655,6 +1768,39 @@ for (const a of aliases) {
     }
 
     const queryBusqueda = this.resolveQueryForSearch(filtros, textoNorm);
+    const esConsultaCatalogo = this.esConsultaDeCatalogo(textoNorm, filtros);
+    const queryCatalogo = esConsultaCatalogo
+      ? this.limpiarQueryCatalogo(textoNorm)
+      : queryBusqueda;
+
+    if (esConsultaCatalogo) {
+      filtros.intent = 'buscar_items_negocio';
+
+      const resultadosItems = await this.buscarEnCatalogo({
+        queryBusqueda: queryCatalogo,
+        filtros,
+        latitud,
+        longitud,
+        permitirFiltrosTaxonomia: true,
+      });
+
+      const resultadosCatalogo = this.normalizarPromosEnResultados(
+        this.ordenarResultadosPorPreferencias(resultadosItems, prefs),
+      );
+      const sinResultadosCatalogo = !this.hasResults(resultadosCatalogo);
+
+      return {
+        filtros_detectados: filtros,
+        resultados: resultadosCatalogo,
+        sin_resultados: sinResultadosCatalogo,
+        mensaje_sin_resultados: sinResultadosCatalogo
+          ? 'No encontré negocios con ese producto o servicio registrado en su catálogo.'
+          : null,
+        suggestedQueries: sinResultadosCatalogo
+          ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
+          : await this.generarSugerencias(resultadosCatalogo, filtros, filtersApplied),
+      };
+    }
 
     let resultados: any = await this.searchService.search({
       q: queryBusqueda,
@@ -1671,15 +1817,12 @@ for (const a of aliases) {
     });
 
     if (!this.hasResults(resultados) && !filtros.caracteristica) {
-      const resultadosItems = await this.searchService.searchByItems({
-        q: queryBusqueda,
-        ciudad: filtros.ciudad,
-        categoriaId: filtros.categoriaId,
-        subcategoriaId: filtros.subcategoriaId,
-        caracteristica: filtros.caracteristica,
-        lat: filtros.lat,
-        lng: filtros.lng,
-        radioKm: 10,
+      const resultadosItems = await this.buscarEnCatalogo({
+        queryBusqueda,
+        filtros,
+        latitud,
+        longitud,
+        permitirFiltrosTaxonomia: true,
       });
 
       if (this.hasResults(resultadosItems)) {
@@ -1704,15 +1847,12 @@ for (const a of aliases) {
       });
 
       if (!this.hasResults(resultados) && !filtros.caracteristica) {
-        const resultadosItems = await this.searchService.searchByItems({
-          q: queryBusqueda,
-          ciudad: filtros.ciudad,
-          categoriaId: filtros.categoriaId,
-          subcategoriaId: filtros.subcategoriaId,
-          caracteristica: filtros.caracteristica,
-          lat: filtros.lat,
-          lng: filtros.lng,
-          radioKm: 10,
+        const resultadosItems = await this.buscarEnCatalogo({
+          queryBusqueda,
+          filtros,
+          latitud,
+          longitud,
+          permitirFiltrosTaxonomia: true,
         });
 
         if (this.hasResults(resultadosItems)) {

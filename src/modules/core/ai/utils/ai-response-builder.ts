@@ -221,6 +221,7 @@ export class AIResponseBuilder {
       sucursalId: i.sucursal_id ?? null,
 
       nombre: i.nombre_negocio,
+      nombreNegocio: i.nombre_negocio ?? null,
       sucursal: i.sucursal,
       nombreSucursal: i.sucursal,
 
@@ -232,6 +233,7 @@ export class AIResponseBuilder {
       // Nuevo: item encontrado
       item: i.item
         ? {
+            id: i.item.id ?? null,
             nombre: i.item.nombre ?? null,
             descripcion: i.item.descripcion ?? null,
             precioBase: i.item.precioBase ?? null,
@@ -240,6 +242,7 @@ export class AIResponseBuilder {
           }
         : i.item_encontrado
           ? {
+              id: i.item_id ?? null,
               nombre: i.item_encontrado ?? null,
               descripcion: i.descripcion_item ?? null,
               precioBase: i.precio_item ?? null,
@@ -247,6 +250,11 @@ export class AIResponseBuilder {
               imagenUrl: i.imagen_item ?? null,
             }
           : null,
+
+      itemEncontrado:
+        i.item?.nombre ??
+        i.item_encontrado ??
+        null,
 
       logo: i.logo_url ?? i.logo ?? null,
 

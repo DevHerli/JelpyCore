@@ -60,6 +60,117 @@ function crearServicio(overrides: Partial<ReturnType<typeof crearMocks>> = {}) {
 }
 
 describe('JelpyAssistantService.interpretar (JLP-FALLBACK-CATEGORIA-CRUZADA-FIX)', () => {
+  it('"donde venden alitas" prioriza catálogo/items y no devuelve restaurantes genéricos', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: {
+        categoria: 'restaurantes',
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden alitas',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.searchService.search.mockResolvedValue({
+      items: [{ id: 88, nombre: 'Restaurante Genérico' }],
+    });
+    mocks.searchService.searchByItems.mockResolvedValue({
+      items: [
+        {
+          id: 10,
+          nombre_negocio: 'Wing House',
+          item: { id: 501, nombre: 'Alitas BBQ' },
+        },
+      ],
+    });
+
+    const resultado = await service.interpretar('donde venden alitas');
+
+    expect(resultado.filtros_detectados.intent).toBe('buscar_items_negocio');
+    expect(resultado.resultados.items).toHaveLength(1);
+    expect(resultado.resultados.items[0].item.nombre).toBe('Alitas BBQ');
+    expect(mocks.searchService.searchByItems).toHaveBeenCalledWith(
+      expect.objectContaining({ q: 'alitas' }),
+    );
+    expect(mocks.searchService.search).not.toHaveBeenCalled();
+  });
+
+  it('si no hay item en catálogo, "donde venden alitas" no rellena con restaurantes genéricos', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: {
+        categoria: 'restaurantes',
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden alitas',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.searchService.search.mockResolvedValue({
+      items: [{ id: 88, nombre: 'Restaurante Genérico' }],
+    });
+    mocks.searchService.searchByItems.mockResolvedValue({ items: [] });
+
+    const resultado = await service.interpretar('donde venden alitas');
+
+    expect(resultado.filtros_detectados.intent).toBe('buscar_items_negocio');
+    expect(resultado.resultados.items).toHaveLength(0);
+    expect(resultado.sin_resultados).toBe(true);
+    expect(mocks.searchService.search).not.toHaveBeenCalled();
+  });
+
+  it('"donde hacen estudio de la tiroides" busca como servicio/item de catálogo', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: {
+        categoria: 'salud',
+        subcategoria: 'laboratorios',
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde hacen estudio de la tiroides',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.searchService.searchByItems.mockResolvedValue({
+      items: [
+        {
+          id: 22,
+          nombre_negocio: 'Laboratorio Salud',
+          item: { id: 700, nombre: 'Estudio de la tiroides' },
+        },
+      ],
+    });
+
+    const resultado = await service.interpretar('donde hacen estudio de la tiroides');
+
+    expect(resultado.filtros_detectados.intent).toBe('buscar_items_negocio');
+    expect(resultado.resultados.items[0].item.nombre).toBe('Estudio de la tiroides');
+    expect(mocks.searchService.searchByItems).toHaveBeenCalledWith(
+      expect.objectContaining({ q: 'estudio tiroides' }),
+    );
+    expect(mocks.searchService.search).not.toHaveBeenCalled();
+  });
+
   it('"corte de pelo" sin peluquería/barbería resoluble en BD NO cae al fallback de texto libre sin categoría (bug reportado: mostraba farmacias)', async () => {
     const { service, mocks } = crearServicio();
 

@@ -11,6 +11,7 @@ import {
 import { MessagesService } from './messages.service';
 import { MessagesJwtAuthGuard } from './guards/jwt-auth.guard';
 import { QueryMessagesDto } from './dtos/query-messages.dto';
+import { QueryInboxDto } from './dtos/query-inbox.dto';
 
 /**
  * Prefijo: /messages  (el frontend usa /api/messages → ajusta el baseURL del HttpClient)
@@ -41,6 +42,15 @@ export class MessagesController {
   @Patch('read-all')
   markAllAsRead(@Request() req: any) {
     return this.messagesService.markAllAsRead(Number(req.user.sub));
+  }
+
+  /**
+   * GET /messages/inbox?source=all&unread_only=false&q=&page=1&per_page=30
+   * Bandeja unificada para la app: mensajes, notificaciones y tickets.
+   */
+  @Get('inbox')
+  getInbox(@Query() query: QueryInboxDto, @Request() req: any) {
+    return this.messagesService.getInbox(Number(req.user.sub), query);
   }
 
   /**
