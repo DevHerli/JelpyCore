@@ -12,6 +12,7 @@ export type RequesterCtx = { sub: number; isAdmin: boolean };
 export type TipoEventoEstadistica =
   | 'vista'
   | 'clic'
+  | 'favorito'
   | 'busqueda'
   | 'llamada'
   | 'whatsapp'
@@ -20,6 +21,7 @@ export type TipoEventoEstadistica =
 export const TIPOS_EVENTO_ESTADISTICA: TipoEventoEstadistica[] = [
   'vista',
   'clic',
+  'favorito',
   'busqueda',
   'llamada',
   'whatsapp',
@@ -30,13 +32,30 @@ export const TIPOS_EVENTO_ESTADISTICA: TipoEventoEstadistica[] = [
 // (`tipo === 'vista' ? 'vistas' : tipo === 'clic' ? 'clics' : 'busquedas'`)
 // que degradaba SILENCIOSAMENTE cualquier tipo desconocido a `busquedas` —
 // bug latente nunca disparado porque antes solo existían 3 tipos válidos.
-const CAMPO_POR_TIPO: Record<TipoEventoEstadistica, string> = {
+const CAMPO_POR_TIPO: Partial<Record<TipoEventoEstadistica, string>> = {
   vista: 'vistas',
   clic: 'clics',
   busqueda: 'busquedas',
   llamada: 'llamadas',
   whatsapp: 'whatsapp',
   como_llegar: 'direcciones',
+};
+
+export type DetalleEventoEstadistica = {
+  origen?: string | null;
+  superficie?: string | null;
+  termino?: string | null;
+  ciudadId?: number | null;
+  ciudadNombre?: string | null;
+  categoriaId?: number | null;
+  categoriaNombre?: string | null;
+  subcategoriaId?: number | null;
+  subcategoriaNombre?: string | null;
+  negocioId?: number | null;
+  sucursalId?: number | null;
+  resultados?: number | null;
+  sinResultados?: boolean | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 @Injectable()
@@ -64,6 +83,23 @@ export class EstadisticasService {
     }
   }
 
+  private async assertOwnershipSucursal(
+    sucursalId: number,
+    requester?: RequesterCtx,
+  ): Promise<void> {
+    if (!requester) return;
+
+    const rows = await this.connection.query(
+      `SELECT id, negocio_id FROM sucursales_negocios WHERE id = ? AND eliminado = 0 LIMIT 1`,
+      [sucursalId],
+    );
+    if (!rows.length) {
+      throw new NotFoundException('Sucursal no encontrada');
+    }
+
+    await this.assertOwnershipNegocio(Number(rows[0].negocio_id), requester);
+  }
+
   /**
    * Registrar evento genérico (vistas, clics, búsqueda, y desde METRICS-001
    * también llamadas/whatsapp/como_llegar — conversión orgánica).
@@ -79,6 +115,7 @@ export class EstadisticasService {
     tipo: TipoEventoEstadistica,
     entidad: 'negocio' | 'sucursal',
     id: number,
+    detalle?: DetalleEventoEstadistica,
   ) {
     const tabla =
       entidad === 'negocio'
@@ -86,20 +123,193 @@ export class EstadisticasService {
         : 'estadisticas_sucursales';
 
     const campo = CAMPO_POR_TIPO[tipo];
-    if (!campo) {
+    if (!TIPOS_EVENTO_ESTADISTICA.includes(tipo)) {
       // Defensa en profundidad: el controller ya valida contra la whitelist,
       // pero el service no debe confiar ciegamente en el caller (también lo
       // invoca TrackMetricsUseCase directamente).
       throw new BadRequestException(`Tipo de evento inválido: ${tipo}`);
     }
 
-    await this.connection.query(
-      `INSERT INTO ${tabla} (${entidad}_id, ${campo}) VALUES (?, 1)
-       ON DUPLICATE KEY UPDATE ${campo} = ${campo} + 1`,
-      [id],
-    );
+    if (campo) {
+      await this.connection.query(
+        `INSERT INTO ${tabla} (${entidad}_id, ${campo}) VALUES (?, 1)
+         ON DUPLICATE KEY UPDATE ${campo} = ${campo} + 1`,
+        [id],
+      );
+    }
+
+    await this.registrarEventoDetallado(tipo, entidad, id, detalle);
 
     return { message: `${tipo} registrada para ${entidad} ${id}` };
+  }
+
+  async registrarBusquedaSinResultados(detalle: DetalleEventoEstadistica) {
+    if (!detalle.termino?.trim()) {
+      throw new BadRequestException('El término de búsqueda es obligatorio');
+    }
+    if (!detalle.origen?.trim()) {
+      throw new BadRequestException('El origen es obligatorio');
+    }
+
+    const entidad: 'negocio' | 'sucursal' = detalle.sucursalId ? 'sucursal' : 'negocio';
+    const id = Number(detalle.sucursalId ?? detalle.negocioId ?? 0);
+
+    await this.registrarEventoDetallado('busqueda', entidad, id, {
+      ...detalle,
+      resultados: 0,
+      sinResultados: true,
+    });
+
+    return { message: 'Búsqueda sin resultados registrada' };
+  }
+
+  private async registrarEventoDetallado(
+    tipo: TipoEventoEstadistica,
+    entidad: 'negocio' | 'sucursal',
+    id: number,
+    detalle?: DetalleEventoEstadistica,
+  ): Promise<void> {
+    const sucursalId = this.toNumberOrNull(detalle?.sucursalId ?? (entidad === 'sucursal' ? id : null));
+    const negocioId = this.toNumberOrNull(detalle?.negocioId ?? (entidad === 'negocio' ? id : null));
+    const entidadId = this.toNumberOrNull(id);
+    const metadata = detalle?.metadata ? JSON.stringify(detalle.metadata) : null;
+
+    await this.connection.query(
+      `INSERT INTO estadisticas_eventos (
+         tipo, entidad, entidad_id, origen, superficie, termino,
+         ciudad_id, ciudad_nombre, categoria_id, categoria_nombre,
+         subcategoria_id, subcategoria_nombre, negocio_id, sucursal_id,
+         resultados, sin_resultados, metadata
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        tipo,
+        entidad,
+        entidadId,
+        this.truncate(detalle?.origen, 40) ?? 'unknown',
+        this.truncate(detalle?.superficie, 80),
+        this.truncate(detalle?.termino, 255),
+        this.toNumberOrNull(detalle?.ciudadId),
+        this.truncate(detalle?.ciudadNombre, 120),
+        this.toNumberOrNull(detalle?.categoriaId),
+        this.truncate(detalle?.categoriaNombre, 160),
+        this.toNumberOrNull(detalle?.subcategoriaId),
+        this.truncate(detalle?.subcategoriaNombre, 160),
+        negocioId,
+        sucursalId,
+        Math.max(0, Number(detalle?.resultados ?? 0) || 0),
+        detalle?.sinResultados ? 1 : 0,
+        metadata,
+      ],
+    );
+  }
+
+  async getDesgloseSucursal(sucursalId: number, requester?: RequesterCtx) {
+    await this.assertOwnershipSucursal(sucursalId, requester);
+
+    const [porOrigenRows, busquedasSinResultado, categoriasMasBuscadas, ciudadesMasBuscadas] =
+      await Promise.all([
+        this.connection.query(
+          `SELECT tipo, origen, COUNT(*) AS total
+             FROM estadisticas_eventos
+            WHERE sucursal_id = ?
+              AND sin_resultados = 0
+            GROUP BY tipo, origen
+            ORDER BY tipo ASC, total DESC`,
+          [sucursalId],
+        ),
+        this.connection.query(
+          `SELECT termino, origen, COUNT(*) AS total
+             FROM estadisticas_eventos
+            WHERE sucursal_id = ?
+              AND tipo = 'busqueda'
+              AND sin_resultados = 1
+              AND termino IS NOT NULL
+            GROUP BY termino, origen
+            ORDER BY total DESC, termino ASC
+            LIMIT 20`,
+          [sucursalId],
+        ),
+        this.connection.query(
+          `SELECT categoria_id AS id, categoria_nombre AS nombre, COUNT(*) AS total
+             FROM estadisticas_eventos
+            WHERE sucursal_id = ?
+              AND tipo = 'busqueda'
+              AND categoria_id IS NOT NULL
+            GROUP BY categoria_id, categoria_nombre
+            ORDER BY total DESC
+            LIMIT 10`,
+          [sucursalId],
+        ),
+        this.connection.query(
+          `SELECT ciudad_id AS id, ciudad_nombre AS nombre, COUNT(*) AS total
+             FROM estadisticas_eventos
+            WHERE sucursal_id = ?
+              AND tipo = 'busqueda'
+              AND ciudad_id IS NOT NULL
+            GROUP BY ciudad_id, ciudad_nombre
+            ORDER BY total DESC
+            LIMIT 10`,
+          [sucursalId],
+        ),
+      ]);
+
+    return {
+      porOrigen: this.formatearPorOrigen(porOrigenRows),
+      busquedasSinResultado: busquedasSinResultado.map((row: any) => ({
+        termino: row.termino,
+        total: Number(row.total),
+        origen: row.origen,
+      })),
+      categoriasMasBuscadas: categoriasMasBuscadas.map((row: any) => ({
+        id: Number(row.id),
+        nombre: row.nombre,
+        total: Number(row.total),
+      })),
+      ciudadesMasBuscadas: ciudadesMasBuscadas.map((row: any) => ({
+        id: Number(row.id),
+        nombre: row.nombre,
+        total: Number(row.total),
+      })),
+    };
+  }
+
+  private formatearPorOrigen(rows: any[]) {
+    const result = {
+      busquedas: [] as Array<{ origen: string; total: number }>,
+      vistas: [] as Array<{ origen: string; total: number }>,
+      clics: [] as Array<{ origen: string; total: number }>,
+      favoritos: [] as Array<{ origen: string; total: number }>,
+    };
+
+    const keyByTipo: Record<string, keyof typeof result> = {
+      busqueda: 'busquedas',
+      vista: 'vistas',
+      clic: 'clics',
+      favorito: 'favoritos',
+    };
+
+    for (const row of rows) {
+      const key = keyByTipo[row.tipo];
+      if (!key) continue;
+      result[key].push({
+        origen: row.origen,
+        total: Number(row.total),
+      });
+    }
+
+    return result;
+  }
+
+  private truncate(value: unknown, max: number): string | null {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    return text ? text.substring(0, max) : null;
+  }
+
+  private toNumberOrNull(value: unknown): number | null {
+    if (value === undefined || value === null || value === '') return null;
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
   }
 
   /**

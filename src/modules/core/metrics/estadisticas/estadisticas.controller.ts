@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, 
 import { Throttle } from '@nestjs/throttler';
 import { EstadisticasService, RequesterCtx, TIPOS_EVENTO_ESTADISTICA, TipoEventoEstadistica } from './estadisticas.service';
 import { TrackEventoDto } from './dto/track-evento.dto';
+import { BusquedaSinResultadosDto } from './dto/busqueda-sin-resultados.dto';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../../../common/guards/admin.guard';
 
@@ -28,7 +29,13 @@ export class EstadisticasController {
   @Throttle({ default: { limit: 60, ttl: 60 } })
   @Post('evento')
   registrarEventoBody(@Body() body: TrackEventoDto) {
-    return this.estadisticasService.registrarEvento(body.tipo, body.entidad, body.id);
+    return this.estadisticasService.registrarEvento(body.tipo, body.entidad, body.id, body);
+  }
+
+  @Throttle({ default: { limit: 60, ttl: 60 } })
+  @Post('busquedas-sin-resultados')
+  registrarBusquedaSinResultados(@Body() body: BusquedaSinResultadosDto) {
+    return this.estadisticasService.registrarBusquedaSinResultados(body);
   }
 
   // Registrar evento (vista, clic, búsqueda, llamada, whatsapp, como_llegar)
@@ -93,6 +100,15 @@ export class EstadisticasController {
   @Get('negocio/:id/global-metrics')
   getGlobalMetricsNegocio(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.estadisticasService.getGlobalMetricsNegocio(id, this.requester(req));
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('sucursal/:sucursalId/desglose')
+  getDesgloseSucursal(
+    @Req() req: any,
+    @Param('sucursalId', ParseIntPipe) sucursalId: number,
+  ) {
+    return this.estadisticasService.getDesgloseSucursal(sucursalId, this.requester(req));
   }
 
 }
