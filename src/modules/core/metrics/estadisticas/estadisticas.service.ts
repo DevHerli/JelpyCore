@@ -41,6 +41,17 @@ const CAMPO_POR_TIPO: Partial<Record<TipoEventoEstadistica, string>> = {
   como_llegar: 'direcciones',
 };
 
+const ORIGENES_ESTADISTICA = new Set([
+  'chat',
+  'home',
+  'search',
+  'category',
+  'promotions',
+  'business_detail',
+  'ads',
+  'unknown',
+]);
+
 export type DetalleEventoEstadistica = {
   origen?: string | null;
   superficie?: string | null;
@@ -51,6 +62,8 @@ export type DetalleEventoEstadistica = {
   categoriaNombre?: string | null;
   subcategoriaId?: number | null;
   subcategoriaNombre?: string | null;
+  especialidadId?: number | null;
+  especialidadNombre?: string | null;
   negocioId?: number | null;
   sucursalId?: number | null;
   resultados?: number | null;
@@ -178,14 +191,15 @@ export class EstadisticasService {
       `INSERT INTO estadisticas_eventos (
          tipo, entidad, entidad_id, origen, superficie, termino,
          ciudad_id, ciudad_nombre, categoria_id, categoria_nombre,
-         subcategoria_id, subcategoria_nombre, negocio_id, sucursal_id,
+         subcategoria_id, subcategoria_nombre, especialidad_id, especialidad_nombre,
+         negocio_id, sucursal_id,
          resultados, sin_resultados, metadata
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         tipo,
         entidad,
         entidadId,
-        this.truncate(detalle?.origen, 40) ?? 'unknown',
+        this.normalizeOrigen(detalle?.origen),
         this.truncate(detalle?.superficie, 80),
         this.truncate(detalle?.termino, 255),
         this.toNumberOrNull(detalle?.ciudadId),
@@ -194,6 +208,8 @@ export class EstadisticasService {
         this.truncate(detalle?.categoriaNombre, 160),
         this.toNumberOrNull(detalle?.subcategoriaId),
         this.truncate(detalle?.subcategoriaNombre, 160),
+        this.toNumberOrNull(detalle?.especialidadId),
+        this.truncate(detalle?.especialidadNombre, 160),
         negocioId,
         sucursalId,
         Math.max(0, Number(detalle?.resultados ?? 0) || 0),
@@ -206,25 +222,32 @@ export class EstadisticasService {
   async getDesgloseSucursal(sucursalId: number, requester?: RequesterCtx) {
     await this.assertOwnershipSucursal(sucursalId, requester);
 
-    const [porOrigenRows, busquedasSinResultado, categoriasMasBuscadas, ciudadesMasBuscadas] =
+    const [
+      porOrigenRows,
+      busquedasSinResultado,
+      categoriasMasBuscadas,
+      subcategoriasMasBuscadas,
+      especialidadesMasBuscadas,
+      ciudadesMasBuscadas,
+    ] =
       await Promise.all([
         this.connection.query(
-          `SELECT tipo, origen, COUNT(*) AS total
+          `SELECT tipo, COALESCE(origen, 'unknown') AS origen, COUNT(*) AS total
              FROM estadisticas_eventos
             WHERE sucursal_id = ?
               AND sin_resultados = 0
-            GROUP BY tipo, origen
+            GROUP BY tipo, COALESCE(origen, 'unknown')
             ORDER BY tipo ASC, total DESC`,
           [sucursalId],
         ),
         this.connection.query(
-          `SELECT termino, origen, COUNT(*) AS total
+          `SELECT termino, COALESCE(origen, 'unknown') AS origen, COUNT(*) AS total
              FROM estadisticas_eventos
             WHERE sucursal_id = ?
               AND tipo = 'busqueda'
               AND sin_resultados = 1
               AND termino IS NOT NULL
-            GROUP BY termino, origen
+            GROUP BY termino, COALESCE(origen, 'unknown')
             ORDER BY total DESC, termino ASC
             LIMIT 20`,
           [sucursalId],
@@ -236,6 +259,28 @@ export class EstadisticasService {
               AND tipo = 'busqueda'
               AND categoria_id IS NOT NULL
             GROUP BY categoria_id, categoria_nombre
+            ORDER BY total DESC
+            LIMIT 10`,
+          [sucursalId],
+        ),
+        this.connection.query(
+          `SELECT subcategoria_id AS id, subcategoria_nombre AS nombre, COUNT(*) AS total
+             FROM estadisticas_eventos
+            WHERE sucursal_id = ?
+              AND tipo = 'busqueda'
+              AND subcategoria_id IS NOT NULL
+            GROUP BY subcategoria_id, subcategoria_nombre
+            ORDER BY total DESC
+            LIMIT 10`,
+          [sucursalId],
+        ),
+        this.connection.query(
+          `SELECT especialidad_id AS id, especialidad_nombre AS nombre, COUNT(*) AS total
+             FROM estadisticas_eventos
+            WHERE sucursal_id = ?
+              AND tipo = 'busqueda'
+              AND especialidad_id IS NOT NULL
+            GROUP BY especialidad_id, especialidad_nombre
             ORDER BY total DESC
             LIMIT 10`,
           [sucursalId],
@@ -265,6 +310,16 @@ export class EstadisticasService {
         nombre: row.nombre,
         total: Number(row.total),
       })),
+      subcategoriasMasBuscadas: subcategoriasMasBuscadas.map((row: any) => ({
+        id: Number(row.id),
+        nombre: row.nombre,
+        total: Number(row.total),
+      })),
+      especialidadesMasBuscadas: especialidadesMasBuscadas.map((row: any) => ({
+        id: Number(row.id),
+        nombre: row.nombre,
+        total: Number(row.total),
+      })),
       ciudadesMasBuscadas: ciudadesMasBuscadas.map((row: any) => ({
         id: Number(row.id),
         nombre: row.nombre,
@@ -279,6 +334,10 @@ export class EstadisticasService {
       vistas: [] as Array<{ origen: string; total: number }>,
       clics: [] as Array<{ origen: string; total: number }>,
       favoritos: [] as Array<{ origen: string; total: number }>,
+      llamadas: [] as Array<{ origen: string; total: number }>,
+      whatsapp: [] as Array<{ origen: string; total: number }>,
+      direcciones: [] as Array<{ origen: string; total: number }>,
+      como_llegar: [] as Array<{ origen: string; total: number }>,
     };
 
     const keyByTipo: Record<string, keyof typeof result> = {
@@ -286,18 +345,30 @@ export class EstadisticasService {
       vista: 'vistas',
       clic: 'clics',
       favorito: 'favoritos',
+      llamada: 'llamadas',
+      whatsapp: 'whatsapp',
+      como_llegar: 'como_llegar',
     };
 
     for (const row of rows) {
       const key = keyByTipo[row.tipo];
       if (!key) continue;
-      result[key].push({
+      const item = {
         origen: row.origen,
         total: Number(row.total),
-      });
+      };
+      result[key].push(item);
+      if (row.tipo === 'como_llegar') {
+        result.direcciones.push(item);
+      }
     }
 
     return result;
+  }
+
+  private normalizeOrigen(value: unknown): string {
+    const normalized = this.truncate(value, 40) ?? 'unknown';
+    return ORIGENES_ESTADISTICA.has(normalized) ? normalized : 'unknown';
   }
 
   private truncate(value: unknown, max: number): string | null {

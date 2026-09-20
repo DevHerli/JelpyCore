@@ -54,12 +54,27 @@ export class BusquedaSinResultadosDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  especialidadId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  especialidadNombre?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
   negocioId?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
   sucursalId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  resultados?: number;
 
   @IsOptional()
   @IsObject()

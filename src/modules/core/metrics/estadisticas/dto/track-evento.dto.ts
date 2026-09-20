@@ -75,6 +75,16 @@ export class TrackEventoDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  especialidadId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  especialidadNombre?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
   negocioId?: number;
 
   @IsOptional()
