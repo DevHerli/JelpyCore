@@ -416,6 +416,7 @@ export class PromocionesSucursalesService {
 
     const query = this.promoRepo
       .createQueryBuilder('promo')
+      .distinct(true)
       .leftJoinAndSelect('promo.sucursal', 'sucursal')
       .leftJoinAndSelect('sucursal.negocio', 'negocio')
       .leftJoinAndSelect('negocio.categoria', 'categoria')
@@ -434,6 +435,59 @@ export class PromocionesSucursalesService {
     if (subcategoriaId) query.andWhere('subcategoria.id = :subcategoriaId', { subcategoriaId });
 
     return query.orderBy('promo.fecha_inicio', 'DESC').getMany();
+  }
+
+  async buscarPromocionesActivasPorTexto(
+    texto: string,
+    ciudadId?: number,
+  ): Promise<PromocionSucursal[]> {
+    const termino = String(texto || '').trim().toLowerCase();
+
+    if (!termino) return [];
+
+    const hoy = new Date();
+    const diaActual = hoy
+      .toLocaleString('es-MX', { weekday: 'long' })
+      .replace(/^\w/, (c) => c.toUpperCase());
+
+    const query = this.promoRepo
+      .createQueryBuilder('promo')
+      .distinct(true)
+      .leftJoinAndSelect('promo.sucursal', 'sucursal')
+      .leftJoinAndSelect('sucursal.ciudad', 'ciudad')
+      .leftJoinAndSelect('sucursal.negocio', 'negocio')
+      .leftJoinAndSelect('negocio.categoria', 'categoria')
+      .leftJoinAndSelect('negocio.subcategoria', 'subcategoria')
+      .leftJoin('items_negocio', 'item', 'item.negocio_id = negocio.id AND item.activo = 1')
+      .where('promo.eliminado = 0')
+      .andWhere('promo.activa = 1')
+      .andWhere('CURDATE() BETWEEN promo.fecha_inicio AND promo.fecha_fin')
+      .andWhere(
+        '(promo.dias_vigencia IS NULL OR promo.dias_vigencia = "" OR FIND_IN_SET(:dia, promo.dias_vigencia) > 0)',
+        { dia: diaActual },
+      )
+      .andWhere(
+        `(
+          LOWER(promo.titulo) LIKE :termino OR
+          LOWER(COALESCE(promo.descripcion, '')) LIKE :termino OR
+          LOWER(negocio.nombre_negocio) LIKE :termino OR
+          LOWER(COALESCE(categoria.nombre, '')) LIKE :termino OR
+          LOWER(COALESCE(subcategoria.nombre, '')) LIKE :termino OR
+          LOWER(COALESCE(item.nombre, '')) LIKE :termino OR
+          LOWER(COALESCE(item.descripcion, '')) LIKE :termino
+        )`,
+        { termino: `%${termino}%` },
+      );
+
+    if (ciudadId) {
+      query.andWhere('ciudad.id = :ciudadId', { ciudadId });
+    }
+
+    return query
+      .orderBy('promo.fecha_inicio', 'DESC')
+      .addOrderBy('promo.id', 'DESC')
+      .limit(10)
+      .getMany();
   }
 
   // =========================================================

@@ -254,7 +254,7 @@ export class AiService {
 
   private esSolicitudPromosGenerales(texto: string, aiIntent?: any): boolean {
     const textoNorm = this.normalizarTexto(texto);
-    const mencionaPromo = /\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos|rebaja|rebajas|cupon|cupones|2x1)\b/.test(textoNorm);
+    const mencionaPromo = this.mencionaPromociones(textoNorm);
 
     if (!mencionaPromo) return false;
 
@@ -267,6 +267,94 @@ export class AiService {
     return !tieneEntidadEspecifica;
   }
 
+  private mencionaPromociones(texto: string): boolean {
+    const textoNorm = this.normalizarTexto(texto);
+
+    return /\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos|rebaja|rebajas|cupon|cupones|2x1)\b/.test(textoNorm);
+  }
+
+  private extraerTextoFiltroPromocion(texto: string): string | null {
+    const limpio = this.normalizarTexto(texto)
+      .replace(/\b(promociones|promocion|promos|promo|ofertas|oferta|descuentos|descuento|activas|activa|disponibles|disponible|vigentes|vigente|dame|quiero|busco|buscame|muéstrame|muestrame|muestra|de|en|para|con)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return limpio.length >= 3 ? limpio : null;
+  }
+
+  private detectarItemCatalogoAmbiguo(texto: string): string | null {
+    const textoNorm = this.normalizarTexto(texto);
+
+    if (!textoNorm) return null;
+
+    const yaTieneAccion =
+      this.mencionaPromociones(textoNorm) ||
+      /\b(donde|dónde|venden|vende|vendan|venta|encuentro|encontrar|consigo|tienen|tiene|hay|hacen|hace|lugares|lugar|negocios|negocio|cerca)\b/.test(textoNorm);
+
+    if (yaTieneAccion) return null;
+
+    const mapaItems: Array<{ item: string; patrones: string[] }> = [
+      { item: 'alitas', patrones: ['alitas', 'alita'] },
+      { item: 'tamales', patrones: ['tamales', 'tamal'] },
+      { item: 'pozole', patrones: ['pozole'] },
+      { item: 'helados', patrones: ['helados', 'helado', 'nieves', 'nieve'] },
+      { item: 'rollos mar y tierra', patrones: ['rollos mar y tierra', 'rollos mar tierra', 'rollo mar y tierra', 'rollo mar tierra'] },
+    ];
+
+    const coincidencia = mapaItems.find(({ patrones }) =>
+      patrones.some((patron) => textoNorm === patron),
+    );
+
+    return coincidencia?.item ?? null;
+  }
+
+  private async responderItemCatalogoAmbiguo(params: {
+    input: string;
+    textoCorregido: string;
+    sessionId: string;
+    item: string;
+    contexto?: any;
+    ciudad?: string | null;
+  }): Promise<any> {
+    const mensaje =
+      `Te ayudo con ${params.item}. ¿Quieres que te muestre lugares donde venden ${params.item} o promociones de ${params.item}?`;
+
+    await this.conversationService.guardarPreguntaPendiente(params.sessionId, {
+      tipo: 'catalogo_item_accion',
+      categoria: params.item,
+      ciudad: params.contexto?.ciudad ?? params.ciudad ?? undefined,
+    });
+
+    await this.conversationService.guardarTurnoUsuario(
+      params.sessionId,
+      params.input,
+      'catalogo_item_ambiguo',
+    );
+
+    await this.conversationService.guardarTurnoAsistente(
+      params.sessionId,
+      mensaje,
+      { intent: 'catalogo_item_ambiguo', sugerencias: [] },
+    );
+
+    return {
+      sessionId: params.sessionId,
+      status: 'chat',
+      mensajeOriginal: params.input,
+      mensajeCorregido: params.textoCorregido,
+      respuesta: {
+        titulo: `¿Lugares o promociones de ${params.item}?`,
+        mensaje,
+        items: [],
+        sugerencias: [],
+        seguimiento: '',
+      },
+      debug: {
+        aiIntent: { intent: 'catalogo_item_ambiguo', source: 'local_catalogo_item' },
+      },
+    };
+  }
+
   private async responderPromocionesGenerales(params: {
     input: string;
     textoCorregido: string;
@@ -275,8 +363,71 @@ export class AiService {
     usuarioId?: number;
     contexto?: any;
   }): Promise<any> {
-    const promociones = (await this.promocionesSucursalesService.listarPromocionesActivas())
-      .slice(0, 5);
+    const mensaje =
+      'Claro. ¿Qué tipo de promociones te gustaría encontrar? Puedes decirme, por ejemplo: promociones de sushi, alitas, farmacias, tiendas, belleza o servicios.';
+
+    await this.conversationService.guardarPreguntaPendiente(params.sessionId, {
+      tipo: 'promociones_categoria',
+      ciudad: params.contexto?.ciudad ?? undefined,
+    });
+
+    await this.conversationService.guardarTurnoAsistente(
+      params.sessionId,
+      mensaje,
+      {
+        intent: 'buscar_promociones',
+        totalResultados: 0,
+        sugerencias: [],
+      },
+    );
+
+    this.searchTrendLogger
+      .execute({
+        usuarioId: params.usuarioId ?? null,
+        sessionId: params.sessionId,
+        queryOriginal: params.input,
+        queryNormalizada: params.textoParaProcesar,
+        ciudad: params.contexto?.ciudad ?? null,
+        categoriaNombre: 'promociones',
+        intent: 'buscar_promociones',
+        totalResultados: 0,
+        sinResultados: false,
+        lat: params.contexto?.latitud ?? null,
+        lng: params.contexto?.longitud ?? null,
+      })
+      .catch(() => null);
+
+    return {
+      sessionId: params.sessionId,
+      status: 'chat',
+      mensajeOriginal: params.input,
+      mensajeCorregido: params.textoCorregido,
+      respuesta: {
+        titulo: 'Promociones',
+        mensaje,
+        items: [],
+        sugerencias: [],
+        seguimiento: '',
+      },
+      debug: {
+        aiIntent: { intent: 'buscar_promociones', source: 'local_promos_generales' },
+        totalResultados: 0,
+      },
+    };
+  }
+
+  private async responderPromocionesFiltradas(params: {
+    input: string;
+    textoCorregido: string;
+    textoParaProcesar: string;
+    sessionId: string;
+    filtroTexto: string;
+    usuarioId?: number;
+    contexto?: any;
+  }): Promise<any> {
+    const promociones = (await this.promocionesSucursalesService.buscarPromocionesActivasPorTexto(
+      params.filtroTexto,
+    )).slice(0, 10);
 
     const items = promociones.map((promo) => ({
       id: promo.id,
@@ -293,34 +444,14 @@ export class AiService {
       ciudad: promo.sucursal?.ciudad?.nombre ?? null,
     }));
 
-    // JLP-PROMO-CHAT-TEXT-FIX: antes este mensaje repetía en texto plano
-    // TODA la lista de promociones (título, negocio, ciudad, descripción,
-    // vigencia) vía formatearPromoChat(), duplicando exactamente lo que
-    // ya muestran las tarjetas (cards) debajo. Se deja sólo una intro
-    // breve, igual que hace mensajeGlobal() para negocios/sucursales
-    // (ai-response-builder.ts), delegando el detalle de cada promoción a
-    // su tarjeta.
     const mensajeBase = items.length
       ? items.length === 1
-        ? 'Encontré esta promoción activa para ti:'
-        : `Encontré ${items.length} promociones activas para ti:`
-      : 'Por ahora no encontré promociones activas disponibles.';
+        ? `Encontré esta promoción activa para ${params.filtroTexto}:`
+        : `Encontré ${items.length} promociones activas para ${params.filtroTexto}:`
+      : `Por ahora no encontré promociones activas para ${params.filtroTexto}.`;
 
-    // JLP-ORDEN-PREGUNTA-CARDS-FIX: el usuario reportó que la pregunta de
-    // seguimiento ("¿Alguna promoción en especial de alguna categoría que
-    // te interese que te muestre?") aparecía ANTES de las tarjetas de
-    // promociones en el chat — la pregunta se metía dentro de `mensaje`
-    // (el texto que el frontend pinta primero, arriba de las tarjetas),
-    // así que el usuario la leía antes de siquiera ver lo que ya se
-    // encontró. Igual que en el flujo de búsqueda real (ver más abajo,
-    // `friendly.seguimiento` separado de `friendly.mensaje`), la pregunta
-    // de seguimiento va SOLO en el campo `seguimiento` — pensado para que
-    // el frontend lo muestre DESPUÉS de las tarjetas — y `mensaje` se
-    // queda solo con la introducción breve.
     const mensaje = mensajeBase;
-    const preguntaSeguimiento = items.length
-      ? '¿Alguna promoción en especial de alguna categoría que te interese que te muestre?'
-      : '';
+    const preguntaSeguimiento = '¿Quieres buscar promociones de otra categoría?';
 
     this.searchTrendLogger
       .execute({
@@ -329,7 +460,7 @@ export class AiService {
         queryOriginal: params.input,
         queryNormalizada: params.textoParaProcesar,
         ciudad: params.contexto?.ciudad ?? null,
-        categoriaNombre: 'promociones',
+        categoriaNombre: params.filtroTexto,
         intent: 'buscar_promociones',
         totalResultados: items.length,
         sinResultados: items.length === 0,
@@ -347,6 +478,7 @@ export class AiService {
         sugerencias: [],
       },
     );
+    await this.conversationService.guardarPreguntaPendiente(params.sessionId, null);
 
     return {
       sessionId: params.sessionId,
@@ -361,7 +493,7 @@ export class AiService {
         seguimiento: preguntaSeguimiento,
       },
       debug: {
-        aiIntent: { intent: 'buscar_promociones', source: 'local_promos_generales' },
+        aiIntent: { intent: 'buscar_promociones', source: 'local_promos_filtradas' },
         totalResultados: items.length,
       },
     };
@@ -672,6 +804,19 @@ export class AiService {
     const normalizacionSocial = SocialQueryNormalizer.normalize(resolucion.textoEnriquecido);
     let textoParaProcesar = normalizacionSocial.text;
 
+    const itemCatalogoAmbiguo = this.detectarItemCatalogoAmbiguo(textoParaProcesar);
+
+    if (itemCatalogoAmbiguo) {
+      return this.responderItemCatalogoAmbiguo({
+        input,
+        textoCorregido,
+        sessionId: idSesionActiva,
+        item: itemCatalogoAmbiguo,
+        contexto,
+        ciudad: sesion.ciudad,
+      });
+    }
+
     // JLP-CORTE-PELO-AMBIGUO-FIX: bug reportado por el usuario — pidió
     // "corte de pelo" y Jelpy "no entendió". "Corte de pelo" es un alias
     // real de negocio (barberías/salones de belleza) en
@@ -897,6 +1042,22 @@ export class AiService {
       input,
       aiIntent.intent,
     );
+
+    const filtroPromocion = this.mencionaPromociones(textoParaProcesar)
+      ? this.extraerTextoFiltroPromocion(textoParaProcesar)
+      : null;
+
+    if (filtroPromocion) {
+      return this.responderPromocionesFiltradas({
+        input,
+        textoCorregido,
+        textoParaProcesar,
+        sessionId: idSesionActiva,
+        filtroTexto: filtroPromocion,
+        usuarioId,
+        contexto,
+      });
+    }
 
     if (this.esSolicitudPromosGenerales(textoParaProcesar, aiIntent)) {
       return this.responderPromocionesGenerales({

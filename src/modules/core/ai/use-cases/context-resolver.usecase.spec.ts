@@ -160,3 +160,63 @@ describe('ContextResolverUseCase — hilo de "¿corte de pelo para ti o tu masco
     expect(resultado.textoEnriquecido).toBe('Para mi');
   });
 });
+
+describe('ContextResolverUseCase — preguntas pendientes de promociones y catálogo', () => {
+  const useCase = new ContextResolverUseCase();
+
+  function sesionConPendiente(pendienteConfirmacion: any, ciudad = 'Tepic'): ConversationSession {
+    return {
+      id: 'sesion-pendiente',
+      ultimoIntent: undefined,
+      ultimaQuery: undefined,
+      ultimoResultado: undefined,
+      ultimosFiltros: { pendienteConfirmacion },
+      ciudad,
+    } as any;
+  }
+
+  it('si Jelpy pregunta qué promociones quiere y el usuario dice "sushi", lo convierte en promociones de sushi', () => {
+    const sesion = sesionConPendiente({ tipo: 'promociones_categoria', ciudad: 'Tepic' });
+
+    const resultado = useCase.execute('sushi', sesion);
+
+    expect(resultado.esSeguimiento).toBe(true);
+    expect(resultado.tipoSeguimiento).toBe('confirmacion_pendiente');
+    expect(resultado.textoEnriquecido).toBe('promociones de sushi en Tepic');
+  });
+
+  it('si el usuario responde "promos" a la pregunta de alitas, busca promociones de alitas', () => {
+    const sesion = sesionConPendiente({
+      tipo: 'catalogo_item_accion',
+      categoria: 'alitas',
+      ciudad: 'Tepic',
+    });
+
+    const resultado = useCase.execute('promos', sesion);
+
+    expect(resultado.esSeguimiento).toBe(true);
+    expect(resultado.textoEnriquecido).toBe('promociones de alitas en Tepic');
+  });
+
+  it('si el usuario responde "donde venden" a la pregunta de alitas, busca negocios con ese producto', () => {
+    const sesion = sesionConPendiente({
+      tipo: 'catalogo_item_accion',
+      categoria: 'alitas',
+      ciudad: 'Tepic',
+    });
+
+    const resultado = useCase.execute('donde venden', sesion);
+
+    expect(resultado.esSeguimiento).toBe(true);
+    expect(resultado.textoEnriquecido).toBe('donde venden alitas en Tepic');
+  });
+
+  it('si el usuario dice "no" ante una pregunta pendiente, responde directo sin buscar', () => {
+    const sesion = sesionConPendiente({ tipo: 'promociones_categoria', ciudad: 'Tepic' });
+
+    const resultado = useCase.execute('no', sesion);
+
+    expect(resultado.esSeguimiento).toBe(true);
+    expect(resultado.respuestaDirecta?.mensaje).toMatch(/cuando quieras/i);
+  });
+});

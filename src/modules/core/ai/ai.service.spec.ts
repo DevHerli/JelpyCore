@@ -63,6 +63,7 @@ function crearMocks() {
   const publicidadChatService = { obtenerActiva: jest.fn().mockResolvedValue(null) } as any;
   const promocionesSucursalesService = {
     listarPromocionesActivas: jest.fn().mockResolvedValue([]),
+    buscarPromocionesActivasPorTexto: jest.fn().mockResolvedValue([]),
   } as any;
   const usuarioPreferenciasService = { registrarPreferencia: jest.fn().mockResolvedValue(undefined) } as any;
   const likesService = {
@@ -129,7 +130,7 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.respuesta.titulo).toBeTruthy();
     expect(resultado.respuesta.mensaje).toBeTruthy();
     expect(resultado.respuesta.sugerencias).toEqual([]);
-    expect(resultado.respuesta.mensaje).toMatch(/ayudarte|cuéntame|qué necesitas/i);
+    expect(resultado.respuesta.mensaje).toMatch(/ayudarte|cuéntame|qué necesitas|dime qué buscas/i);
     // JLP-DOBLE-PREGUNTA-FIX: el saludo ya invita a responder por sí solo
     // ("¿Cómo estás? Cuéntame qué necesitas..."); no debe traer pegado un
     // segundo cierre genérico con otra pregunta ("¿Hay algo más en lo que
@@ -149,63 +150,33 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     }
   });
 
-  it('"promos activas" trae las últimas 5 promociones generales y pregunta por categoría', async () => {
-    const promociones = Array.from({ length: 6 }, (_, index) => ({
-      id: index + 1,
-      titulo: `Promo ${index + 1}`,
-      descripcion: `Descripción ${index + 1}`,
-      tipoPromocion: 'Descuento',
-      valorDescuento: null,
-      fechaInicio: '2026-09-01',
-      fechaFin: '2026-09-30',
-      imagenUrl: null,
-      sucursal: {
-        id: 100 + index,
-        nombreSucursal: `Sucursal ${index + 1}`,
-        ciudad: { nombre: 'Tepic' },
-        negocio: { nombreNegocio: `Negocio ${index + 1}` },
-      },
-    }));
-    const { service, mocks } = crearServicio({
-      promocionesSucursalesService: {
-        listarPromocionesActivas: jest.fn().mockResolvedValue(promociones),
-      } as any,
-    });
+  it('"promos activas" pregunta qué tipo de promoción quiere, sin enseñar favoritos o tarjetas al azar', async () => {
+    const { service, mocks } = crearServicio();
 
     const resultado = await service.processUserMessage('promos activas', 1, {}, undefined);
 
-    expect(resultado.status).toBe('aceptado');
-    expect(resultado.respuesta.titulo).toBe('Promociones activas');
-    expect(resultado.respuesta.items).toHaveLength(5);
-    // JLP-ORDEN-PREGUNTA-CARDS-FIX: el usuario reportó que la pregunta de
-    // seguimiento aparecía ANTES de las tarjetas de promociones porque
-    // estaba metida dentro de `mensaje` (el texto que el frontend pinta
-    // arriba de las tarjetas). Ahora `mensaje` es solo la intro breve y la
-    // pregunta vive en `seguimiento` — pensado para mostrarse DESPUÉS de
-    // las tarjetas.
-    expect(resultado.respuesta.mensaje).not.toMatch(/promoción en especial|categoría/i);
-    expect(resultado.respuesta.seguimiento).toMatch(/promoción en especial|categoría/i);
+    expect(resultado.status).toBe('chat');
+    expect(resultado.respuesta.titulo).toBe('Promociones');
+    expect(resultado.respuesta.items).toHaveLength(0);
+    expect(resultado.respuesta.mensaje).toMatch(/qué tipo de promociones/i);
+    expect(resultado.respuesta.mensaje).toMatch(/sushi|alitas|farmacias|tiendas/i);
+    expect(mocks.promocionesSucursalesService.listarPromocionesActivas).not.toHaveBeenCalled();
+    expect(mocks.promocionesSucursalesService.buscarPromocionesActivasPorTexto).not.toHaveBeenCalled();
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
     expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
+    expect(mocks.conversationService.guardarPreguntaPendiente).toHaveBeenCalledWith(
+      'sesion-test',
+      expect.objectContaining({ tipo: 'promociones_categoria' }),
+    );
     expect(mocks.searchTrendLogger.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         queryOriginal: 'promos activas',
         categoriaNombre: 'promociones',
         intent: 'buscar_promociones',
-        totalResultados: 5,
+        totalResultados: 0,
         sinResultados: false,
       }),
     );
-  });
-
-  it('"promos activas" sin promociones disponibles no pregunta por categoría (no hay nada que filtrar)', async () => {
-    const { service } = crearServicio();
-
-    const resultado = await service.processUserMessage('promos activas', 1, {}, undefined);
-
-    expect(resultado.respuesta.items).toHaveLength(0);
-    expect(resultado.respuesta.mensaje).not.toMatch(/promoción en especial|categoría/i);
-    expect(resultado.respuesta.seguimiento).toBeFalsy();
   });
 
   it('"Promociones de sushi" sin resultados NO sugiere "protecciones" (regresión del bug reportado)', async () => {
@@ -234,12 +205,79 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
       expect.objectContaining({
         usuarioId: 1,
         queryOriginal: 'Promociones de sushi',
-        queryNormalizada: 'promociones de sushi',
+        queryNormalizada: expect.stringMatching(/promociones de sushi/i),
         categoriaNombre: 'sushi',
-        intent: 'buscar_negocios',
+        intent: 'buscar_promociones',
         totalResultados: 0,
         sinResultados: true,
       }),
+    );
+  });
+
+  it('"promociones de sushi" busca promociones filtradas por texto y devuelve tarjetas de promoción', async () => {
+    const promociones = [
+      {
+        id: 10,
+        titulo: '2x1 en sushi',
+        descripcion: 'Martes de rollos',
+        tipoPromocion: '2x1',
+        valorDescuento: null,
+        fechaInicio: '2026-09-01',
+        fechaFin: '2026-09-30',
+        imagenUrl: null,
+        sucursal: {
+          id: 55,
+          nombreSucursal: 'Sucursal Centro',
+          ciudad: { nombre: 'Tepic' },
+          negocio: { nombreNegocio: 'Sushi Palace' },
+        },
+      },
+    ];
+    const { service, mocks } = crearServicio({
+      promocionesSucursalesService: {
+        listarPromocionesActivas: jest.fn().mockResolvedValue([]),
+        buscarPromocionesActivasPorTexto: jest.fn().mockResolvedValue(promociones),
+      } as any,
+    });
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'sushi', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: true, cerca_de_mi: false },
+      normalized_text: 'promociones de sushi',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    const resultado = await service.processUserMessage('promociones de sushi', 1, {}, undefined);
+
+    expect(resultado.status).toBe('aceptado');
+    expect(resultado.respuesta.items).toHaveLength(1);
+    expect(resultado.respuesta.items[0]).toEqual(
+      expect.objectContaining({
+        titulo: '2x1 en sushi',
+        negocio: 'Sushi Palace',
+        sucursal: 'Sucursal Centro',
+      }),
+    );
+    expect(mocks.promocionesSucursalesService.buscarPromocionesActivasPorTexto).toHaveBeenCalledWith('sushi');
+    expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
+  });
+
+  it('"alitas" sola pregunta si quiere lugares donde venden alitas o promociones, sin buscar restaurantes genéricos', async () => {
+    const { service, mocks } = crearServicio();
+
+    const resultado = await service.processUserMessage('alitas', 1, {}, undefined);
+
+    expect(resultado.status).toBe('chat');
+    expect(resultado.respuesta.mensaje).toMatch(/lugares donde venden alitas/i);
+    expect(resultado.respuesta.mensaje).toMatch(/promociones de alitas/i);
+    expect(resultado.respuesta.sugerencias).toEqual([]);
+    expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
+    expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
+    expect(mocks.conversationService.guardarPreguntaPendiente).toHaveBeenCalledWith(
+      'sesion-test',
+      expect.objectContaining({ tipo: 'catalogo_item_accion', categoria: 'alitas' }),
     );
   });
 

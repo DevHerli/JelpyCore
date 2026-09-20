@@ -122,7 +122,12 @@ export interface PreguntaPendiente {
   // `ChatResponses.responderMascotaAmbigua`) necesita el mismo tratamiento:
   // una respuesta corta ("veterinario", "una tienda"...) debe resolverse
   // contra ESTA pregunta puntual.
-  tipo: 'buscar_similares_promo' | 'corte_pelo_para_quien' | 'mascota_para_que';
+  tipo:
+    | 'buscar_similares_promo'
+    | 'corte_pelo_para_quien'
+    | 'mascota_para_que'
+    | 'promociones_categoria'
+    | 'catalogo_item_accion';
   categoria?: string;
   ciudad?: string;
 }
@@ -294,6 +299,74 @@ export class ContextResolverUseCase {
             titulo: '¡Entendido! 👍',
             mensaje: '¿En qué más te ayudo? Puedo buscar otro negocio, servicio o categoría cuando quieras.',
           },
+        };
+      }
+    }
+
+    if (pendiente?.tipo === 'promociones_categoria') {
+      const confirmacion = ChatResponses.detectarConfirmacion(mensajeActual);
+
+      if (confirmacion === 'negativa') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: mensajeActual,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+          respuestaDirecta: {
+            titulo: 'Sin problema',
+            mensaje: 'Cuando quieras, dime qué se te antoja o qué tipo de negocio buscas y te ayudo.',
+          },
+        };
+      }
+
+      const ciudadPendiente = pendiente.ciudad || sesion.ciudad || '';
+      const enCiudad = ciudadPendiente ? ` en ${ciudadPendiente}` : '';
+
+      return {
+        esSeguimiento: true,
+        textoEnriquecido: `promociones de ${mensajeActual}${enCiudad}`,
+        contextoDisponible: true,
+        tipoSeguimiento: 'confirmacion_pendiente',
+      };
+    }
+
+    if (pendiente?.tipo === 'catalogo_item_accion') {
+      const confirmacion = ChatResponses.detectarConfirmacion(mensajeActual);
+
+      if (confirmacion === 'negativa') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: mensajeActual,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+          respuestaDirecta: {
+            titulo: 'Va, dime qué buscas',
+            mensaje: 'Puedo ayudarte a encontrar negocios, productos o promociones cuando quieras.',
+          },
+        };
+      }
+
+      const item = pendiente.categoria || sesion.ultimaQuery || '';
+      const ciudadPendiente = pendiente.ciudad || sesion.ciudad || '';
+      const enCiudad = ciudadPendiente ? ` en ${ciudadPendiente}` : '';
+      const quierePromos = /\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos)\b/.test(textoNorm);
+      const quiereLugares = /\b(donde|dónde|venden|vende|vendan|venta|encuentro|encontrar|consigo|tienen|tiene|hay|lugares|lugar|negocios|negocio)\b/.test(textoNorm);
+
+      if (item && quierePromos) {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: `promociones de ${item}${enCiudad}`,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+        };
+      }
+
+      if (item && quiereLugares) {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: `donde venden ${item}${enCiudad}`,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
         };
       }
     }
