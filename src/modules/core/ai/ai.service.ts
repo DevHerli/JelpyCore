@@ -308,6 +308,29 @@ export class AiService {
     return coincidencia?.item ?? null;
   }
 
+  private extraerItemBusquedaCatalogo(texto: string, ciudad?: string | null): string | null {
+    const textoNorm = this.normalizarTexto(texto);
+    const ciudadNorm = ciudad ? this.normalizarTexto(ciudad) : '';
+
+    const match = textoNorm.match(
+      /\b(?:donde|dónde|en donde|venden|vende|vendan|encuentro|encontrar|consigo|tienen|tiene|hay|muestrame|muéstrame|mostrar|lugares|negocios)\b(?:\s+\w+){0,4}?\s+\b(?:venden|vende|vendan|encuentro|encontrar|consigo|tienen|tiene|hay)?\s*(.+)$/,
+    );
+
+    let candidato = (match?.[1] ?? textoNorm)
+      .replace(/\b(donde|dónde|en|venden|vende|vendan|encuentro|encontrar|consigo|tienen|tiene|hay|muestrame|muéstrame|mostrar|lugares|lugar|negocios|negocio|cerca|de|mi|porfa|favor)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (ciudadNorm) {
+      candidato = candidato
+        .replace(new RegExp(`\\b${ciudadNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    return candidato.length >= 3 ? candidato : null;
+  }
+
   private async responderItemCatalogoAmbiguo(params: {
     input: string;
     textoCorregido: string;
@@ -448,10 +471,12 @@ export class AiService {
       ? items.length === 1
         ? `Encontré esta promoción activa para ${params.filtroTexto}:`
         : `Encontré ${items.length} promociones activas para ${params.filtroTexto}:`
-      : `Por ahora no encontré promociones activas para ${params.filtroTexto}.`;
+      : `Por ahora no encontré promociones activas para ${params.filtroTexto}. Si quieres, también puedo mostrarte lugares donde venden ${params.filtroTexto}.`;
 
     const mensaje = mensajeBase;
-    const preguntaSeguimiento = '¿Quieres buscar promociones de otra categoría?';
+    const preguntaSeguimiento = items.length
+      ? '¿Quieres buscar promociones de otra categoría?'
+      : `¿Te muestro lugares donde venden ${params.filtroTexto}?`;
 
     this.searchTrendLogger
       .execute({
@@ -478,7 +503,17 @@ export class AiService {
         sugerencias: [],
       },
     );
-    await this.conversationService.guardarPreguntaPendiente(params.sessionId, null);
+    await this.conversationService.guardarPreguntaPendiente(
+      params.sessionId,
+      items.length
+        ? null
+        : {
+            tipo: 'catalogo_item_accion',
+            categoria: params.filtroTexto,
+            ciudad: params.contexto?.ciudad ?? undefined,
+            accion: 'lugares',
+          } as any,
+    );
 
     return {
       sessionId: params.sessionId,
@@ -1426,6 +1461,19 @@ export class AiService {
       interpretacion.filtros_detectados,
       items,
     );
+    const itemCatalogoBuscado = items.length === 0
+      ? this.extraerItemBusquedaCatalogo(textoParaProcesar, ciudadBusqueda)
+      : null;
+
+    if (itemCatalogoBuscado) {
+      friendly.titulo = 'No encontré ese producto';
+      friendly.mensaje =
+        `Por ahora no tengo registrado un lugar donde vendan ${itemCatalogoBuscado}. Puedo ayudarte a buscar otra cosa o intentar con otra palabra.`;
+      friendly.items = [];
+      friendly.sugerencias = [];
+      friendly.seguimiento = '¿Qué más te gustaría buscar?';
+      friendly.quisisteDecir = undefined;
+    }
 
     if (items.length === 0) {
       const f = interpretacion.filtros_detectados ?? {};
@@ -1443,7 +1491,7 @@ export class AiService {
         .catch(() => null);
     }
 
-    if (items.length === 0) {
+    if (items.length === 0 && !itemCatalogoBuscado) {
       // JLP-PROMO-FIX: además de verbos de intención genéricos ("quiero",
       // "busco"...), hay que excluir palabras de FILTRO/COMERCIALES
       // (promociones, precio, oferta, cerca, abierto...) de la selección de
@@ -1692,7 +1740,9 @@ export class AiService {
     const filtrosDetectados = interpretacion.filtros_detectados ?? {};
     const sugerencias: string[] = [];
     friendly.sugerencias = [];
-    friendly.seguimiento = ChatResponses.cierreGenerico();
+    friendly.seguimiento = itemCatalogoBuscado
+      ? friendly.seguimiento
+      : ChatResponses.cierreGenerico();
 
     await this.conversationService.guardarTurnoAsistente(
       idSesionActiva,

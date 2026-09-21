@@ -102,6 +102,27 @@ describe('ConversationClassifier', () => {
       expect(result.route).toBe('clarify');
       expect(result.chatIntent).toBe('fallback');
     });
+
+    it.each([
+      'tortillerias cerca',
+      'cancha de padel',
+      'albercas',
+      'gyms',
+      'farmacias',
+      'laboratorios',
+      'cremerias',
+      'ferreterias',
+      'herreros',
+      'plomeros',
+      'llantas',
+      'mecanicos',
+    ])('"%s" se clasifica como búsqueda de negocio', (texto) => {
+      const result = ConversationClassifier.classify(texto);
+
+      expect(result.intent).toBe('business_search');
+      expect(result.route).toBe('search');
+      expect(result.containsBusinessTerm).toBe(true);
+    });
   });
 
   // --------------------------------------------------------------------

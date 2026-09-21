@@ -214,6 +214,34 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     );
   });
 
+  it('"promos de alitas" sin resultados ofrece buscar lugares donde venden alitas y deja ese hilo pendiente', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: null, subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: true, cerca_de_mi: false },
+      normalized_text: 'promos de alitas',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    const resultado = await service.processUserMessage('promos de alitas', 1, { ciudad: 'Tepic' }, undefined);
+
+    expect(resultado.respuesta.mensaje).toMatch(/no encontré promociones activas para alitas/i);
+    expect(resultado.respuesta.mensaje).toMatch(/lugares donde venden alitas/i);
+    expect(resultado.respuesta.seguimiento).toMatch(/te muestro lugares donde venden alitas/i);
+    expect(mocks.conversationService.guardarPreguntaPendiente).toHaveBeenCalledWith(
+      'sesion-test',
+      expect.objectContaining({
+        tipo: 'catalogo_item_accion',
+        categoria: 'alitas',
+        ciudad: 'Tepic',
+        accion: 'lugares',
+      }),
+    );
+  });
+
   it('"promociones de sushi" busca promociones filtradas por texto y devuelve tarjetas de promoción', async () => {
     const promociones = [
       {
@@ -279,6 +307,30 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
       'sesion-test',
       expect.objectContaining({ tipo: 'catalogo_item_accion', categoria: 'alitas' }),
     );
+  });
+
+  it('"donde venden alitas" sin resultados responde natural: no hay lugar registrado con ese producto', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: null, subcategoria: null, ciudad: 'Tepic', especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden alitas en Tepic',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      resultados: [],
+      filtros_detectados: {},
+    });
+
+    const resultado = await service.processUserMessage('donde venden alitas', 1, { ciudad: 'Tepic' }, undefined);
+
+    expect(resultado.respuesta.mensaje).toMatch(/no tengo registrado un lugar donde vendan alitas/i);
+    expect(resultado.respuesta.mensaje).not.toMatch(/alitas tepic/i);
+    expect(resultado.respuesta.quisisteDecir).toBeUndefined();
   });
 
   it('"dónde venden tamales/pozole" no usa "venden" para sugerir correcciones absurdas', async () => {

@@ -130,6 +130,7 @@ export interface PreguntaPendiente {
     | 'catalogo_item_accion';
   categoria?: string;
   ciudad?: string;
+  accion?: 'lugares';
 }
 
 @Injectable()
@@ -351,6 +352,15 @@ export class ContextResolverUseCase {
       const enCiudad = ciudadPendiente ? ` en ${ciudadPendiente}` : '';
       const quierePromos = /\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos)\b/.test(textoNorm);
       const quiereLugares = /\b(donde|dónde|venden|vende|vendan|venta|encuentro|encontrar|consigo|tienen|tiene|hay|lugares|lugar|negocios|negocio)\b/.test(textoNorm);
+
+      if (item && pendiente.accion === 'lugares' && confirmacion === 'afirmativa') {
+        return {
+          esSeguimiento: true,
+          textoEnriquecido: `donde venden ${item}${enCiudad}`,
+          contextoDisponible: true,
+          tipoSeguimiento: 'confirmacion_pendiente',
+        };
+      }
 
       if (item && quierePromos) {
         return {

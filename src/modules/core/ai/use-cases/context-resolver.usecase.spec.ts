@@ -211,6 +211,34 @@ describe('ContextResolverUseCase — preguntas pendientes de promociones y catá
     expect(resultado.textoEnriquecido).toBe('donde venden alitas en Tepic');
   });
 
+  it('si no hubo promos y Jelpy ofrece lugares, un "sí" busca lugares donde venden ese producto', () => {
+    const sesion = sesionConPendiente({
+      tipo: 'catalogo_item_accion',
+      categoria: 'alitas',
+      ciudad: 'Tepic',
+      accion: 'lugares',
+    });
+
+    const resultado = useCase.execute('sí', sesion);
+
+    expect(resultado.esSeguimiento).toBe(true);
+    expect(resultado.textoEnriquecido).toBe('donde venden alitas en Tepic');
+  });
+
+  it('si no hubo promos y el usuario dice "bueno muéstrame lugares", conserva el producto pendiente', () => {
+    const sesion = sesionConPendiente({
+      tipo: 'catalogo_item_accion',
+      categoria: 'alitas',
+      ciudad: 'Tepic',
+      accion: 'lugares',
+    });
+
+    const resultado = useCase.execute('bueno muéstrame lugares', sesion);
+
+    expect(resultado.esSeguimiento).toBe(true);
+    expect(resultado.textoEnriquecido).toBe('donde venden alitas en Tepic');
+  });
+
   it('si el usuario dice "no" ante una pregunta pendiente, responde directo sin buscar', () => {
     const sesion = sesionConPendiente({ tipo: 'promociones_categoria', ciudad: 'Tepic' });
 

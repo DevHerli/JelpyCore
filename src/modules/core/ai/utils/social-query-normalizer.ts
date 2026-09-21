@@ -2,7 +2,19 @@ import { TextNormalizer } from './text-normalizer';
 
 export interface SocialQueryNormalization {
   text: string;
-  detectedPlan?: 'date_night' | 'food' | 'drinks' | 'tacos';
+  detectedPlan?:
+    | 'date_night'
+    | 'food'
+    | 'drinks'
+    | 'tacos'
+    | 'tires'
+    | 'mechanic'
+    | 'plumber'
+    | 'hardware'
+    | 'sports'
+    | 'fitness'
+    | 'pool'
+    | 'dairy';
   userFacingHint?: string;
 }
 
@@ -13,6 +25,130 @@ export class SocialQueryNormalizer {
 
   static normalize(text: string): SocialQueryNormalization {
     const t = TextNormalizer.clavefonetica(text);
+
+    if (
+      this.has(t, 'me ponche') ||
+      this.has(t, 'me ponché') ||
+      this.has(t, 'se me poncho') ||
+      this.has(t, 'se me ponchó') ||
+      this.has(t, 'traigo una llanta ponchada') ||
+      this.has(t, 'llanta ponchada') ||
+      this.has(t, 'ponchadura') ||
+      this.has(t, 'parchar llanta') ||
+      this.has(t, 'reparar llanta')
+    ) {
+      return {
+        text: 'llanteras llantero ponchadura parchar llanta auxilio de llantas',
+        detectedPlan: 'tires',
+        userFacingHint: 'Busqué llanteras y ayuda para llantas ponchadas.',
+      };
+    }
+
+    if (
+      this.has(t, 'mi coche se descompuso') ||
+      this.has(t, 'mi carro se descompuso') ||
+      this.has(t, 'mi auto se descompuso') ||
+      this.has(t, 'mi carcacha se descompuso') ||
+      this.has(t, 'mi carchaca se descompuso') ||
+      this.has(t, 'carro fallando') ||
+      this.has(t, 'auto fallando') ||
+      this.has(t, 'coche fallando') ||
+      this.has(t, 'se descompuso mi carro') ||
+      this.has(t, 'se descompuso mi coche') ||
+      this.has(t, 'se descompuso mi auto') ||
+      this.has(t, 'no prende mi carro') ||
+      this.has(t, 'no arranca mi carro')
+    ) {
+      return {
+        text: 'mecanicos taller mecanico mecanico automotriz carro descompuesto',
+        detectedPlan: 'mechanic',
+        userFacingHint: 'Busqué mecánicos y talleres para revisar tu auto.',
+      };
+    }
+
+    if (
+      this.has(t, 'reparar tuberia') ||
+      this.has(t, 'reparar tubería') ||
+      this.has(t, 'reparar tuberias') ||
+      this.has(t, 'reparar tuberías') ||
+      this.has(t, 'se rompio una tuberia') ||
+      this.has(t, 'se rompió una tubería') ||
+      this.has(t, 'fuga de agua') ||
+      this.has(t, 'tubo roto') ||
+      this.has(t, 'drenaje tapado') ||
+      this.has(t, 'baño tapado') ||
+      this.has(t, 'necesito plomero')
+    ) {
+      return {
+        text: 'plomeros plomeria reparar tuberia fuga de agua destapar drenaje',
+        detectedPlan: 'plumber',
+        userFacingHint: 'Busqué plomeros para fugas, tuberías o drenajes.',
+      };
+    }
+
+    if (
+      this.has(t, 'cancha de padel') ||
+      this.has(t, 'canchas de padel') ||
+      this.has(t, 'cancha de pádel') ||
+      this.has(t, 'canchas de pádel') ||
+      this.has(t, 'jugar padel') ||
+      this.has(t, 'jugar pádel') ||
+      this.has(t, 'rentar cancha') ||
+      this.has(t, 'renta de cancha')
+    ) {
+      return {
+        text: 'canchas de padel club deportivo renta de cancha',
+        detectedPlan: 'sports',
+        userFacingHint: 'Busqué canchas y clubes deportivos.',
+      };
+    }
+
+    if (
+      this.has(t, 'alberca') ||
+      this.has(t, 'albercas') ||
+      this.has(t, 'piscina') ||
+      this.has(t, 'piscinas') ||
+      this.has(t, 'clases de natacion') ||
+      this.has(t, 'clases de natación') ||
+      this.has(t, 'nadar')
+    ) {
+      return {
+        text: 'albercas piscinas natacion clases de natacion',
+        detectedPlan: 'pool',
+        userFacingHint: 'Busqué albercas, piscinas o lugares para nadar.',
+      };
+    }
+
+    if (
+      this.has(t, 'gym') ||
+      this.has(t, 'gimnasio') ||
+      this.has(t, 'gyms') ||
+      this.has(t, 'hacer ejercicio') ||
+      this.has(t, 'entrenar') ||
+      this.has(t, 'pesas')
+    ) {
+      return {
+        text: 'gimnasios gym fitness pesas entrenamiento',
+        detectedPlan: 'fitness',
+        userFacingHint: 'Busqué gimnasios y lugares para entrenar.',
+      };
+    }
+
+    if (
+      this.has(t, 'cremeria') ||
+      this.has(t, 'cremería') ||
+      this.has(t, 'quesos') ||
+      this.has(t, 'jamon') ||
+      this.has(t, 'jamón') ||
+      this.has(t, 'lacteos') ||
+      this.has(t, 'lácteos')
+    ) {
+      return {
+        text: 'cremerias quesos lacteos jamon embutidos',
+        detectedPlan: 'dairy',
+        userFacingHint: 'Busqué cremerías, quesos y lácteos.',
+      };
+    }
 
     const mencionaPareja =
       this.has(t, 'novia') ||

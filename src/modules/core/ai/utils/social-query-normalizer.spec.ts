@@ -53,4 +53,32 @@ describe('SocialQueryNormalizer', () => {
     expect(result.detectedPlan).toBe('tacos');
     expect(result.text).toMatch(/tacos|taquerias/i);
   });
+
+  it('traduce "me ponché" a llanteras', () => {
+    const result = SocialQueryNormalizer.normalize('me ponche que hago');
+
+    expect(result.detectedPlan).toBe('tires');
+    expect(result.text).toMatch(/llanteras|ponchadura|llanta/i);
+  });
+
+  it('traduce auto descompuesto a mecánicos', () => {
+    const result = SocialQueryNormalizer.normalize('mi carchaca se descompuso');
+
+    expect(result.detectedPlan).toBe('mechanic');
+    expect(result.text).toMatch(/mecanicos|taller mecanico|automotriz/i);
+  });
+
+  it('traduce problemas de tubería a plomeros', () => {
+    const result = SocialQueryNormalizer.normalize('necesito reparar tuberias');
+
+    expect(result.detectedPlan).toBe('plumber');
+    expect(result.text).toMatch(/plomeros|plomeria|tuberia/i);
+  });
+
+  it('traduce canchas de pádel, albercas, gyms y cremerías a giros buscables', () => {
+    expect(SocialQueryNormalizer.normalize('canchas de padel').text).toMatch(/padel|cancha/i);
+    expect(SocialQueryNormalizer.normalize('albercas para nadar').text).toMatch(/albercas|natacion/i);
+    expect(SocialQueryNormalizer.normalize('gyms cerca').text).toMatch(/gimnasios|fitness/i);
+    expect(SocialQueryNormalizer.normalize('cremerias').text).toMatch(/cremerias|quesos|lacteos/i);
+  });
 });
