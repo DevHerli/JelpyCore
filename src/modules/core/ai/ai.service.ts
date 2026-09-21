@@ -273,11 +273,19 @@ export class AiService {
     return /\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos|rebaja|rebajas|cupon|cupones|2x1)\b/.test(textoNorm);
   }
 
-  private extraerTextoFiltroPromocion(texto: string): string | null {
-    const limpio = this.normalizarTexto(texto)
+  private extraerTextoFiltroPromocion(texto: string, ciudad?: string | null): string | null {
+    const ciudadNorm = ciudad ? this.normalizarTexto(ciudad) : '';
+    let limpio = this.normalizarTexto(texto)
       .replace(/\b(promociones|promocion|promos|promo|ofertas|oferta|descuentos|descuento|activas|activa|disponibles|disponible|vigentes|vigente|dame|quiero|busco|buscame|muéstrame|muestrame|muestra|de|en|para|con)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+
+    if (ciudadNorm) {
+      limpio = limpio
+        .replace(new RegExp(`\\b${ciudadNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
 
     return limpio.length >= 3 ? limpio : null;
   }
@@ -1141,10 +1149,10 @@ export class AiService {
     );
 
     const filtroPromocionOriginal = this.mencionaPromociones(textoCorregido)
-      ? this.extraerTextoFiltroPromocion(textoCorregido)
+      ? this.extraerTextoFiltroPromocion(textoCorregido, contexto?.ciudad ?? sesion.ciudad)
       : null;
     const filtroPromocionProcesado = this.mencionaPromociones(textoParaProcesar)
-      ? this.extraerTextoFiltroPromocion(textoParaProcesar)
+      ? this.extraerTextoFiltroPromocion(textoParaProcesar, contexto?.ciudad ?? sesion.ciudad)
       : null;
     const filtroPromocion = filtroPromocionOriginal ?? filtroPromocionProcesado;
 

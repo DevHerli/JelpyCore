@@ -463,10 +463,6 @@ export class PromocionesSucursalesService {
       .andWhere('promo.activa = 1')
       .andWhere('CURDATE() BETWEEN promo.fecha_inicio AND promo.fecha_fin')
       .andWhere(
-        '(promo.dias_vigencia IS NULL OR promo.dias_vigencia = "" OR FIND_IN_SET(:dia, promo.dias_vigencia) > 0)',
-        { dia: diaActual },
-      )
-      .andWhere(
         `(
           LOWER(promo.titulo) LIKE :termino OR
           LOWER(COALESCE(promo.descripcion, '')) LIKE :termino OR
