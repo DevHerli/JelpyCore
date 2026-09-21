@@ -63,6 +63,7 @@ function crearMocks() {
   const publicidadChatService = { obtenerActiva: jest.fn().mockResolvedValue(null) } as any;
   const promocionesSucursalesService = {
     listarPromocionesActivas: jest.fn().mockResolvedValue([]),
+    listarPromocionesVigentes: jest.fn().mockResolvedValue([]),
     buscarPromocionesActivasPorTexto: jest.fn().mockResolvedValue([]),
   } as any;
   const usuarioPreferenciasService = { registrarPreferencia: jest.fn().mockResolvedValue(undefined) } as any;
@@ -161,6 +162,7 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.respuesta.mensaje).toMatch(/qué tipo de promociones/i);
     expect(resultado.respuesta.mensaje).toMatch(/sushi|alitas|farmacias|tiendas/i);
     expect(mocks.promocionesSucursalesService.listarPromocionesActivas).not.toHaveBeenCalled();
+    expect(mocks.promocionesSucursalesService.listarPromocionesVigentes).not.toHaveBeenCalled();
     expect(mocks.promocionesSucursalesService.buscarPromocionesActivasPorTexto).not.toHaveBeenCalled();
     expect(mocks.jelpyAiService.interpretar).not.toHaveBeenCalled();
     expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
@@ -177,6 +179,78 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
         sinResultados: false,
       }),
     );
+  });
+
+  it('"promos" NO hereda la búsqueda anterior de cerveza; siempre pregunta qué tipo de promo busca', async () => {
+    const contextResolver = {
+      execute: jest.fn().mockReturnValue({
+        esSeguimiento: true,
+        textoEnriquecido: 'cerveza tepic promos',
+        contextoDisponible: true,
+        tipoSeguimiento: 'refinamiento',
+      }),
+      generarRespuestaDetalle: jest.fn(),
+    } as any;
+    const { service, mocks } = crearServicio({ contextResolver });
+
+    const resultado = await service.processUserMessage('promos', 1, { ciudad: 'Tepic' }, undefined);
+
+    expect(resultado.status).toBe('chat');
+    expect(resultado.respuesta.mensaje).toMatch(/qué tipo de promociones/i);
+    expect(resultado.respuesta.items).toHaveLength(0);
+    expect(contextResolver.execute).not.toHaveBeenCalled();
+    expect(mocks.promocionesSucursalesService.buscarPromocionesActivasPorTexto).not.toHaveBeenCalled();
+  });
+
+  it('"promos de la ciudad" muestra promociones vigentes generales y luego pregunta cómo filtrarlas', async () => {
+    const promociones = [
+      {
+        id: 91,
+        titulo: 'Promo Martes',
+        descripcion: '5 litros de cerveza por $1 peso',
+        tipoPromocion: 'Otro',
+        valorDescuento: null,
+        fechaInicio: '2026-09-16',
+        fechaFin: '2026-12-29',
+        diasVigencia: 'Martes',
+        horaInicio: '19:00:00',
+        horaFin: '22:00:00',
+        imagenUrl: null,
+        sucursal: {
+          id: 22,
+          nombreSucursal: 'Sucursal Plaza Manglar',
+          ciudad: { nombre: 'Tepic' },
+          negocio: { nombreNegocio: 'Lucky Juan' },
+        },
+      },
+    ];
+    const { service, mocks } = crearServicio({
+      promocionesSucursalesService: {
+        listarPromocionesActivas: jest.fn().mockResolvedValue([]),
+        listarPromocionesVigentes: jest.fn().mockResolvedValue(promociones),
+        buscarPromocionesActivasPorTexto: jest.fn().mockResolvedValue([]),
+      } as any,
+    });
+
+    const resultado = await service.processUserMessage(
+      'dame promos de la ciudad',
+      1,
+      { ciudad: 'Tepic', ciudadId: 7 },
+      undefined,
+    );
+
+    expect(resultado.status).toBe('aceptado');
+    expect(resultado.respuesta.items).toHaveLength(1);
+    expect(resultado.respuesta.items[0]).toEqual(
+      expect.objectContaining({
+        titulo: 'Promo Martes',
+        negocio: 'Lucky Juan',
+        diasVigencia: 'Martes',
+      }),
+    );
+    expect(resultado.respuesta.seguimiento).toMatch(/comida|bares|servicio|producto/i);
+    expect(mocks.promocionesSucursalesService.listarPromocionesVigentes).toHaveBeenCalledWith(7);
+    expect(mocks.promocionesSucursalesService.buscarPromocionesActivasPorTexto).not.toHaveBeenCalled();
   });
 
   it('"Promociones de sushi" sin resultados NO sugiere "protecciones" (regresión del bug reportado)', async () => {

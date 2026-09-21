@@ -401,6 +401,23 @@ export class PromocionesSucursalesService {
     return query.orderBy('promo.fecha_inicio', 'DESC').getMany();
   }
 
+  async listarPromocionesVigentes(ciudadId?: number): Promise<PromocionSucursal[]> {
+    const query = this.promoRepo
+      .createQueryBuilder('promo')
+      .leftJoinAndSelect('promo.sucursal', 'sucursal')
+      .leftJoinAndSelect('sucursal.ciudad', 'ciudad')
+      .leftJoinAndSelect('sucursal.negocio', 'negocio')
+      .where('promo.eliminado = 0')
+      .andWhere('promo.activa = 1')
+      .andWhere('CURDATE() BETWEEN promo.fecha_inicio AND promo.fecha_fin');
+
+    if (ciudadId) {
+      query.andWhere('ciudad.id = :ciudadId', { ciudadId });
+    }
+
+    return query.orderBy('promo.fecha_inicio', 'DESC').addOrderBy('promo.id', 'DESC').getMany();
+  }
+
   // =========================================================
   // GET ACTIVAS FILTRADAS
   // =========================================================

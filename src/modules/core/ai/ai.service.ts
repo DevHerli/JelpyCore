@@ -267,16 +267,42 @@ export class AiService {
     return !tieneEntidadEspecifica;
   }
 
+  private obtenerCiudadIdContexto(contexto?: any): number | undefined {
+    const raw = contexto?.ciudadId ?? contexto?.ciudad_id ?? contexto?.cityId;
+    const id = Number(raw);
+
+    return Number.isFinite(id) && id > 0 ? id : undefined;
+  }
+
   private mencionaPromociones(texto: string): boolean {
     const textoNorm = this.normalizarTexto(texto);
 
     return /\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos|rebaja|rebajas|cupon|cupones|2x1)\b/.test(textoNorm);
   }
 
+  private esSolicitudPromosDeCiudad(texto: string): boolean {
+    const textoNorm = this.normalizarTexto(texto);
+
+    return (
+      this.mencionaPromociones(textoNorm) &&
+      /\b(ciudad|mi ciudad|aqui|aquí|cerca|cercanas|cercanos|general|generales)\b/.test(textoNorm) &&
+      !this.extraerTextoFiltroPromocion(textoNorm)
+    );
+  }
+
+  private esSolicitudPromosGenericaCruda(texto: string): boolean {
+    const textoNorm = this.normalizarTexto(texto);
+
+    if (!this.mencionaPromociones(textoNorm)) return false;
+    if (this.esSolicitudPromosDeCiudad(textoNorm)) return false;
+
+    return !this.extraerTextoFiltroPromocion(textoNorm);
+  }
+
   private extraerTextoFiltroPromocion(texto: string, ciudad?: string | null): string | null {
     const ciudadNorm = ciudad ? this.normalizarTexto(ciudad) : '';
     let limpio = this.normalizarTexto(texto)
-      .replace(/\b(promociones|promocion|promos|promo|ofertas|oferta|descuentos|descuento|activas|activa|disponibles|disponible|vigentes|vigente|dame|quiero|busco|buscame|muéstrame|muestrame|muestra|de|en|para|con)\b/g, ' ')
+      .replace(/\b(promociones|promocion|promos|promo|ofertas|oferta|descuentos|descuento|activas|activa|disponibles|disponible|vigentes|vigente|dame|quiero|busco|buscame|muéstrame|muestrame|muestra|de|en|para|con|la|el|las|los|mi|ciudad|aqui|aquí|cerca|cercanas|cercanos|general|generales)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
@@ -494,6 +520,93 @@ export class AiService {
       debug: {
         aiIntent: { intent: 'buscar_promociones', source: 'local_promos_generales' },
         totalResultados: 0,
+      },
+    };
+  }
+
+  private async responderPromocionesCiudad(params: {
+    input: string;
+    textoCorregido: string;
+    textoParaProcesar: string;
+    sessionId: string;
+    usuarioId?: number;
+    contexto?: any;
+  }): Promise<any> {
+    const ciudadId = this.obtenerCiudadIdContexto(params.contexto);
+    const promociones = (await this.promocionesSucursalesService.listarPromocionesVigentes(
+      ciudadId,
+    )).slice(0, 10);
+
+    const items = promociones.map((promo) => ({
+      id: promo.id,
+      titulo: promo.titulo,
+      descripcion: promo.descripcion ?? null,
+      tipoPromocion: promo.tipoPromocion,
+      valorDescuento: promo.valorDescuento ?? null,
+      fechaInicio: promo.fechaInicio,
+      fechaFin: promo.fechaFin,
+      diasVigencia: promo.diasVigencia ?? null,
+      horaInicio: promo.horaInicio ?? null,
+      horaFin: promo.horaFin ?? null,
+      imagenUrl: promo.imagenUrl ?? null,
+      sucursalId: promo.sucursal?.id ?? null,
+      sucursal: promo.sucursal?.nombreSucursal ?? null,
+      negocio: promo.sucursal?.negocio?.nombreNegocio ?? null,
+      ciudad: promo.sucursal?.ciudad?.nombre ?? null,
+    }));
+
+    const mensaje = items.length
+      ? `Encontré ${items.length} promociones vigentes${params.contexto?.ciudad ? ` en ${params.contexto.ciudad}` : ''}:`
+      : `Por ahora no encontré promociones vigentes${params.contexto?.ciudad ? ` en ${params.contexto.ciudad}` : ''}.`;
+    const seguimiento =
+      '¿Qué tipo de promociones quieres ver: comida, bares, farmacias, tiendas, algún servicio o un producto específico?';
+
+    await this.conversationService.guardarPreguntaPendiente(params.sessionId, {
+      tipo: 'promociones_categoria',
+      ciudad: params.contexto?.ciudad ?? undefined,
+    });
+
+    await this.conversationService.guardarTurnoAsistente(
+      params.sessionId,
+      mensaje,
+      {
+        intent: 'buscar_promociones_ciudad',
+        totalResultados: items.length,
+        sugerencias: [],
+      },
+    );
+
+    this.searchTrendLogger
+      .execute({
+        usuarioId: params.usuarioId ?? null,
+        sessionId: params.sessionId,
+        queryOriginal: params.input,
+        queryNormalizada: params.textoParaProcesar,
+        ciudad: params.contexto?.ciudad ?? null,
+        categoriaNombre: 'promociones_ciudad',
+        intent: 'buscar_promociones_ciudad',
+        totalResultados: items.length,
+        sinResultados: items.length === 0,
+        lat: params.contexto?.latitud ?? null,
+        lng: params.contexto?.longitud ?? null,
+      })
+      .catch(() => null);
+
+    return {
+      sessionId: params.sessionId,
+      status: items.length ? 'aceptado' : 'chat',
+      mensajeOriginal: params.input,
+      mensajeCorregido: params.textoCorregido,
+      respuesta: {
+        titulo: 'Promociones vigentes',
+        mensaje,
+        items,
+        sugerencias: [],
+        seguimiento,
+      },
+      debug: {
+        aiIntent: { intent: 'buscar_promociones_ciudad', source: 'local_promos_ciudad' },
+        totalResultados: items.length,
       },
     };
   }
@@ -824,6 +937,40 @@ export class AiService {
           sugerencias: sugerenciasRecuperacion,
         },
       };
+    }
+
+    if (this.esSolicitudPromosDeCiudad(textoCorregido)) {
+      await this.conversationService.guardarTurnoUsuario(
+        idSesionActiva,
+        input,
+        'buscar_promociones_ciudad',
+      );
+
+      return this.responderPromocionesCiudad({
+        input,
+        textoCorregido,
+        textoParaProcesar: textoCorregido,
+        sessionId: idSesionActiva,
+        usuarioId,
+        contexto: { ...contexto, ciudad: contexto?.ciudad ?? sesion.ciudad },
+      });
+    }
+
+    if (this.esSolicitudPromosGenericaCruda(textoCorregido)) {
+      await this.conversationService.guardarTurnoUsuario(
+        idSesionActiva,
+        input,
+        'buscar_promociones',
+      );
+
+      return this.responderPromocionesGenerales({
+        input,
+        textoCorregido,
+        textoParaProcesar: textoCorregido,
+        sessionId: idSesionActiva,
+        usuarioId,
+        contexto: { ...contexto, ciudad: contexto?.ciudad ?? sesion.ciudad },
+      });
     }
 
     const resolucion = this.contextResolver.execute(textoCorregido, sesion);
