@@ -38,8 +38,8 @@ describe('SocialQueryNormalizer', () => {
     expect(result.text).not.toMatch(/\bestan\b|\bdonde\b/i);
   });
 
-  it('entiende slang de drinks como kiwas, caguamitas y echar drinks', () => {
-    for (const texto of ['kiwas baratas', 'caguamitas baratas', 'echar drinks']) {
+  it('entiende slang de drinks como kiwas, kikis, kiwis, caguamitas y echar drinks', () => {
+    for (const texto of ['kiwas baratas', 'kikis baratas', 'kiwis baratas', 'kaguamitas baratas', 'caguamitas baratas', 'amargosas', 'chelas frias', 'echar drinks']) {
       const result = SocialQueryNormalizer.normalize(texto);
 
       expect(result.detectedPlan).toBe('drinks');

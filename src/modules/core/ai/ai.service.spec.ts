@@ -292,6 +292,113 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(mocks.jelpyAssistant.interpretar).not.toHaveBeenCalled();
   });
 
+  it('"promos chelitas" encuentra promociones que dicen cerveza en la descripción', async () => {
+    const promoCerveza = {
+      id: 77,
+      titulo: 'Promo de bebidas',
+      descripcion: '5 litros de cerveza por 1 peso',
+      tipoPromocion: 'Descuento',
+      valorDescuento: null,
+      fechaInicio: '2026-09-01',
+      fechaFin: '2026-09-30',
+      imagenUrl: null,
+      sucursal: {
+        id: 88,
+        nombreSucursal: 'Sucursal Centro',
+        ciudad: { nombre: 'Tepic' },
+        negocio: { nombreNegocio: 'La Terraza' },
+      },
+    };
+    const buscarPromocionesActivasPorTexto = jest
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([promoCerveza]);
+
+    const { service, mocks } = crearServicio({
+      promocionesSucursalesService: {
+        listarPromocionesActivas: jest.fn().mockResolvedValue([]),
+        buscarPromocionesActivasPorTexto,
+      } as any,
+    });
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'licorerías', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: true, cerca_de_mi: false },
+      normalized_text: 'promos chelitas',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    const resultado = await service.processUserMessage('promos chelitas', 1, {}, undefined);
+
+    expect(resultado.status).toBe('aceptado');
+    expect(resultado.respuesta.items).toHaveLength(1);
+    expect(resultado.respuesta.items[0]).toEqual(
+      expect.objectContaining({
+        titulo: 'Promo de bebidas',
+        descripcion: '5 litros de cerveza por 1 peso',
+        negocio: 'La Terraza',
+      }),
+    );
+    expect(buscarPromocionesActivasPorTexto).toHaveBeenNthCalledWith(1, 'chelitas');
+    expect(buscarPromocionesActivasPorTexto).toHaveBeenNthCalledWith(2, 'cerveza');
+    expect(mocks.conversationService.guardarPreguntaPendiente).toHaveBeenLastCalledWith(
+      'sesion-test',
+      null,
+    );
+  });
+
+  it('"promos kikis" también se relaciona con cerveza para encontrar promociones', async () => {
+    const promoCerveza = {
+      id: 78,
+      titulo: 'Promo de cerveza',
+      descripcion: '5 litros de cerveza por 1 peso',
+      tipoPromocion: 'Descuento',
+      valorDescuento: null,
+      fechaInicio: '2026-09-01',
+      fechaFin: '2026-09-30',
+      imagenUrl: null,
+      sucursal: {
+        id: 89,
+        nombreSucursal: 'Sucursal Centro',
+        ciudad: { nombre: 'Tepic' },
+        negocio: { nombreNegocio: 'La Terraza' },
+      },
+    };
+    const buscarPromocionesActivasPorTexto = jest
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([promoCerveza]);
+
+    const { service, mocks } = crearServicio({
+      promocionesSucursalesService: {
+        listarPromocionesActivas: jest.fn().mockResolvedValue([]),
+        buscarPromocionesActivasPorTexto,
+      } as any,
+    });
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: { categoria: 'licorerías', subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: true, cerca_de_mi: false },
+      normalized_text: 'promos kikis',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    const resultado = await service.processUserMessage('promos kikis', 1, {}, undefined);
+
+    expect(resultado.status).toBe('aceptado');
+    expect(resultado.respuesta.items[0]).toEqual(
+      expect.objectContaining({
+        descripcion: '5 litros de cerveza por 1 peso',
+      }),
+    );
+    expect(buscarPromocionesActivasPorTexto).toHaveBeenNthCalledWith(1, 'kikis');
+    expect(buscarPromocionesActivasPorTexto).toHaveBeenNthCalledWith(2, 'cerveza');
+  });
+
   it('"alitas" sola pregunta si quiere lugares donde venden alitas o promociones, sin buscar restaurantes genéricos', async () => {
     const { service, mocks } = crearServicio();
 

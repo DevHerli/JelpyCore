@@ -3658,11 +3658,14 @@ export const JELPY_SEMANTIC_CATEGORIES: SemanticCategory[] = [
     aliases: [
       // Coloquial caguama/cheve
       'caguameria', 'caguamería',
-      'caguama', 'caguamas', 'caguamita', 'caguamitas',
+      'caguama', 'caguamas', 'kaguama', 'kaguamas',
+      'caguamita', 'caguamitas', 'kaguamita', 'kaguamitas',
       'cheve', 'cheves', 'chevas', 'chela', 'chelas', 'chelita', 'chelitas',
-      'kiwa', 'kiwas', 'kiwasaki', 'kiwasakis',
+      'kiwa', 'kiwas', 'kiwi', 'kiwis', 'kiki', 'kikis', 'kiwasaki', 'kiwasakis',
       'chelas baratas', 'chelitas baratas', 'chelitas mas baras',
       'chelitas más baras', 'cheve barata', 'cerveza barata',
+      'chelas frias', 'chelas frías', 'frias', 'frías',
+      'amargosa', 'amargosas',
       'cervecha', 'cervechas',
       'michelada', 'micheladas',
       'chelada', 'cheladas',

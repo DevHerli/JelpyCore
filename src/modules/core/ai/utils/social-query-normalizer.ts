@@ -196,8 +196,12 @@ export class SocialQueryNormalizer {
       this.has(t, 'tomar unas chelas') ||
       this.has(t, 'unas chelitas') ||
       this.has(t, 'kiwas') ||
+      this.has(t, 'kiwis') ||
+      this.has(t, 'kikis') ||
       this.has(t, 'kiwasakis') ||
-      this.has(t, 'caguamitas')
+      this.has(t, 'caguamitas') ||
+      this.has(t, 'kaguamitas') ||
+      this.has(t, 'amargosas')
     ) {
       return {
         text: 'bares antros cantinas restaurantes con cerveza micheladas para tomar con amigos',
@@ -222,8 +226,16 @@ export class SocialQueryNormalizer {
       this.has(t, 'cervezas baratas') ||
       this.has(t, 'caguamas baratas') ||
       this.has(t, 'caguamitas baratas') ||
+      this.has(t, 'kaguamitas baratas') ||
       this.has(t, 'kiwas baratas') ||
-      this.has(t, 'kiwasakis baratas')
+      this.has(t, 'kiwis baratas') ||
+      this.has(t, 'kikis baratas') ||
+      this.has(t, 'kiwasakis baratas') ||
+      this.has(t, 'chelas frias') ||
+      this.has(t, 'chelas frías') ||
+      this.has(t, 'frias') ||
+      this.has(t, 'frías') ||
+      this.has(t, 'amargosas')
     ) {
       return {
         text: 'caguamerias licorerias bares cantinas cerveza barata chelas caguamas promociones',

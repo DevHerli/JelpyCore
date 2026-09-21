@@ -282,6 +282,57 @@ export class AiService {
     return limpio.length >= 3 ? limpio : null;
   }
 
+  private obtenerFiltrosPromocionAlternos(filtroTexto: string): string[] {
+    const filtroNorm = this.normalizarTexto(filtroTexto);
+    const filtros = new Set<string>([filtroTexto.trim()]);
+
+    const gruposSinonimos: Array<{ patrones: RegExp[]; terminos: string[] }> = [
+      {
+        patrones: [
+          /\b(chela|chelas|chelita|chelitas|cheve|cheves|cheva|chevas|cerveza|cervezas|caguama|caguamas|kaguama|kaguamas|caguamita|caguamitas|kaguamita|kaguamitas|kiwa|kiwas|kiwi|kiwis|kiki|kikis|kiwasaki|kiwasakis|michelada|micheladas|chelada|cheladas|fria|frias|fría|frías|amargosa|amargosas)\b/,
+        ],
+        terminos: [
+          'cerveza',
+          'cervezas',
+          'chela',
+          'chelas',
+          'cheve',
+          'cheves',
+          'caguama',
+          'caguamas',
+          'caguamitas',
+          'kaguamitas',
+          'kiwas',
+          'kiwis',
+          'kikis',
+          'michelada',
+          'micheladas',
+          'frias',
+          'frías',
+          'amargosas',
+          'bebidas alcoholicas',
+          'bebidas alcohólicas',
+        ],
+      },
+      {
+        patrones: [/\b(alita|alitas|wings|boneless)\b/],
+        terminos: ['alitas', 'alita', 'wings', 'boneless'],
+      },
+      {
+        patrones: [/\b(sushi|rollo|rollos|makis|maki)\b/],
+        terminos: ['sushi', 'rollo', 'rollos', 'maki', 'makis'],
+      },
+    ];
+
+    for (const grupo of gruposSinonimos) {
+      if (grupo.patrones.some((patron) => patron.test(filtroNorm))) {
+        grupo.terminos.forEach((termino) => filtros.add(termino));
+      }
+    }
+
+    return Array.from(filtros).filter((filtro) => filtro.length >= 3);
+  }
+
   private detectarItemCatalogoAmbiguo(texto: string): string | null {
     const textoNorm = this.normalizarTexto(texto);
 
@@ -448,9 +499,20 @@ export class AiService {
     usuarioId?: number;
     contexto?: any;
   }): Promise<any> {
-    const promociones = (await this.promocionesSucursalesService.buscarPromocionesActivasPorTexto(
-      params.filtroTexto,
-    )).slice(0, 10);
+    const promocionesPorId = new Map<number, any>();
+
+    for (const filtro of this.obtenerFiltrosPromocionAlternos(params.filtroTexto)) {
+      const promocionesEncontradas =
+        await this.promocionesSucursalesService.buscarPromocionesActivasPorTexto(filtro);
+
+      (promocionesEncontradas ?? []).forEach((promo) =>
+        promocionesPorId.set(Number(promo.id), promo),
+      );
+
+      if (promocionesPorId.size > 0) break;
+    }
+
+    const promociones = Array.from(promocionesPorId.values()).slice(0, 10);
 
     const items = promociones.map((promo) => ({
       id: promo.id,
@@ -1078,9 +1140,13 @@ export class AiService {
       aiIntent.intent,
     );
 
-    const filtroPromocion = this.mencionaPromociones(textoParaProcesar)
+    const filtroPromocionOriginal = this.mencionaPromociones(textoCorregido)
+      ? this.extraerTextoFiltroPromocion(textoCorregido)
+      : null;
+    const filtroPromocionProcesado = this.mencionaPromociones(textoParaProcesar)
       ? this.extraerTextoFiltroPromocion(textoParaProcesar)
       : null;
+    const filtroPromocion = filtroPromocionOriginal ?? filtroPromocionProcesado;
 
     if (filtroPromocion) {
       return this.responderPromocionesFiltradas({
