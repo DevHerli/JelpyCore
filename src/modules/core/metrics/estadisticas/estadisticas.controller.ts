@@ -89,6 +89,28 @@ export class EstadisticasController {
   }
 
   /**
+   * GET /estadisticas/negocios/global-metrics-resumen
+   * Resumen liviano para listas. Evita llamar global-metrics N veces.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('negocios/global-metrics-resumen')
+  getGlobalMetricsResumenNegocios(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('suscriptorId') suscriptorId?: string,
+  ) {
+    return this.estadisticasService.getGlobalMetricsResumenNegocios(
+      this.requester(req),
+      {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        suscriptorId: suscriptorId ? Number(suscriptorId) : undefined,
+      },
+    );
+  }
+
+  /**
    * GET /estadisticas/negocio/:id/global-metrics
    * Métricas globales de un negocio: búsquedas, vistas, clics, likes,
    * promociones activas, desglose por sucursal y tendencia mensual.

@@ -71,6 +71,12 @@ export type DetalleEventoEstadistica = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type GlobalMetricsResumenQuery = {
+  page?: number;
+  limit?: number;
+  suscriptorId?: number;
+};
+
 @Injectable()
 export class EstadisticasService {
   constructor(private readonly connection: Connection) {}
@@ -612,6 +618,138 @@ export class EstadisticasService {
 
     // Si no hay registros aún, devolvemos ceros
     return res[0] || { vistas: 0, clics: 0, busquedas: 0, likes: 0 };
+  }
+
+  /**
+   * Resumen liviano para pantallas de lista.
+   *
+   * Producción: sustituye el patrón costoso de llamar
+   * /estadisticas/negocio/:id/global-metrics por cada negocio visible.
+   */
+  async getGlobalMetricsResumenNegocios(
+    requester: RequesterCtx,
+    query: GlobalMetricsResumenQuery = {},
+  ) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
+    const offset = (page - 1) * limit;
+
+    const where: string[] = ['n.eliminado = 0'];
+    const params: any[] = [];
+
+    if (requester.isAdmin) {
+      if (query.suscriptorId) {
+        where.push('n.suscriptor_id = ?');
+        params.push(query.suscriptorId);
+      }
+    } else {
+      where.push('n.suscriptor_id = ?');
+      params.push(requester.sub);
+    }
+
+    const whereSql = where.join(' AND ');
+
+    const totalRows = await this.connection.query(
+      `SELECT COUNT(*) AS total
+         FROM negocios n
+        WHERE ${whereSql}`,
+      params,
+    );
+
+    const negocios = await this.connection.query(
+      `SELECT
+         n.id AS negocioId,
+         n.nombre_negocio AS nombreNegocio,
+         n.logo_url AS logoUrl,
+         n.activo,
+         c.nombre AS categoria,
+         ci.nombre AS ciudad,
+         COALESCE(st.total_sucursales, 0) AS sucursales,
+         COALESCE(st.vistas, 0) AS vistas,
+         COALESCE(st.clics, 0) AS clics,
+         COALESCE(st.busquedas, 0) AS busquedas,
+         COALESCE(st.llamadas, 0) AS llamadas,
+         COALESCE(st.whatsapp, 0) AS whatsapp,
+         COALESCE(st.direcciones, 0) AS direcciones,
+         COALESCE(lk.likes, 0) AS likes,
+         COALESCE(pr.promocionesActivas, 0) AS promocionesActivas,
+         COALESCE(en.vistas, 0) AS vistasNegocio,
+         COALESCE(en.clics, 0) AS clicsNegocio,
+         COALESCE(en.busquedas, 0) AS busquedasNegocio
+       FROM negocios n
+       LEFT JOIN categorias c ON c.id = n.categoria_id
+       LEFT JOIN ciudades ci ON ci.id = n.ciudad_id
+       LEFT JOIN estadisticas_negocios en ON en.negocio_id = n.id
+       LEFT JOIN (
+         SELECT
+           s.negocio_id,
+           COUNT(s.id) AS total_sucursales,
+           SUM(COALESCE(es.vistas, 0)) AS vistas,
+           SUM(COALESCE(es.clics, 0)) AS clics,
+           SUM(COALESCE(es.busquedas, 0)) AS busquedas,
+           SUM(COALESCE(es.llamadas, 0)) AS llamadas,
+           SUM(COALESCE(es.whatsapp, 0)) AS whatsapp,
+           SUM(COALESCE(es.direcciones, 0)) AS direcciones
+         FROM sucursales_negocios s
+         LEFT JOIN estadisticas_sucursales es ON es.sucursal_id = s.id
+         WHERE s.eliminado = 0
+         GROUP BY s.negocio_id
+       ) st ON st.negocio_id = n.id
+       LEFT JOIN (
+         SELECT s.negocio_id, COUNT(sl.id) AS likes
+         FROM sucursales_negocios s
+         LEFT JOIN sucursal_likes sl ON sl.sucursal_id = s.id
+         WHERE s.eliminado = 0
+         GROUP BY s.negocio_id
+       ) lk ON lk.negocio_id = n.id
+       LEFT JOIN (
+         SELECT s.negocio_id, COUNT(p.id) AS promocionesActivas
+         FROM sucursales_negocios s
+         LEFT JOIN promociones_sucursales p
+                ON p.sucursal_id = s.id
+               AND p.eliminado = 0
+               AND p.activa = 1
+         WHERE s.eliminado = 0
+         GROUP BY s.negocio_id
+       ) pr ON pr.negocio_id = n.id
+       WHERE ${whereSql}
+       ORDER BY busquedas DESC, vistas DESC, n.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+
+    const data = negocios.map((row: any) => ({
+      negocioId: Number(row.negocioId),
+      nombreNegocio: row.nombreNegocio,
+      logoUrl: row.logoUrl,
+      activo: Boolean(Number(row.activo)),
+      categoria: row.categoria,
+      ciudad: row.ciudad,
+      totales: {
+        sucursales: Number(row.sucursales),
+        vistas: Number(row.vistas),
+        clics: Number(row.clics),
+        busquedas: Number(row.busquedas),
+        llamadas: Number(row.llamadas),
+        whatsapp: Number(row.whatsapp),
+        direcciones: Number(row.direcciones),
+        likes: Number(row.likes),
+        promocionesActivas: Number(row.promocionesActivas),
+      },
+      statsNegocio: {
+        vistas: Number(row.vistasNegocio),
+        clics: Number(row.clicsNegocio),
+        busquedas: Number(row.busquedasNegocio),
+      },
+    }));
+
+    return {
+      fechaGeneracion: new Date(),
+      page,
+      limit,
+      total: Number(totalRows[0]?.total ?? 0),
+      data,
+    };
   }
 
   /**
