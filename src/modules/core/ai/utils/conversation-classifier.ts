@@ -189,6 +189,33 @@ export class ConversationClassifier {
       return { ...base, intent: 'ambiguous', route: 'clarify', confidence: 0.6 };
     }
 
+    const tieneIntencionCatalogo = [
+      'donde venden',
+      'dónde venden',
+      'donde vende',
+      'dónde vende',
+      'donde encuentro',
+      'dónde encuentro',
+      'donde consigo',
+      'dónde consigo',
+      'donde comprar',
+      'dónde comprar',
+      'quien vende',
+      'quién vende',
+      'quien tiene',
+      'quién tiene',
+      'quien hace',
+      'quién hace',
+      'donde hacen',
+      'dónde hacen',
+      'donde tienen',
+      'dónde tienen',
+    ].some((p) => textoNorm.includes(this.clavefonetica(p)));
+
+    if (tieneIntencionCatalogo && textoNorm.split(' ').length >= 3) {
+      return { ...base, intent: 'business_search', route: 'search', confidence: 0.85 };
+    }
+
     const tieneVerboBusqueda = [
       'busco',
       'buscar',
@@ -196,6 +223,13 @@ export class ConversationClassifier {
       'necesito',
       'donde hay',
       'dónde hay',
+      'venden',
+      'vendan',
+      'vende',
+      'encuentro',
+      'consigo',
+      'tienen',
+      'hacen',
       'recomiendame',
       'recomiéndame',
       'dame opciones',

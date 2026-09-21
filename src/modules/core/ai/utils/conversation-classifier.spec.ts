@@ -103,6 +103,13 @@ describe('ConversationClassifier', () => {
       expect(result.chatIntent).toBe('fallback');
     });
 
+    it('"donde venden papas en gajo" es búsqueda de catálogo aunque el producto no esté en el diccionario', () => {
+      const result = ConversationClassifier.classify('donde venden papas en gajo');
+
+      expect(result.intent).toBe('business_search');
+      expect(result.route).toBe('search');
+    });
+
     it.each([
       'tortillerias cerca',
       'cancha de padel',

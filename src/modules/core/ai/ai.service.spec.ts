@@ -514,6 +514,50 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(resultado.respuesta.quisisteDecir).toBeUndefined();
   });
 
+  it('"donde venden papas en gajo" va a búsqueda de catálogo aunque no sea alias preprogramado', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.85,
+      entities: { categoria: null, subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden papas en gajo',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      filtros_detectados: { intent: 'buscar_items_negocio' },
+      resultados: {
+        items: [
+          {
+            id: 11,
+            nombre: 'Papas House',
+            nombreNegocio: 'Papas House',
+            itemEncontrado: 'Papas en gajo',
+            item: { nombre: 'Papas en gajo' },
+            categoria: 'Comida',
+          },
+        ],
+      },
+      sin_resultados: false,
+      suggestedQueries: [],
+    });
+
+    const resultado = await service.processUserMessage('donde venden papas en gajo', 1, {}, undefined);
+
+    expect(resultado.status).toBe('aceptado');
+    expect(mocks.jelpyAssistant.interpretar).toHaveBeenCalledWith(
+      'donde venden papas en gajo',
+      undefined,
+      undefined,
+      '',
+      1,
+    );
+    expect(JSON.stringify(resultado.respuesta)).toMatch(/Papas en gajo|Papas House/i);
+    expect(JSON.stringify(resultado.respuesta)).not.toMatch(/no entend/i);
+  });
+
   it('"dónde venden tamales/pozole" no usa "venden" para sugerir correcciones absurdas', async () => {
     const { service, mocks } = crearServicio();
 
