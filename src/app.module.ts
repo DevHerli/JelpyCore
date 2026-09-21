@@ -213,11 +213,15 @@ const SQL_MODE_ESTRICTO =
         timezone: 'Z', // gestionamos TZ en app para "abiertoAhora"
 
         // ── Pool de conexiones robusto ─────────────────────────────────────
-        // ECONNRESET ocurre cuando el servidor MySQL cierra conexiones idle
-        // del pool y TypeORM intenta reutilizarlas sin saber que ya murieron.
+        // En producción la BD vive fuera de Render. Mantener el pool pequeño
+        // evita que el Home (varios requests simultáneos) dispare muchas
+        // conexiones TCP nuevas contra un MySQL compartido y termine en
+        // connect ETIMEDOUT por firewall/throttling del proveedor.
         extra: {
-          // Tamaño del pool: ajustar según límite de conexiones del plan DB
-          connectionLimit: 10,
+          // Tamaño del pool: ajustar según límite de conexiones del plan DB.
+          connectionLimit: parseInt(cfg.get<string>('DB_CONNECTION_LIMIT') || '5', 10),
+          maxIdle: parseInt(cfg.get<string>('DB_MAX_IDLE_CONNECTIONS') || '1', 10),
+          idleTimeout: parseInt(cfg.get<string>('DB_IDLE_TIMEOUT_MS') || '10000', 10),
 
           // keepAlive envía un ping TCP para mantener la conexión viva
           // y detectar si el servidor la cerró antes de usarla.
@@ -226,10 +230,10 @@ const SQL_MODE_ESTRICTO =
 
           // Tiempo máximo esperando una conexión libre del pool (ms)
           waitForConnections: true,
-          queueLimit: 0,
+          queueLimit: parseInt(cfg.get<string>('DB_QUEUE_LIMIT') || '50', 10),
 
           // Timeout de conexión inicial (ms)
-          connectTimeout: 30000,
+          connectTimeout: parseInt(cfg.get<string>('DB_CONNECT_TIMEOUT_MS') || '30000', 10),
         },
         };
       },
@@ -250,6 +254,7 @@ const SQL_MODE_ESTRICTO =
 })
 export class AppModule implements OnModuleInit {
   private readonly logger = new Logger(AppModule.name);
+  private dbKeepAliveTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly dataSource: DataSource) {}
 
@@ -272,6 +277,13 @@ export class AppModule implements OnModuleInit {
     }
 
     pool.on('connection', (connection: any) => {
+      connection.on?.('error', (err: any) => {
+        this.logger.warn(
+          `[DB_POOL] Conexión MySQL descartada por error de red: ${err?.code ?? err?.message ?? err}`,
+        );
+        connection.destroy?.();
+      });
+
       connection.query(`SET SESSION sql_mode = '${SQL_MODE_ESTRICTO}'`, (err: Error | null) => {
         if (err) {
           this.logger.error(`[SQL_MODE] No se pudo aplicar sql_mode estricto: ${err.message}`);
@@ -280,5 +292,20 @@ export class AppModule implements OnModuleInit {
     });
 
     this.logger.log(`[SQL_MODE] sql_mode estricto activado por conexión: ${SQL_MODE_ESTRICTO}`);
+
+    const keepAliveMs = Number(process.env.DB_KEEPALIVE_INTERVAL_MS || 20000);
+    if (keepAliveMs > 0) {
+      this.dbKeepAliveTimer = setInterval(() => {
+        this.dataSource
+          .query('SELECT 1')
+          .catch((err) => {
+            this.logger.warn(
+              `[DB_KEEPALIVE] Ping MySQL falló: ${err?.code ?? err?.message ?? err}`,
+            );
+          });
+      }, keepAliveMs);
+      this.dbKeepAliveTimer.unref?.();
+      this.logger.log(`[DB_KEEPALIVE] Ping MySQL cada ${keepAliveMs} ms`);
+    }
   }
 }

@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { DeviceToken }    from './entities/device-token.entity';
 import { UserNotification } from './entities/user-notification.entity';
 import { RegisterTokenDto } from './dtos/register-token.dto';
+import { MemoryCacheService } from '../../common/cache/memory-cache.service';
 
 @Injectable()
 export class NotificationsService {
@@ -14,6 +15,8 @@ export class NotificationsService {
 
     @InjectRepository(UserNotification)
     private readonly userNotifRepo: Repository<UserNotification>,
+
+    private readonly cache: MemoryCacheService,
   ) {}
 
   // ─── Token FCM ────────────────────────────────────────────────────────────
@@ -118,10 +121,16 @@ export class NotificationsService {
   }
 
   async getUnreadCount(userId: number): Promise<{ count: number }> {
+    const cacheKey = `notifications:unread:${userId}`;
+    const cached = this.cache.get<{ count: number }>(cacheKey);
+    if (cached) return cached;
+
     const count = await this.userNotifRepo.count({
       where: { userId, isRead: false },
     });
-    return { count };
+    const result = { count };
+    this.cache.set(cacheKey, result, 10000);
+    return result;
   }
 
   // ─── Marcar como leída ────────────────────────────────────────────────────
@@ -140,6 +149,7 @@ export class NotificationsService {
       record.isRead = true;
       record.readAt = new Date();
       await this.userNotifRepo.save(record);
+      this.cache.del(`notifications:unread:${userId}`);
     }
 
     return { ok: true };
@@ -153,6 +163,7 @@ export class NotificationsService {
       .where('user_id = :userId AND is_read = 0', { userId })
       .execute();
 
+    this.cache.del(`notifications:unread:${userId}`);
     return { ok: true, updated: result.affected ?? 0 };
   }
 }
