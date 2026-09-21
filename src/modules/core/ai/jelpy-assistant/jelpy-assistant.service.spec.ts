@@ -102,6 +102,48 @@ describe('JelpyAssistantService.interpretar (JLP-FALLBACK-CATEGORIA-CRUZADA-FIX)
     expect(mocks.searchService.search).not.toHaveBeenCalled();
   });
 
+  it('"donde venden papas en gajo" busca en catálogo aunque no sea alias preprogramado', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: {
+        categoria: null,
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden papas en gajo',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.searchService.search.mockResolvedValue({
+      items: [{ id: 88, nombre: 'Restaurante Genérico' }],
+    });
+    mocks.searchService.searchByItems.mockResolvedValue({
+      items: [
+        {
+          id: 30,
+          nombre_negocio: 'Papas House',
+          item: { id: 901, nombre: 'Papas en gajo' },
+        },
+      ],
+    });
+
+    const resultado = await service.interpretar('donde venden papas en gajo');
+
+    expect(resultado.filtros_detectados.intent).toBe('buscar_items_negocio');
+    expect(resultado.resultados.items).toHaveLength(1);
+    expect(resultado.resultados.items[0].item.nombre).toBe('Papas en gajo');
+    expect(mocks.searchService.searchByItems).toHaveBeenCalledWith(
+      expect.objectContaining({ q: 'papas gajo' }),
+    );
+    expect(mocks.searchService.search).not.toHaveBeenCalled();
+  });
+
   it('si no hay item en catálogo, "donde venden alitas" no rellena con restaurantes genéricos', async () => {
     const { service, mocks } = crearServicio();
 
