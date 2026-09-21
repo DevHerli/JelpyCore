@@ -233,8 +233,12 @@ export class SocialQueryNormalizer {
       this.has(t, 'kiwasakis baratas') ||
       this.has(t, 'chelas frias') ||
       this.has(t, 'chelas frías') ||
-      this.has(t, 'frias') ||
-      this.has(t, 'frías') ||
+      this.has(t, 'cheve fria') ||
+      this.has(t, 'cheve fría') ||
+      this.has(t, 'cerveza fria') ||
+      this.has(t, 'cerveza fría') ||
+      this.has(t, 'caguamas frias') ||
+      this.has(t, 'caguamas frías') ||
       this.has(t, 'amargosas')
     ) {
       return {

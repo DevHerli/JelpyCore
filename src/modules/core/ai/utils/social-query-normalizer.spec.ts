@@ -47,6 +47,14 @@ describe('SocialQueryNormalizer', () => {
     }
   });
 
+  it('"carnes frías" no se confunde con chelas frías ni cerveza', () => {
+    const result = SocialQueryNormalizer.normalize('donde venden carnes frias');
+
+    expect(result.detectedPlan).toBeUndefined();
+    expect(result.text).toBe('donde venden carnes frias');
+    expect(result.text).not.toMatch(/cerveza|caguamas|bares|cantinas|promociones/i);
+  });
+
   it('traduce taquitos buenos a taquerías', () => {
     const result = SocialQueryNormalizer.normalize('taquitos buenos');
 

@@ -558,6 +558,95 @@ describe('AiService.processUserMessage — pruebas de conversación', () => {
     expect(JSON.stringify(resultado.respuesta)).not.toMatch(/no entend/i);
   });
 
+  it('"donde venden papas gajo" va a búsqueda de catálogo aunque falte "en"', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.85,
+      entities: { categoria: null, subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden papas gajo',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      filtros_detectados: { intent: 'buscar_items_negocio' },
+      resultados: {
+        items: [
+          {
+            id: 12,
+            nombre: 'Papas House',
+            nombreNegocio: 'Papas House',
+            itemEncontrado: 'Papas Gajo',
+            item: { nombre: 'Papas Gajo' },
+            categoria: 'Comida',
+          },
+        ],
+      },
+      sin_resultados: false,
+      suggestedQueries: [],
+    });
+
+    const resultado = await service.processUserMessage('donde venden papas gajo', 1, {}, undefined);
+
+    expect(resultado.status).toBe('aceptado');
+    expect(mocks.jelpyAssistant.interpretar).toHaveBeenCalledWith(
+      'donde venden papas gajo',
+      undefined,
+      undefined,
+      '',
+      1,
+    );
+    expect(JSON.stringify(resultado.respuesta)).toMatch(/Papas Gajo|Papas House/i);
+    expect(JSON.stringify(resultado.respuesta)).not.toMatch(/no entend/i);
+  });
+
+  it('"donde venden carnes frias" busca catálogo y no promociones de cerveza', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.85,
+      entities: { categoria: null, subcategoria: null, ciudad: null, especialidad: null },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden carnes frias',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.jelpyAssistant.interpretar.mockResolvedValue({
+      filtros_detectados: { intent: 'buscar_items_negocio' },
+      resultados: {
+        items: [
+          {
+            id: 13,
+            nombre: 'Cremería La Buena',
+            nombreNegocio: 'Cremería La Buena',
+            itemEncontrado: 'Carnes frías',
+            item: { nombre: 'Carnes frías' },
+            categoria: 'Comida',
+          },
+        ],
+      },
+      sin_resultados: false,
+      suggestedQueries: [],
+    });
+
+    const resultado = await service.processUserMessage('donde venden carnes frias', 1, {}, undefined);
+
+    expect(resultado.status).toBe('aceptado');
+    expect(mocks.jelpyAssistant.interpretar).toHaveBeenCalledWith(
+      'donde venden carnes frias',
+      undefined,
+      undefined,
+      '',
+      1,
+    );
+    expect(mocks.promocionesSucursalesService.buscarPromocionesActivasPorTexto).not.toHaveBeenCalled();
+    expect(JSON.stringify(resultado.respuesta)).toMatch(/Carnes frías|Cremería La Buena/i);
+    expect(JSON.stringify(resultado.respuesta)).not.toMatch(/cerveza|Promoción Martes/i);
+  });
+
   it('"dónde venden tamales/pozole" no usa "venden" para sugerir correcciones absurdas', async () => {
     const { service, mocks } = crearServicio();
 

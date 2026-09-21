@@ -110,6 +110,20 @@ describe('ConversationClassifier', () => {
       expect(result.route).toBe('search');
     });
 
+    it('"donde venden papas gajo" es búsqueda de catálogo aunque falte el conector "en"', () => {
+      const result = ConversationClassifier.classify('donde venden papas gajo');
+
+      expect(result.intent).toBe('business_search');
+      expect(result.route).toBe('search');
+    });
+
+    it('"donde venden carnes frias" busca catálogo y no se toma como cerveza por la palabra "frias"', () => {
+      const result = ConversationClassifier.classify('donde venden carnes frias');
+
+      expect(result.intent).toBe('business_search');
+      expect(result.route).toBe('search');
+    });
+
     it.each([
       'tortillerias cerca',
       'cancha de padel',

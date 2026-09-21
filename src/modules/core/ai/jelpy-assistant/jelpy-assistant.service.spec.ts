@@ -144,6 +144,90 @@ describe('JelpyAssistantService.interpretar (JLP-FALLBACK-CATEGORIA-CRUZADA-FIX)
     expect(mocks.searchService.search).not.toHaveBeenCalled();
   });
 
+  it('"donde venden papas gajo" busca el item del catálogo aunque el usuario omita "en"', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: {
+        categoria: null,
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden papas gajo',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.searchService.search.mockResolvedValue({
+      items: [{ id: 88, nombre: 'Restaurante Genérico' }],
+    });
+    mocks.searchService.searchByItems.mockResolvedValue({
+      items: [
+        {
+          id: 31,
+          nombre_negocio: 'Papas House',
+          item: { id: 902, nombre: 'Papas Gajo' },
+        },
+      ],
+    });
+
+    const resultado = await service.interpretar('donde venden papas gajo');
+
+    expect(resultado.filtros_detectados.intent).toBe('buscar_items_negocio');
+    expect(resultado.resultados.items).toHaveLength(1);
+    expect(resultado.resultados.items[0].item.nombre).toBe('Papas Gajo');
+    expect(mocks.searchService.searchByItems).toHaveBeenCalledWith(
+      expect.objectContaining({ q: 'papas gajo' }),
+    );
+    expect(mocks.searchService.search).not.toHaveBeenCalled();
+  });
+
+  it('"donde venden carnes frias" busca catálogo y no promociones de cerveza', async () => {
+    const { service, mocks } = crearServicio();
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: {
+        categoria: null,
+        subcategoria: null,
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden carnes frias',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    mocks.searchService.search.mockResolvedValue({
+      items: [{ id: 88, nombre: 'Restaurante Genérico' }],
+    });
+    mocks.searchService.searchByItems.mockResolvedValue({
+      items: [
+        {
+          id: 32,
+          nombre_negocio: 'Cremería La Buena',
+          item: { id: 903, nombre: 'Carnes frías' },
+        },
+      ],
+    });
+
+    const resultado = await service.interpretar('donde venden carnes frias');
+
+    expect(resultado.filtros_detectados.intent).toBe('buscar_items_negocio');
+    expect(resultado.resultados.items).toHaveLength(1);
+    expect(resultado.resultados.items[0].item.nombre).toBe('Carnes frías');
+    expect(mocks.searchService.searchByItems).toHaveBeenCalledWith(
+      expect.objectContaining({ q: 'carnes frias' }),
+    );
+    expect(mocks.searchService.search).not.toHaveBeenCalled();
+  });
+
   it('si no hay item en catálogo, "donde venden alitas" no rellena con restaurantes genéricos', async () => {
     const { service, mocks } = crearServicio();
 

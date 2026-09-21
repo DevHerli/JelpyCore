@@ -323,7 +323,8 @@ export class AiService {
     const gruposSinonimos: Array<{ patrones: RegExp[]; terminos: string[] }> = [
       {
         patrones: [
-          /\b(chela|chelas|chelita|chelitas|cheve|cheves|cheva|chevas|cerveza|cervezas|caguama|caguamas|kaguama|kaguamas|caguamita|caguamitas|kaguamita|kaguamitas|kiwa|kiwas|kiwi|kiwis|kiki|kikis|kiwasaki|kiwasakis|michelada|micheladas|chelada|cheladas|fria|frias|fría|frías|amargosa|amargosas)\b/,
+          /\b(chela|chelas|chelita|chelitas|cheve|cheves|cheva|chevas|cerveza|cervezas|caguama|caguamas|kaguama|kaguamas|caguamita|caguamitas|kaguamita|kaguamitas|kiwa|kiwas|kiwi|kiwis|kiki|kikis|kiwasaki|kiwasakis|michelada|micheladas|chelada|cheladas|amargosa|amargosas)\b/,
+          /\b(chela|chelas|chelita|chelitas|cheve|cheves|cerveza|cervezas|caguama|caguamas)\s+(fria|frias|fría|frías)\b/,
         ],
         terminos: [
           'cerveza',
@@ -341,8 +342,10 @@ export class AiService {
           'kikis',
           'michelada',
           'micheladas',
-          'frias',
-          'frías',
+          'chelas frias',
+          'chelas frías',
+          'cerveza fria',
+          'cerveza fría',
           'amargosas',
           'bebidas alcoholicas',
           'bebidas alcohólicas',
