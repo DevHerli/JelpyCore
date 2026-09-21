@@ -5,7 +5,6 @@ import { Repository } from 'typeorm';
 import { Bookmark } from './entities/bookmark.entity';
 import { EventoNegocio } from '../eventos_negocios/entities/evento-negocio.entity';
 import { LecturaEventoNegocio } from '../eventos_negocios/entities/lectura-evento-negocio.entity';
-import { MemoryCacheService } from '../../../common/cache/memory-cache.service';
 
 @Injectable()
 export class BookmarksService {
@@ -18,8 +17,6 @@ export class BookmarksService {
 
     @InjectRepository(LecturaEventoNegocio)
     private readonly lecturaEventoNegocioRepo: Repository<LecturaEventoNegocio>,
-
-    private readonly cache: MemoryCacheService,
   ) {}
 
   async toggle(sucursalId: number, suscriptorId: number) {
@@ -33,7 +30,6 @@ export class BookmarksService {
 
     if (existing) {
       await this.bookmarkRepo.remove(existing);
-      this.cache.del(`bookmarks:unread-summary:${suscriptorId}`);
 
       return {
         bookmarked: false,
@@ -47,7 +43,6 @@ export class BookmarksService {
     });
 
     await this.bookmarkRepo.save(bookmark);
-    this.cache.del(`bookmarks:unread-summary:${suscriptorId}`);
 
     return {
       bookmarked: true,
@@ -86,13 +81,6 @@ export class BookmarksService {
       throw new BadRequestException('suscriptorId inválido.');
     }
 
-    const cacheKey = `bookmarks:unread-summary:${suscriptorIdNum}`;
-    const cached = this.cache.get<{
-      totalFavoritosConNovedades: number;
-      totalEventosNoLeidos: number;
-    }>(cacheKey);
-    if (cached) return cached;
-
     const favoritos = await this.bookmarkRepo.find({
       where: {
         suscriptor: { id: suscriptorIdNum },
@@ -101,12 +89,10 @@ export class BookmarksService {
     });
 
     if (!favoritos.length) {
-      const empty = {
+      return {
         totalFavoritosConNovedades: 0,
         totalEventosNoLeidos: 0,
       };
-      this.cache.set(cacheKey, empty, 10000);
-      return empty;
     }
 
     let totalFavoritosConNovedades = 0;
@@ -141,12 +127,10 @@ export class BookmarksService {
       }
     }
 
-    const result = {
+    return {
       totalFavoritosConNovedades,
       totalEventosNoLeidos,
     };
-    this.cache.set(cacheKey, result, 10000);
-    return result;
   }
 
   async obtenerFavoritosConNovedades(suscriptorId: number) {
@@ -292,7 +276,6 @@ export class BookmarksService {
     );
 
     await this.lecturaEventoNegocioRepo.save(nuevasLecturas);
-    this.cache.del(`bookmarks:unread-summary:${suscriptorIdNum}`);
 
     return {
       message: 'Eventos del favorito marcados como leídos correctamente',

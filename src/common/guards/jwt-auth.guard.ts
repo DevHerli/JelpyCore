@@ -28,7 +28,6 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import * as jwt from 'jsonwebtoken';
 import { Suscriptor } from '../../modules/business/suscriptores/entities/suscriptores.entity';
-import { MemoryCacheService } from '../cache/memory-cache.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -38,7 +37,6 @@ export class JwtAuthGuard implements CanActivate {
     // requiere TypeOrmModule.forFeature([Suscriptor]) en cada módulo que use este
     // guard. Elimina el UnknownDependenciesException que ocurría con @InjectRepository.
     private readonly dataSource: DataSource,
-    private readonly cache: MemoryCacheService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -70,24 +68,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token inválido o expirado');
     }
 
-    const cacheKey = `auth:user:${decoded.sub}`;
-    const ttlMs = Number(this.config.get<string>('AUTH_GUARD_CACHE_TTL_MS') || 30000);
-    let suscriptor = this.cache.get<{ id: number; role: string }>(cacheKey);
-
-    if (!suscriptor) {
-      // Revalida en BD: cuenta existente, activa y no eliminada.
-      const row = await this.dataSource
-        .getRepository(Suscriptor)
-        .findOne({
-          where:  { id: decoded.sub, eliminado: false },
-          select: { id: true, role: true } as any,
-        });
-
-      if (row) {
-        suscriptor = { id: Number(row.id), role: row.role };
-        this.cache.set(cacheKey, suscriptor, ttlMs);
-      }
-    }
+    // Revalida en BD: cuenta existente, activa y no eliminada
+    const suscriptor = await this.dataSource
+      .getRepository(Suscriptor)
+      .findOne({
+        where:  { id: decoded.sub, eliminado: false },
+        select: { id: true, role: true } as any,
+      });
 
     if (!suscriptor) {
       throw new UnauthorizedException('Cuenta no encontrada o desactivada');

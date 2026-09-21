@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { MemoryCacheService } from '../../../common/cache/memory-cache.service';
 
 import { SucursalNegocio } from '../../business/sucursales_negocios/entities/sucursal-negocio.entity';
 import { HorarioSucursal } from '../../business/horario_sucursal/entities/horarios-sucursal.entity';
@@ -25,7 +24,6 @@ export class PublicSucursalesService {
     private readonly likeRepo: Repository<SucursalLike>,
 
     private readonly cfg: ConfigService,
-    private readonly cache: MemoryCacheService,
   ) {}
 
   // ─── Listado con filtros ────────────────────────────────────────────────────
@@ -38,10 +36,6 @@ export class PublicSucursalesService {
     page: number;
     limit: number;
   }) {
-    const cacheKey = `public:sucursales:listar:${JSON.stringify(params)}`;
-    const cached = this.cache.get<any>(cacheKey);
-    if (cached) return cached;
-
     const { page, limit } = params;
     const skip = (page - 1) * limit;
 
@@ -70,18 +64,12 @@ export class PublicSucursalesService {
     const [sucursales, total] = await qb.getManyAndCount();
     const items = await this.mapear(sucursales);
 
-    const result = { items, total, page, limit };
-    this.cache.set(cacheKey, result, 30000);
-    return result;
+    return { items, total, page, limit };
   }
 
   // ─── Destacados (con membresía activa) ──────────────────────────────────────
 
   async destacados(params: { ciudadId?: number; limit: number }) {
-    const cacheKey = `public:sucursales:destacados:${JSON.stringify(params)}`;
-    const cached = this.cache.get<any>(cacheKey);
-    if (cached) return cached;
-
     const qb = this.baseQuery();
 
     if (params.ciudadId) {
@@ -106,9 +94,7 @@ export class PublicSucursalesService {
     const sucursales = await qb.getMany();
     const items = await this.mapear(sucursales);
 
-    const result = { items, total: items.length, page: 1, limit: params.limit };
-    this.cache.set(cacheKey, result, 30000);
-    return result;
+    return { items, total: items.length, page: 1, limit: params.limit };
   }
 
   // ─── Más buscados ────────────────────────────────────────────────────────────
@@ -198,10 +184,6 @@ export class PublicSucursalesService {
   // ─── Más likes ───────────────────────────────────────────────────────────────
 
   async masLikes(params: { ciudadId?: number; limit: number }) {
-    const cacheKey = `public:sucursales:masLikes:${JSON.stringify(params)}`;
-    const cached = this.cache.get<any>(cacheKey);
-    if (cached) return cached;
-
     const { ciudadId, limit } = params;
 
     const topLikes = await this.likeRepo
@@ -213,11 +195,7 @@ export class PublicSucursalesService {
       .limit(limit * 3)
       .getRawMany<{ sucursalId: string; totalLikes: string }>();
 
-    if (topLikes.length === 0) {
-      const empty = { items: [], total: 0, page: 1, limit };
-      this.cache.set(cacheKey, empty, 30000);
-      return empty;
-    }
+    if (topLikes.length === 0) return { items: [], total: 0, page: 1, limit };
 
     const sucursalIds = topLikes.map((l) => Number(l.sucursalId));
 
@@ -240,9 +218,7 @@ export class PublicSucursalesService {
       .slice(0, limit)
       .map((item) => ({ ...item, totalLikes: likesMap.get(item.sucursalId) ?? 0 }));
 
-    const result = { items, total: items.length, page: 1, limit };
-    this.cache.set(cacheKey, result, 30000);
-    return result;
+    return { items, total: items.length, page: 1, limit };
   }
 
   // ─── Sugeridos ───────────────────────────────────────────────────────────────
