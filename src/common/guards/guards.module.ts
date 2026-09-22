@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { MemoryCacheModule } from '../cache/memory-cache.module';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ApiKeyGuard } from './api-key.guard';
 import { AdminGuard } from './admin.guard';
@@ -21,7 +22,7 @@ import { AdminGuard } from './admin.guard';
  */
 @Global()
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, MemoryCacheModule],
   providers: [JwtAuthGuard, ApiKeyGuard, AdminGuard],
   exports: [JwtAuthGuard, ApiKeyGuard, AdminGuard],
 })

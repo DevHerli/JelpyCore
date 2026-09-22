@@ -250,6 +250,7 @@ const SQL_MODE_ESTRICTO =
 })
 export class AppModule implements OnModuleInit {
   private readonly logger = new Logger(AppModule.name);
+  private dbKeepAliveTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly dataSource: DataSource) {}
 
@@ -261,6 +262,16 @@ export class AppModule implements OnModuleInit {
    * la vida de esa conexión TCP, así que basta con hacerlo una vez por
    * conexión, no por query. `driver.pool` no está en los tipos públicos de
    * TypeORM pero es el pool real de mysql2 (createPool) en runtime.
+   *
+   * CRÍTICO — listener de 'error' por conexión:
+   * cada conexión física del pool de mysql2 es un EventEmitter. Si el MySQL
+   * remoto cierra una conexión idle (wait_timeout) o hay un ECONNRESET de
+   * red, esa conexión emite 'error'. Si NADIE escucha ese evento, Node lo
+   * trata como excepción no capturada y **tumba el proceso completo**
+   * (no solo la request) — eso es lo que causaba que el backend "tronara"
+   * y Home dejara de cargar negocios intermitentemente. El fix es escuchar
+   * el error, loguearlo y destruir la conexión dañada para que el pool cree
+   * una nueva la próxima vez que se necesite.
    */
   onModuleInit() {
     const pool = (this.dataSource.driver as any)?.pool;
@@ -272,6 +283,13 @@ export class AppModule implements OnModuleInit {
     }
 
     pool.on('connection', (connection: any) => {
+      connection.on?.('error', (err: any) => {
+        this.logger.warn(
+          `[DB_POOL] Conexión MySQL descartada por error de red: ${err?.code ?? err?.message ?? err}`,
+        );
+        connection.destroy?.();
+      });
+
       connection.query(`SET SESSION sql_mode = '${SQL_MODE_ESTRICTO}'`, (err: Error | null) => {
         if (err) {
           this.logger.error(`[SQL_MODE] No se pudo aplicar sql_mode estricto: ${err.message}`);
@@ -280,5 +298,24 @@ export class AppModule implements OnModuleInit {
     });
 
     this.logger.log(`[SQL_MODE] sql_mode estricto activado por conexión: ${SQL_MODE_ESTRICTO}`);
+
+    // Ping periódico: mantiene vivas las conexiones idle del pool y detecta
+    // temprano (en el ping, no en medio de una request real de un usuario)
+    // si el servidor MySQL cerró una conexión — reduce la probabilidad de
+    // que una request de Home tope con una conexión ya muerta.
+    const keepAliveMs = Number(process.env.DB_KEEPALIVE_INTERVAL_MS || 20000);
+    if (keepAliveMs > 0) {
+      this.dbKeepAliveTimer = setInterval(() => {
+        this.dataSource
+          .query('SELECT 1')
+          .catch((err) => {
+            this.logger.warn(
+              `[DB_KEEPALIVE] Ping MySQL falló: ${err?.code ?? err?.message ?? err}`,
+            );
+          });
+      }, keepAliveMs);
+      this.dbKeepAliveTimer.unref?.();
+      this.logger.log(`[DB_KEEPALIVE] Ping MySQL cada ${keepAliveMs} ms`);
+    }
   }
 }

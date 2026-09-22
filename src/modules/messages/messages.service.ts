@@ -9,6 +9,7 @@ import { BusinessMessage, MessageType } from './entities/business-message.entity
 import { QueryMessagesDto } from './dtos/query-messages.dto';
 import { QueryInboxDto } from './dtos/query-inbox.dto';
 import { CreateMessageDto } from './dtos/create-message.dto';
+import { MemoryCacheService } from '../../common/cache/memory-cache.service';
 
 /** Forma snake_case que espera el frontend */
 function toSnake(m: BusinessMessage) {
@@ -33,6 +34,7 @@ export class MessagesService {
     @InjectRepository(BusinessMessage)
     private readonly repo: Repository<BusinessMessage>,
     private readonly dataSource: DataSource,
+    private readonly cache: MemoryCacheService,
   ) {}
 
   // ─────────────────────────────────────────
@@ -261,6 +263,7 @@ export class MessagesService {
 
     if (!msg.isRead) {
       await this.repo.update(id, { isRead: true });
+      this.cache.del(`messages:unread:${subscriberId}`);
     }
 
     return { ok: true };
@@ -275,10 +278,15 @@ export class MessagesService {
       .andWhere('is_read = 0')
       .execute();
 
+    this.cache.del(`messages:unread:${subscriberId}`);
     return { ok: true, updated: result.affected ?? 0 };
   }
 
   async getUnreadCount(subscriberId: number) {
+    const cacheKey = `messages:unread:${subscriberId}`;
+    const cached = this.cache.get<{ total: number; by_type: Record<string, number> }>(cacheKey);
+    if (cached) return cached;
+
     // Total no leídos
     const rows = await this.repo
       .createQueryBuilder('m')
@@ -298,7 +306,9 @@ export class MessagesService {
       total += n;
     }
 
-    return { total, by_type: byType };
+    const result = { total, by_type: byType };
+    this.cache.set(cacheKey, result, 10000);
+    return result;
   }
 
   // ─────────────────────────────────────────
@@ -320,7 +330,9 @@ export class MessagesService {
       isRead:       false,
     });
 
-    return this.repo.save(msg);
+    const saved = await this.repo.save(msg);
+    this.cache.del(`messages:unread:${dto.subscriberId}`);
+    return saved;
   }
 
   /**
@@ -353,6 +365,7 @@ export class MessagesService {
       );
       await this.repo.save(entities);
     }
+    for (const sid of subscriberIds) this.cache.del(`messages:unread:${sid}`);
   }
 
   private safeJson(value: string) {
