@@ -217,7 +217,15 @@ const SQL_MODE_ESTRICTO =
         // del pool y TypeORM intenta reutilizarlas sin saber que ya murieron.
         extra: {
           // Tamaño del pool: ajustar según límite de conexiones del plan DB
-          connectionLimit: 10,
+          // JLP-M07: 10 resultó insuficiente — bajo ráfagas de ~10 requests
+          // concurrentes (ej: varios usuarios abriendo Home al mismo tiempo,
+          // o el primer load tras expirar el caché de 30s) el pool se
+          // agotaba y, como queueLimit=0 (espera sin límite, sin timeout de
+          // adquisición en mysql2), las requests que no alcanzaban conexión
+          // se quedaban colgadas indefinidamente en vez de fallar rápido.
+          // Subir a 20 da margen sin exponer demasiadas conexiones al host
+          // externo (que ya mostró throttling en el pasado).
+          connectionLimit: 20,
 
           // keepAlive envía un ping TCP para mantener la conexión viva
           // y detectar si el servidor la cerró antes de usarla.
