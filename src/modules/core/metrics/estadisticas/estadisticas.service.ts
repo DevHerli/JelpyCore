@@ -228,81 +228,83 @@ export class EstadisticasService {
   async getDesgloseSucursal(sucursalId: number, requester?: RequesterCtx) {
     await this.assertOwnershipSucursal(sucursalId, requester);
 
-    const [
-      porOrigenRows,
-      busquedasSinResultado,
-      categoriasMasBuscadas,
-      subcategoriasMasBuscadas,
-      especialidadesMasBuscadas,
-      ciudadesMasBuscadas,
-    ] =
-      await Promise.all([
-        this.connection.query(
-          `SELECT tipo, COALESCE(origen, 'unknown') AS origen, COUNT(*) AS total
-             FROM estadisticas_eventos
-            WHERE sucursal_id = ?
-              AND sin_resultados = 0
-            GROUP BY tipo, COALESCE(origen, 'unknown')
-            ORDER BY tipo ASC, total DESC`,
-          [sucursalId],
-        ),
-        this.connection.query(
-          `SELECT termino, COALESCE(origen, 'unknown') AS origen, COUNT(*) AS total
-             FROM estadisticas_eventos
-            WHERE sucursal_id = ?
-              AND tipo = 'busqueda'
-              AND sin_resultados = 1
-              AND termino IS NOT NULL
-            GROUP BY termino, COALESCE(origen, 'unknown')
-            ORDER BY total DESC, termino ASC
-            LIMIT 20`,
-          [sucursalId],
-        ),
-        this.connection.query(
-          `SELECT categoria_id AS id, categoria_nombre AS nombre, COUNT(*) AS total
-             FROM estadisticas_eventos
-            WHERE sucursal_id = ?
-              AND tipo = 'busqueda'
-              AND categoria_id IS NOT NULL
-            GROUP BY categoria_id, categoria_nombre
-            ORDER BY total DESC
-            LIMIT 10`,
-          [sucursalId],
-        ),
-        this.connection.query(
-          `SELECT subcategoria_id AS id, subcategoria_nombre AS nombre, COUNT(*) AS total
-             FROM estadisticas_eventos
-            WHERE sucursal_id = ?
-              AND tipo = 'busqueda'
-              AND subcategoria_id IS NOT NULL
-            GROUP BY subcategoria_id, subcategoria_nombre
-            ORDER BY total DESC
-            LIMIT 10`,
-          [sucursalId],
-        ),
-        this.connection.query(
-          `SELECT especialidad_id AS id, especialidad_nombre AS nombre, COUNT(*) AS total
-             FROM estadisticas_eventos
-            WHERE sucursal_id = ?
-              AND tipo = 'busqueda'
-              AND especialidad_id IS NOT NULL
-            GROUP BY especialidad_id, especialidad_nombre
-            ORDER BY total DESC
-            LIMIT 10`,
-          [sucursalId],
-        ),
-        this.connection.query(
-          `SELECT ciudad_id AS id, ciudad_nombre AS nombre, COUNT(*) AS total
-             FROM estadisticas_eventos
-            WHERE sucursal_id = ?
-              AND tipo = 'busqueda'
-              AND ciudad_id IS NOT NULL
-            GROUP BY ciudad_id, ciudad_nombre
-            ORDER BY total DESC
-            LIMIT 10`,
-          [sucursalId],
-        ),
-      ]);
+    // JLP-M27 (2026-09-22) — Antes estas 6 queries corrían con Promise.all,
+    // es decir, pedían 6 conexiones del pool de MySQL AL MISMO TIEMPO. Esta
+    // llamada es una de ~10 que branch-detail dispara en paralelo al cargar
+    // "Gestión de la sucursal" (BranchDetailFacade.loadInitialData), así que
+    // por sí sola ya multiplicaba la presión sobre el pool. Confirmado en
+    // vivo: bajo ráfaga, el servidor MySQL remoto (sin skip_name_resolve)
+    // tarda varios segundos en aceptar conexiones nuevas simultáneas, y
+    // varias de estas 6 terminaban en timeout (30s) → 500 → "Jelpy Trend"
+    // sin datos en la UI. Los datos de esta tabla son pequeños por sucursal
+    // (búsquedas/eventos, no todo el histórico de la plataforma), así que
+    // correrlas en secuencia sobre una sola conexión cuesta unos pocos ms
+    // extra en total pero reduce la demanda de 6 conexiones simultáneas a 1.
+    const porOrigenRows = await this.connection.query(
+      `SELECT tipo, COALESCE(origen, 'unknown') AS origen, COUNT(*) AS total
+         FROM estadisticas_eventos
+        WHERE sucursal_id = ?
+          AND sin_resultados = 0
+        GROUP BY tipo, COALESCE(origen, 'unknown')
+        ORDER BY tipo ASC, total DESC`,
+      [sucursalId],
+    );
+    const busquedasSinResultado = await this.connection.query(
+      `SELECT termino, COALESCE(origen, 'unknown') AS origen, COUNT(*) AS total
+         FROM estadisticas_eventos
+        WHERE sucursal_id = ?
+          AND tipo = 'busqueda'
+          AND sin_resultados = 1
+          AND termino IS NOT NULL
+        GROUP BY termino, COALESCE(origen, 'unknown')
+        ORDER BY total DESC, termino ASC
+        LIMIT 20`,
+      [sucursalId],
+    );
+    const categoriasMasBuscadas = await this.connection.query(
+      `SELECT categoria_id AS id, categoria_nombre AS nombre, COUNT(*) AS total
+         FROM estadisticas_eventos
+        WHERE sucursal_id = ?
+          AND tipo = 'busqueda'
+          AND categoria_id IS NOT NULL
+        GROUP BY categoria_id, categoria_nombre
+        ORDER BY total DESC
+        LIMIT 10`,
+      [sucursalId],
+    );
+    const subcategoriasMasBuscadas = await this.connection.query(
+      `SELECT subcategoria_id AS id, subcategoria_nombre AS nombre, COUNT(*) AS total
+         FROM estadisticas_eventos
+        WHERE sucursal_id = ?
+          AND tipo = 'busqueda'
+          AND subcategoria_id IS NOT NULL
+        GROUP BY subcategoria_id, subcategoria_nombre
+        ORDER BY total DESC
+        LIMIT 10`,
+      [sucursalId],
+    );
+    const especialidadesMasBuscadas = await this.connection.query(
+      `SELECT especialidad_id AS id, especialidad_nombre AS nombre, COUNT(*) AS total
+         FROM estadisticas_eventos
+        WHERE sucursal_id = ?
+          AND tipo = 'busqueda'
+          AND especialidad_id IS NOT NULL
+        GROUP BY especialidad_id, especialidad_nombre
+        ORDER BY total DESC
+        LIMIT 10`,
+      [sucursalId],
+    );
+    const ciudadesMasBuscadas = await this.connection.query(
+      `SELECT ciudad_id AS id, ciudad_nombre AS nombre, COUNT(*) AS total
+         FROM estadisticas_eventos
+        WHERE sucursal_id = ?
+          AND tipo = 'busqueda'
+          AND ciudad_id IS NOT NULL
+        GROUP BY ciudad_id, ciudad_nombre
+        ORDER BY total DESC
+        LIMIT 10`,
+      [sucursalId],
+    );
 
     return {
       porOrigen: this.formatearPorOrigen(porOrigenRows),
@@ -598,6 +600,11 @@ export class EstadisticasService {
    * suscriptores sobre la sucursal).
    */
   async getKpisSucursal(sucursalId: number) {
+    // JLP-M27 (2026-09-22) — La subquery de `sucursal_likes` no filtraba por
+    // sucursal_id (GROUP BY sin WHERE), así que agregaba TODA la tabla en
+    // cada llamada sin importar qué sucursal se pidiera. Con el volumen
+    // actual no se notaba (pocas filas), pero es un anti-patrón que escala
+    // mal: se corrige filtrando dentro de la subquery.
     const res = await this.connection.query(
       `SELECT
          COALESCE(es.vistas, 0) as vistas,
@@ -609,11 +616,12 @@ export class EstadisticasService {
        LEFT JOIN (
            SELECT sucursal_id, COUNT(id) AS total_likes
            FROM sucursal_likes
+           WHERE sucursal_id = ?
            GROUP BY sucursal_id
        ) lk ON lk.sucursal_id = s.id
        WHERE s.id = ?
        LIMIT 1`,
-      [sucursalId],
+      [sucursalId, sucursalId],
     );
 
     // Si no hay registros aún, devolvemos ceros

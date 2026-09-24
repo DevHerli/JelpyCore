@@ -311,19 +311,55 @@ export class AppModule implements OnModuleInit {
     // temprano (en el ping, no en medio de una request real de un usuario)
     // si el servidor MySQL cerró una conexión — reduce la probabilidad de
     // que una request de Home tope con una conexión ya muerta.
+    //
+    // JLP-M27 (2026-09-22) — El ping anterior sólo hacía UN `SELECT 1` por
+    // ciclo, es decir, tocaba UNA sola conexión física del pool cada vez.
+    // Con `connectionLimit: 20` y tráfico normal bajo (1-3 conexiones
+    // realmente activas en cada momento), el resto del pool nunca se volvía
+    // a usar y el MySQL remoto las cerraba por `wait_timeout` (medido en
+    // vivo: 60s en este servidor). Resultado reproducido en vivo: la
+    // pantalla "Gestión de la sucursal" dispara ~10 requests en paralelo
+    // (BranchDetailFacade.loadInitialData), cada una necesitando su propia
+    // conexión; si el pool sólo tenía 1-2 conexiones "calientes", mysql2
+    // tenía que abrir 7-9 conexiones NUEVAS al mismo tiempo. Este servidor
+    // remoto no tiene `skip_name_resolve` activado, así que cada conexión
+    // nueva hace un lookup DNS inverso — bajo ráfaga, varias de esas
+    // conexiones nuevas se quedaban colgadas hasta el `connectTimeout`
+    // (30s) y fallaban con 500, exactamente el síntoma reportado (carga
+    // lenta + "Jelpy Trend" sin datos, ambos eran víctimas de la misma
+    // ráfaga).
+    //
+    // Fix: cada ciclo, pinguear EN PARALELO varias conexiones (no sólo una)
+    // para mantener caliente una porción real del pool y que una ráfaga de
+    // requests reales encuentre conexiones ya vivas en vez de tener que
+    // crearlas todas de golpe.
     const keepAliveMs = Number(process.env.DB_KEEPALIVE_INTERVAL_MS || 20000);
+    const poolLimit = Number(process.env.DB_CONNECTION_LIMIT || 20);
+    // No calentar el pool completo: este usuario de MySQL es compartido con
+    // jelpy-admin-backend y max_user_connections=30 en el servidor remoto.
+    // Dejamos margen para el otro backend + conexiones de mantenimiento.
+    const warmSize = Math.max(
+      1,
+      Math.min(poolLimit, Number(process.env.DB_KEEPALIVE_WARM_SIZE || 8)),
+    );
     if (keepAliveMs > 0) {
       this.dbKeepAliveTimer = setInterval(() => {
-        this.dataSource
-          .query('SELECT 1')
-          .catch((err) => {
+        const pings = Array.from({ length: warmSize }, () =>
+          this.dataSource.query('SELECT 1').catch((err) => err),
+        );
+        Promise.all(pings).then((results) => {
+          const failed = results.filter((r) => r instanceof Error) as Error[];
+          if (failed.length > 0) {
             this.logger.warn(
-              `[DB_KEEPALIVE] Ping MySQL falló: ${err?.code ?? err?.message ?? err}`,
+              `[DB_KEEPALIVE] ${failed.length}/${warmSize} pings fallaron: ${failed[0]?.message}`,
             );
-          });
+          }
+        });
       }, keepAliveMs);
       this.dbKeepAliveTimer.unref?.();
-      this.logger.log(`[DB_KEEPALIVE] Ping MySQL cada ${keepAliveMs} ms`);
+      this.logger.log(
+        `[DB_KEEPALIVE] Ping MySQL cada ${keepAliveMs} ms (calentando ${warmSize} conexiones/ciclo)`,
+      );
     }
   }
 }
