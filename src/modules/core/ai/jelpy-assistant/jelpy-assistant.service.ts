@@ -1374,26 +1374,52 @@ for (const a of aliases) {
           permitirFiltrosTaxonomia: true,
         });
 
-        filtros.intent = 'buscar_items_negocio';
-
         const resultadosCatalogo = this.ordenarResultadosPorPreferencias(
           resultadosItems,
           prefs,
         );
-        const sinResultadosCatalogo = !this.hasResults(resultadosCatalogo);
-        const suggestedQueriesCatalogo = sinResultadosCatalogo
-          ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
-          : await this.generarSugerencias(resultadosCatalogo, filtros, filtersApplied);
 
-        return {
-          filtros_detectados: filtros,
-          resultados: this.normalizarPromosEnResultados(resultadosCatalogo),
-          sin_resultados: sinResultadosCatalogo,
-          mensaje_sin_resultados: sinResultadosCatalogo
-            ? 'No encontré negocios con ese producto o servicio registrado en su catálogo.'
-            : null,
-          suggestedQueries: suggestedQueriesCatalogo,
-        };
+        // JLP-CATALOGO-FALLBACK-FIX: bug reportado por el usuario — "sushi"
+        // solo encontraba los restaurantes de sushi, pero "donde venden
+        // sushi" (que activa `esConsultaCatalogo`) respondía "no entendí".
+        // Causa raíz: sin match en `items_negocio` (el catálogo digital de
+        // productos), esta rama devolvía "no encontré" de inmediato, sin
+        // intentar la búsqueda normal por categoría/subcategoría de abajo.
+        //
+        // Pero OJO: no basta con caer siempre al flujo normal — eso fue
+        // justo el bug que corrigió JLP-FALLBACK-CATEGORIA-CRUZADA-FIX (ver
+        // el spec): "donde venden alitas" con solo `categoria=restaurantes`
+        // (SIN subcategoría propia — "alitas" no es un giro de negocio, es
+        // un platillo que cualquier tipo de restaurante podría vender) NO
+        // debe caer a "buscar restaurantes en general", porque mostraría
+        // negocios que ni siquiera venden alitas (categoría cruzada).
+        //
+        // La diferencia real: "sushi" SÍ tiene su propia subcategoría en la
+        // taxonomía (Restaurantes > Sushi), así que TODOS los negocios de
+        // esa subcategoría son relevantes — no hay riesgo de cruce. Se cae
+        // al flujo normal de abajo SOLO cuando no hay resultados de catálogo
+        // Y hay una subcategoría/especialidad PRECISA detectada (no solo una
+        // categoría amplia como "restaurantes"/"tiendas"/"servicios"); en
+        // cualquier otro caso (hay resultados, o no hay categoría precisa)
+        // esta rama sigue siendo definitiva, igual que antes.
+        const tieneCategoriaPrecisa = !!(filtros.subcategoriaId || filtros.especialidadId);
+
+        if (this.hasResults(resultadosCatalogo) || !tieneCategoriaPrecisa) {
+          filtros.intent = 'buscar_items_negocio';
+          const sinResultadosCatalogo = !this.hasResults(resultadosCatalogo);
+
+          return {
+            filtros_detectados: filtros,
+            resultados: this.normalizarPromosEnResultados(resultadosCatalogo),
+            sin_resultados: sinResultadosCatalogo,
+            mensaje_sin_resultados: sinResultadosCatalogo
+              ? 'No encontré negocios con ese producto o servicio registrado en su catálogo.'
+              : null,
+            suggestedQueries: sinResultadosCatalogo
+              ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
+              : await this.generarSugerencias(resultadosCatalogo, filtros, filtersApplied),
+          };
+        }
       }
 
       let resultados: any = await this.searchService.search({
@@ -1410,7 +1436,11 @@ for (const a of aliases) {
         radioKm: 10,
       });
 
-      if (!this.hasResults(resultados) && !filtros.caracteristica) {
+      // JLP-CATALOGO-FALLBACK-FIX: si `esConsultaCatalogo` ya era true arriba,
+      // el catálogo de items ya se consultó (con la misma query, tras quitar
+      // stopwords) y no tuvo coincidencias — evita repetir la misma consulta
+      // al catálogo dos veces sin necesidad.
+      if (!esConsultaCatalogo && !this.hasResults(resultados) && !filtros.caracteristica) {
         const resultadosItems = await this.buscarEnCatalogo({
           queryBusqueda,
           filtros,
@@ -1774,8 +1804,6 @@ for (const a of aliases) {
       : queryBusqueda;
 
     if (esConsultaCatalogo) {
-      filtros.intent = 'buscar_items_negocio';
-
       const resultadosItems = await this.buscarEnCatalogo({
         queryBusqueda: queryCatalogo,
         filtros,
@@ -1787,19 +1815,32 @@ for (const a of aliases) {
       const resultadosCatalogo = this.normalizarPromosEnResultados(
         this.ordenarResultadosPorPreferencias(resultadosItems, prefs),
       );
-      const sinResultadosCatalogo = !this.hasResults(resultadosCatalogo);
 
-      return {
-        filtros_detectados: filtros,
-        resultados: resultadosCatalogo,
-        sin_resultados: sinResultadosCatalogo,
-        mensaje_sin_resultados: sinResultadosCatalogo
-          ? 'No encontré negocios con ese producto o servicio registrado en su catálogo.'
-          : null,
-        suggestedQueries: sinResultadosCatalogo
-          ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
-          : await this.generarSugerencias(resultadosCatalogo, filtros, filtersApplied),
-      };
+      // JLP-CATALOGO-FALLBACK-FIX: ídem el otro punto de entrada arriba —
+      // sin coincidencias en el catálogo digital de items, se deja caer al
+      // flujo normal de búsqueda por categoría/subcategoría SOLO cuando hay
+      // una subcategoría/especialidad precisa detectada (ej. "sushi"), para
+      // no reintroducir el bug de categoría cruzada que corrigió
+      // JLP-FALLBACK-CATEGORIA-CRUZADA-FIX (ej. "donde venden alitas" con
+      // solo `categoria=restaurantes` no debe mostrar restaurantes al azar).
+      const tieneCategoriaPrecisa = !!(filtros.subcategoriaId || filtros.especialidadId);
+
+      if (this.hasResults(resultadosCatalogo) || !tieneCategoriaPrecisa) {
+        filtros.intent = 'buscar_items_negocio';
+        const sinResultadosCatalogo = !this.hasResults(resultadosCatalogo);
+
+        return {
+          filtros_detectados: filtros,
+          resultados: resultadosCatalogo,
+          sin_resultados: sinResultadosCatalogo,
+          mensaje_sin_resultados: sinResultadosCatalogo
+            ? 'No encontré negocios con ese producto o servicio registrado en su catálogo.'
+            : null,
+          suggestedQueries: sinResultadosCatalogo
+            ? this.generarSugerenciasSinResultados(filtros, filtros.ciudad, filtersApplied)
+            : await this.generarSugerencias(resultadosCatalogo, filtros, filtersApplied),
+        };
+      }
     }
 
     let resultados: any = await this.searchService.search({
@@ -1816,7 +1857,10 @@ for (const a of aliases) {
       radioKm: 10,
     });
 
-    if (!this.hasResults(resultados) && !filtros.caracteristica) {
+    // JLP-CATALOGO-FALLBACK-FIX: ídem el otro punto de entrada — si
+    // `esConsultaCatalogo` ya era true arriba, el catálogo de items ya se
+    // consultó y no tuvo coincidencias, no repetir la misma consulta.
+    if (!esConsultaCatalogo && !this.hasResults(resultados) && !filtros.caracteristica) {
       const resultadosItems = await this.buscarEnCatalogo({
         queryBusqueda,
         filtros,

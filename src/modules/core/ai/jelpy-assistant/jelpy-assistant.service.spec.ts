@@ -259,6 +259,58 @@ describe('JelpyAssistantService.interpretar (JLP-FALLBACK-CATEGORIA-CRUZADA-FIX)
     expect(mocks.searchService.search).not.toHaveBeenCalled();
   });
 
+  it('JLP-CATALOGO-FALLBACK-FIX: "donde venden sushi" SÍ cae a la búsqueda normal por subcategoría cuando el catálogo de items no tiene coincidencias (bug reportado: "sushi" solo encontraba restaurantes, "donde venden sushi" decía "no encontré")', async () => {
+    const { service, mocks } = crearServicio();
+
+    // A diferencia de "alitas" (solo categoría amplia "restaurantes"),
+    // "sushi" SÍ tiene su propia subcategoría en la taxonomía — se simula
+    // resolviendo `subcatRepo.find` con una coincidencia real.
+    mocks.subcatRepo.find = jest.fn().mockResolvedValue([
+      { id: 42, nombre: 'Sushi', categoria: { id: 7 } },
+    ]);
+
+    mocks.jelpyAiService.interpretar.mockResolvedValue({
+      intent: 'buscar_negocios',
+      confidence: 0.9,
+      entities: {
+        categoria: 'restaurantes',
+        subcategoria: 'sushi',
+        ciudad: null,
+        especialidad: null,
+        caracteristica: null,
+      },
+      filters: { abierto_ahora: false, promos: false, cerca_de_mi: false },
+      normalized_text: 'donde venden sushi',
+      reply: { mode: 'search', title: null, message: null, suggestions: [] },
+    });
+
+    // Ningún negocio tiene "sushi" registrado literalmente como item de su
+    // catálogo digital (`items_negocio`) — lo normal, la mayoría de negocios
+    // no llevan catálogo.
+    mocks.searchService.searchByItems.mockResolvedValue({ items: [] });
+
+    // Pero SÍ hay restaurantes dados de alta bajo la subcategoría "Sushi" —
+    // los mismos que "sushi" a secas encontraría.
+    mocks.searchService.search.mockResolvedValue({
+      items: [{ id: 5, nombre: 'Sushi Ken', subcategoria_id: 42 }],
+    });
+
+    const resultado = await service.interpretar('donde venden sushi');
+
+    expect(resultado.filtros_detectados.subcategoriaId).toBe(42);
+    expect(resultado.sin_resultados).toBe(false);
+    expect(resultado.resultados.items).toHaveLength(1);
+    expect(resultado.resultados.items[0].nombre).toBe('Sushi Ken');
+    // `buscarEnCatalogo` reintenta internamente sin filtros de taxonomía
+    // cuando la primera pasada no tiene resultados — 2 llamadas es su
+    // comportamiento normal, no una búsqueda duplicada por accidente.
+    expect(mocks.searchService.searchByItems).toHaveBeenCalledTimes(2);
+    expect(mocks.searchService.search).toHaveBeenCalledTimes(1);
+    expect(mocks.searchService.search).toHaveBeenCalledWith(
+      expect.objectContaining({ subcategoriaId: 42 }),
+    );
+  });
+
   it('"donde hacen estudio de la tiroides" busca como servicio/item de catálogo', async () => {
     const { service, mocks } = crearServicio();
 
